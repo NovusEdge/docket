@@ -5,5 +5,11 @@
   "author": {
     "name": "Aliasgar Khimani",
     "url": "https://github.com/NovusEdge"
-  }
+  },
+  "homepage": "https://github.com/NovusEdge/docket",
+  "repository": "https://github.com/NovusEdge/docket",
+  "license": "MIT",
+  "keywords": ["decisions", "memory", "agents", "provenance"],
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json"
 }

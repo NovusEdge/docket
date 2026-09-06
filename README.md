@@ -48,6 +48,11 @@ docket show d3
 A `SessionStart` hook prints the ledger into context. A project with no ledger
 costs nothing.
 
+Other harnesses are covered in [docs/installation.md](docs/installation.md):
+Codex CLI, OpenCode, Gemini CLI, Copilot CLI, and Cursor. They share one ledger,
+so a project can be worked on from several tools without the decisions
+diverging.
+
 ## Where the ledger lives
 
 By default, under `~/.claude/docket/`, keyed by the project's path. Nothing to
