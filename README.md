@@ -58,6 +58,9 @@ Run the tests with `python3 tests/test_docket.py`.
 about making agent decisions durable, and which parts of the obvious design it
 rules out. Synthesizes five reviews across roughly 40 papers.
 
+**[docs/definitions.md](docs/definitions.md)** — the formal vocabulary. Every
+other document defers to it.
+
 **[docs/outcome-formalism.md](docs/outcome-formalism.md)** — a formalism for
 chains, outcomes, and claims. Treating chains-to-outcomes as a relation rather
 than a function reduces a three-part taxonomy to two cardinality properties and
