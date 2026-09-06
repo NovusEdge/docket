@@ -188,11 +188,20 @@ def justification_sets(e: dict) -> list[list[str]]:
     which meant a single conjunctive set. That shape still reads as one set
     rather than one alternative per id, so old entries do not over-retract
     into needing every id independently.
+
+    The ledger is append-only, so a line with an unparseable shape can never
+    self-heal. Degrade the way a malformed JSON line already does: warn and
+    skip rather than crash the caller.
     """
     b = e.get("because") or []
-    if b and isinstance(b[0], str):
+    if not b:
+        return []
+    if all(isinstance(x, str) for x in b):
         return [b]
-    return b
+    if all(isinstance(s, list) and all(isinstance(x, str) for x in s) for s in b):
+        return b
+    print(f"docket: entry {e.get('id')} has an unparseable because; ignoring it", file=sys.stderr)
+    return []
 
 
 def _match(e: dict, term: str) -> bool:
