@@ -89,6 +89,16 @@ docket add "Which database? (reopens d3)" --answer "SQLite. Postgres was overkil
 Then check every entry whose `because` names the reopened id, and say plainly
 which ones no longer hold. Retraction is manual in this version.
 
+## Where the ledger lives
+
+By default the ledger sits under `~/.claude/docket/`, keyed by the project's
+path. A new project needs no setup and no gitignore entry.
+
+Run `docket where` to print which file is in use.
+
+Run `docket init` to move the ledger into the repository as `.docket/`, which is
+how a team commits and shares decisions. Any existing entries move with it.
+
 ## What this does not do
 
 It does not block actions. It records and recalls, and nothing more.

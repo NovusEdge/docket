@@ -1,6 +1,6 @@
 {
   "name": "docket",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "A decision ledger for long-running work. Decisions stay made across compaction, and contradicting one requires reopening it.",
   "author": {
     "name": "Aliasgar Khimani",

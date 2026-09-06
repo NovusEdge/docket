@@ -14,18 +14,48 @@ from pathlib import Path
 STATES = ("settled", "ruled-out", "open")
 LEDGER = Path(".docket/ledger.jsonl")
 
+# Honours XDG so the global store can be relocated, and CLAUDE_CONFIG_DIR so an
+# isolated Claude profile gets its own ledgers.
+def global_root() -> Path:
+    if env := os.environ.get("DOCKET_HOME"):
+        return Path(env).expanduser()
+    if env := os.environ.get("CLAUDE_CONFIG_DIR"):
+        return Path(env).expanduser() / "docket"
+    return Path.home() / ".claude" / "docket"
+
+
+def project_root(start: Path | None = None) -> Path:
+    """The directory a project-local ledger belongs to.
+
+    Prefers the git root so a subdirectory shares the project's ledger. Falls
+    back to the working directory outside a repository.
+    """
+    here = (start or Path.cwd()).resolve()
+    for d in (here, *here.parents):
+        if (d / ".git").exists():
+            return d
+    return here
+
+
+def slug(path: Path) -> str:
+    """Mangle an absolute path into one filename component."""
+    return str(path).replace("/", "-").replace("\\", "-").strip("-") or "root"
+
 
 def ledger_path(start: Path | None = None) -> Path:
-    """Find .docket/ledger.jsonl in the nearest enclosing directory.
+    """Resolve the ledger for the current project.
 
-    Walks up so a subdirectory of a project shares the project's ledger.
+    A .docket directory in the project wins, which is how a team opts into
+    committing decisions. Otherwise the ledger lives under the global root,
+    keyed by project path, so a new project needs no setup and no gitignore
+    entry.
     """
     here = (start or Path.cwd()).resolve()
     for d in (here, *here.parents):
         candidate = d / LEDGER
         if candidate.exists():
             return candidate
-    return here / LEDGER
+    return global_root() / slug(project_root(here)) / "ledger.jsonl"
 
 
 def read(path: Path) -> list[dict]:
@@ -112,6 +142,31 @@ def cmd_show(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_where(args: argparse.Namespace) -> int:
+    path = ledger_path()
+    kind = "project" if LEDGER.name in str(path) and ".claude" not in str(path) else "global"
+    print(f"{path}  ({kind}, {'exists' if path.exists() else 'not created yet'})")
+    return 0
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    """Move this project's ledger into the repository so it can be committed."""
+    root = project_root()
+    target = root / LEDGER
+    if target.exists():
+        print(f"docket: already project-local at {target}")
+        return 0
+
+    existing = read(global_root() / slug(root) / "ledger.jsonl")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("w") as f:
+        for e in existing:
+            f.write(json.dumps(e) + "\n")
+    moved = f", moved {len(existing)} entr{'y' if len(existing) == 1 else 'ies'}" if existing else ""
+    print(f"docket: created {target}{moved}")
+    return 0
+
+
 def cmd_context(args: argparse.Namespace) -> int:
     """Print the ledger for injection at session start.
 
@@ -169,6 +224,12 @@ def main(argv: list[str] | None = None) -> int:
 
     ctx = sub.add_parser("context", help="print the ledger for session injection")
     ctx.set_defaults(func=cmd_context)
+
+    wh = sub.add_parser("where", help="print which ledger file is in use")
+    wh.set_defaults(func=cmd_where)
+
+    it = sub.add_parser("init", help="move this project's ledger into the repository")
+    it.set_defaults(func=cmd_init)
 
     args = p.parse_args(argv)
     return args.func(args)

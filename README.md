@@ -45,12 +45,26 @@ docket list --find postgres
 docket show d3
 ```
 
-The ledger is `.docket/ledger.jsonl` in the project, found by walking up from the
-working directory. A `SessionStart` hook prints it into context. A project with no
-ledger costs nothing.
+A `SessionStart` hook prints the ledger into context. A project with no ledger
+costs nothing.
 
-Commit the ledger to share decisions with collaborators. Gitignore it to keep them
-local. Either works.
+## Where the ledger lives
+
+By default, under `~/.claude/docket/`, keyed by the project's path. Nothing to
+create, nothing to gitignore.
+
+```sh
+docket where    # print which file is in use
+docket init     # move it into the repository as .docket/
+```
+
+`docket init` is how a team commits and shares decisions. Existing entries move
+with it. A `.docket/ledger.jsonl` in the project always wins over the global
+store.
+
+The project is identified by its git root, so a subdirectory shares the same
+ledger. `DOCKET_HOME` relocates the global store, and `CLAUDE_CONFIG_DIR` is
+honoured so an isolated Claude profile keeps its own.
 
 Run the tests with `python3 tests/test_docket.py`.
 
