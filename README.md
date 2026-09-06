@@ -18,7 +18,7 @@ are in [docs/north-star.md](docs/north-star.md).
 
 ```sh
 /plugin marketplace add NovusEdge/docket
-/plugin install docket@docket
+/plugin install docket@NovusEdge
 ```
 
 The command lives at `bin/docket`. It needs Python 3.9 or later and no packages.

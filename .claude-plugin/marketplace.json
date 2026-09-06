@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
-  "name": "docket",
-  "description": "A decision ledger for long-running work. Decisions stay made across compaction.",
+  "name": "NovusEdge",
+  "description": "Plugins by NovusEdge.",
   "owner": {
     "name": "Aliasgar Khimani",
     "url": "https://github.com/NovusEdge"
