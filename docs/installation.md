@@ -71,6 +71,10 @@ repository, with files closer to the working directory winning. Copy the body of
 `skills/docket/SKILL.md` into `AGENTS.md`, or install the plugin and let it use
 the bundled skill.
 
+Codex sets neither `AI_AGENT` nor a `USER` that survives to the sandbox, so
+author detection fails silently otherwise. Export `DOCKET_AUTHOR=codex` (or a
+more specific name) wherever the hook runs.
+
 ## OpenCode
 
 Add the plugin to `opencode.json` in the project or in
@@ -106,6 +110,10 @@ export const docket = async () => ({
 OpenCode has no separate skill format. The instruction document rides along in
 the system prompt or in the project's context file.
 
+OpenCode is not detected automatically. Set `DOCKET_AUTHOR=opencode` in the
+plugin's environment, or in `.opencode/plugins/docket.mjs` itself before it
+shells out.
+
 ## Gemini CLI
 
 Create `gemini-extension.json` at the extension root:
@@ -125,6 +133,9 @@ Gemini CLI supports hooks in `hooks/hooks.json` inside the extension, with
 `${extensionPath}` substitution. Check the current event names in Gemini's hook
 reference before writing one. This document does not state a session-start event
 name for Gemini, because that name was not verified against a primary source.
+
+Gemini is not detected automatically. Set `DOCKET_AUTHOR=gemini` in the hook's
+environment.
 
 ## GitHub Copilot CLI
 
@@ -151,6 +162,9 @@ Copilot parses the hook's stdout as JSON and injects `additionalContext`.
 For instructions, Copilot reads `.github/copilot-instructions.md`. Copy the body
 of `skills/docket/SKILL.md` into it.
 
+Copilot is not detected automatically. Add `"DOCKET_AUTHOR=copilot"` to the
+hook's `bash` invocation, or export it in the environment the hook runs in.
+
 ## Cursor
 
 Cursor supports both pieces but has no packaging format, so this is a two-file
@@ -176,6 +190,9 @@ Cursor's field is `additional_context`, with an underscore, unlike Copilot's
 
 Instructions go in `.cursor/rules/docket.mdc`, which Cursor includes in every
 session.
+
+Cursor is not detected automatically. Set `DOCKET_AUTHOR=cursor` in the hook's
+environment.
 
 ## A harness with no hooks
 

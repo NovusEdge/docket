@@ -48,6 +48,25 @@ def author() -> str:
     return os.environ.get("USER", "")
 
 
+def resolved_author() -> str:
+    """author(), falling back to a visible "unknown" instead of silence.
+
+    A blank string is indistinguishable from an unset field once serialized, so
+    a caller reading the ledger cannot tell "detection failed" from "this entry
+    predates the author field". Writing "unknown" makes the failure visible;
+    the missing key on old entries stays the only true absence.
+    """
+    a = author()
+    if a:
+        return a
+    print(
+        "docket: could not detect an author; recording \"unknown\". "
+        "Set DOCKET_AUTHOR to identify this harness.",
+        file=sys.stderr,
+    )
+    return "unknown"
+
+
 def branch(root: Path) -> str:
     """Current branch, or empty outside a repository.
 
@@ -125,9 +144,15 @@ def cmd_add(args: argparse.Namespace) -> int:
     path = ledger_path()
     entries = read(path)
 
-    because = [b.strip() for b in (args.because or "").split(",") if b.strip()]
+    # Each --because is one conjunctive set; repeating the flag adds an
+    # alternative. Stored as [["d1","d2"], ["d5"]], read as (d1 AND d2) OR d5.
+    because = [
+        [b.strip() for b in group.split(",") if b.strip()]
+        for group in (args.because or [])
+    ]
+    because = [s for s in because if s]
     known = {e.get("id") for e in entries}
-    unknown = [b for b in because if b not in known]
+    unknown = [b for s in because for b in s if b not in known]
     if unknown:
         print(f"docket: unknown justification ids: {', '.join(unknown)}", file=sys.stderr)
         return 1
@@ -138,12 +163,12 @@ def cmd_add(args: argparse.Namespace) -> int:
         "state": args.state,
         "question": args.question,
         "answer": args.answer,
-        # Empty means atomic. Populated means the entry depends on those ids, so
-        # reopening one of them must reopen this entry too.
+        # Empty means atomic. Each inner list is a complete, independent
+        # justification; the claim survives while any one of them survives.
         "because": because,
         "cost_if_wrong": args.cost or "",
         "session": session_id(),
-        "author": author(),
+        "author": resolved_author(),
         # Captured because the log is append-only. An entry written on a branch
         # can never learn afterwards which branch it came from.
         "branch": branch(project_root()),
@@ -154,6 +179,20 @@ def cmd_add(args: argparse.Namespace) -> int:
         f.write(json.dumps(entry) + "\n")
     print(f"{entry['id']}  {entry['state']}  {entry['question']}")
     return 0
+
+
+def justification_sets(e: dict) -> list[list[str]]:
+    """because as alternative sets, reading a legacy flat list as one set.
+
+    Every entry before this change stored because as a flat list of ids,
+    which meant a single conjunctive set. That shape still reads as one set
+    rather than one alternative per id, so old entries do not over-retract
+    into needing every id independently.
+    """
+    b = e.get("because") or []
+    if b and isinstance(b[0], str):
+        return [b]
+    return b
 
 
 def _match(e: dict, term: str) -> bool:
@@ -171,7 +210,9 @@ def cmd_list(args: argparse.Namespace) -> int:
         print("docket: nothing recorded")
         return 0
     for e in entries:
-        dep = f"  <- {','.join(e['because'])}" if e.get("because") else ""
+        sets = justification_sets(e)
+        # " | " separates alternatives; each alternative's own ids stay comma-joined.
+        dep = f"  <- {' | '.join(','.join(s) for s in sets)}" if sets else ""
         print(f"{e['id']:<5} {e['state']:<9} {e['question']}{dep}")
         print(f"      {e['answer']}")
     return 0
@@ -253,7 +294,10 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("question")
     a.add_argument("--state", choices=STATES, default="settled")
     a.add_argument("--answer", required=True)
-    a.add_argument("--because", help="comma-separated ids this depends on")
+    a.add_argument(
+        "--because", action="append",
+        help="comma-separated ids this depends on; repeat for an alternative support set",
+    )
     a.add_argument("--cost", help="what breaks if this is later reversed")
     a.set_defaults(func=cmd_add)
 

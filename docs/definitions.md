@@ -93,15 +93,23 @@ terminal classify what is wanted. Direct and indirect classify what is reached.
 
 ## Claims and justification
 
-**Justification.** `j : Γ → 2^Γ`. Each claim maps to the claims that support it.
+**Justification.** `j : Γ → 2^(2^Γ)`. Each claim maps to a set of alternative
+justification sets. Each inner set is one complete, independent support for the
+claim.
 
-- A claim `γ` is **atomic** when `j(γ) = ∅`. It is a premise, asserted rather than
-  derived.
-- A claim `γ` is **reasoned** when `j(γ) ≠ ∅`.
+- A claim `γ` is **atomic** when `j(γ) = {∅}` or `j(γ) = ∅`. It is a premise,
+  asserted rather than derived.
+- A claim `γ` is **reasoned** when it has at least one non-empty justification
+  set.
 
-This is the premise-and-justification structure of a truth maintenance system.
-Retraction follows: withdrawing a premise withdraws every claim whose
-justification depends on it.
+A flat set of premises, `j(γ) = {A}`, is the single-alternative case. It is not
+a separate rule.
+
+This is the premise-and-justification structure of a truth maintenance system,
+extended to alternative support. Retraction follows: withdrawing a premise
+withdraws a justification set only when the premise belongs to it. A claim is
+retained while at least one of its justification sets survives intact. Only
+when every justification set has lost a member does the claim itself retract.
 
 Treating atomic claims as self-evident is foundationalism. It is an assumption,
 not a result. The regress it answers is real: every reasoned claim needs support,
