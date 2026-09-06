@@ -89,6 +89,14 @@ docket add "Which database? (reopens d3)" --answer "SQLite. Postgres was overkil
 Then check every entry whose `because` names the reopened id, and say plainly
 which ones no longer hold. Retraction is manual in this version.
 
+## What each entry carries
+
+Alongside the question, answer, state, `because`, and `cost_if_wrong`, every
+entry records who wrote it, which session, and which branch. These are captured
+at write time because the log is append-only and cannot gain them later.
+
+Set `DOCKET_AUTHOR` when an agent should identify itself by name.
+
 ## Where the ledger lives
 
 By default the ledger sits under `~/.claude/docket/`, keyed by the project's

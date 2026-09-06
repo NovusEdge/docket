@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +23,45 @@ def global_root() -> Path:
     if env := os.environ.get("CLAUDE_CONFIG_DIR"):
         return Path(env).expanduser() / "docket"
     return Path.home() / ".claude" / "docket"
+
+
+def session_id() -> str:
+    """Claude Code exposes this under more than one name across versions."""
+    for var in ("CLAUDE_SESSION_ID", "CLAUDE_CODE_BRIDGE_SESSION_ID", "SESSION_ID"):
+        if v := os.environ.get(var):
+            return v
+    return ""
+
+
+def author() -> str:
+    """Which agent or person recorded the entry.
+
+    Two agents sharing one ledger is the normal case, so an entry that does not
+    say who wrote it cannot be weighed.
+    """
+    if v := os.environ.get("DOCKET_AUTHOR"):
+        return v
+    if v := os.environ.get("AI_AGENT"):
+        return v.split("_")[0]
+    if os.environ.get("CODEX_SANDBOX") or os.environ.get("CODEX_HOME"):
+        return "codex"
+    return os.environ.get("USER", "")
+
+
+def branch(root: Path) -> str:
+    """Current branch, or empty outside a repository.
+
+    Uses `branch --show-current` because `rev-parse --abbrev-ref HEAD` fails on
+    an unborn branch, which is every repository before its first commit.
+    """
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(root), "branch", "--show-current"],
+            capture_output=True, text=True, timeout=2,
+        )
+        return r.stdout.strip() if r.returncode == 0 else ""
+    except (OSError, subprocess.SubprocessError):
+        return ""
 
 
 def project_root(start: Path | None = None) -> Path:
@@ -102,7 +142,11 @@ def cmd_add(args: argparse.Namespace) -> int:
         # reopening one of them must reopen this entry too.
         "because": because,
         "cost_if_wrong": args.cost or "",
-        "session": os.environ.get("CLAUDE_SESSION_ID", ""),
+        "session": session_id(),
+        "author": author(),
+        # Captured because the log is append-only. An entry written on a branch
+        # can never learn afterwards which branch it came from.
+        "branch": branch(project_root()),
     }
 
     path.parent.mkdir(parents=True, exist_ok=True)

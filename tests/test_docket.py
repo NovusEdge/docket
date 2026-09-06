@@ -62,6 +62,9 @@ def main() -> int:
         r = run(d, "show", "d3")
         entry = json.loads(r.stdout)
         assert entry["because"] == ["d1"]
+        # Provenance fields are append-only and cannot be backfilled.
+        assert entry["author"], "an entry must say who recorded it"
+        assert "branch" in entry and "session" in entry
 
         # A subdirectory shares the project's ledger.
         sub = d / "src" / "deep"
@@ -115,6 +118,30 @@ def main() -> int:
 
         r = run(d / "proj-a", "init", home=g)
         assert "already project-local" in r.stdout
+
+        # Branch is recorded from the project root, not the working directory.
+        subprocess.run(["git", "init", "-q", "-b", "trunk"], cwd=d / "proj-a", check=True)
+        r = run(d / "proj-a" / "src", "add", "Branch check", "--answer", "yes", home=g)
+        assert r.returncode == 0, r.stderr
+        entries = [
+            json.loads(line)
+            for line in (d / "proj-a" / ".docket" / "ledger.jsonl").read_text().splitlines()
+            if line.strip()
+        ]
+        assert entries[-1]["branch"] == "trunk", entries[-1]
+
+        # DOCKET_AUTHOR overrides detection.
+        env_author = dict(os.environ)
+        env_author["DOCKET_HOME"] = str(g)
+        env_author["DOCKET_AUTHOR"] = "codex"
+        subprocess.run(
+            [sys.executable, DOCKET, "add", "Who wrote this?", "--answer", "codex did"],
+            cwd=d / "proj-a", capture_output=True, text=True, env=env_author, check=True,
+        )
+        last = json.loads(
+            (d / "proj-a" / ".docket" / "ledger.jsonl").read_text().splitlines()[-1]
+        )
+        assert last["author"] == "codex", last
 
     print("ok")
     return 0
