@@ -21,8 +21,10 @@ are in [docs/north-star.md](docs/north-star.md).
 /plugin install docket@docket
 ```
 
-The `docket` command lives at `bin/docket`. It needs Python 3.9 or later and no
-packages. Put it on PATH to use it outside Claude Code:
+The command lives at `bin/docket`. It needs Python 3.9 or later and no packages.
+The session hook prints its absolute path, so nothing has to go on PATH.
+
+For your own shell use, symlink it:
 
 ```sh
 ln -s ~/Projects/docket/bin/docket ~/.local/bin/docket

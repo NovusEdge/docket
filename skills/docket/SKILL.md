@@ -1,6 +1,6 @@
 ---
 name: docket
-description: Use when a decision gets made during a long piece of work that later steps must not silently contradict, when the user asks what was already decided, when reopening a settled decision, or when they say "docket", "record this", "what did we settle", or invoke /docket. Records decisions to an append-only ledger that loads at session start.
+description: Use when a decision gets made during a long piece of work that later steps must not silently contradict, when the user asks what was already decided, when reopening a settled decision, or when they say "docket", "record this", or "what did we settle". Records decisions to an append-only ledger that loads at session start.
 ---
 
 # docket
@@ -30,6 +30,15 @@ constraint the user stated, and an assumption the work now rests on.
 
 It does not cover facts, which the code or the docs already hold. It does not
 cover things obvious from one file. Do not record every exchange.
+
+## Running the command
+
+The session context printed by docket at startup names the absolute path to the
+command. Use that path. Do not assume `docket` is on PATH, because putting it
+there is an optional step the user may not have taken.
+
+The examples below write `docket` for readability. Substitute the path from the
+session context.
 
 ## Recording
 

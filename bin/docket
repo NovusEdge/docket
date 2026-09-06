@@ -126,10 +126,13 @@ def cmd_context(args: argparse.Namespace) -> int:
     ruled = [e for e in entries if e.get("state") == "ruled-out"]
     still_open = [e for e in entries if e.get("state") == "open"]
 
+    me = Path(__file__).resolve()
     print("# docket: decisions already made in this project")
     print()
     print("Treat these as binding. To contradict one, say so explicitly and")
-    print("record the reversal with `docket add`.")
+    print("record the reversal. Record decisions by running:")
+    print()
+    print(f"    {me} add \"question\" --answer \"...\"")
     print()
     for label, group in (("Settled", settled), ("Ruled out", ruled), ("Open", still_open)):
         if not group:
