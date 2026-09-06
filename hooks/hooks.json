@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/docket\" context 2>/dev/null || exit 0",
+            "timeout": 5,
+            "statusMessage": "Loading docket..."
+          }
+        ]
+      }
+    ]
+  }
+}

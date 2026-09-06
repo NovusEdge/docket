@@ -11,8 +11,46 @@ or `open`. Reopening a settled decision retracts the decisions that depend on it
 
 ## Status
 
-Design and research only. No implementation yet. The build order is in
-[docs/north-star.md](docs/north-star.md).
+Phase 1 works: record and recall, with no enforcement. The remaining five phases
+are in [docs/north-star.md](docs/north-star.md).
+
+## Install
+
+```sh
+/plugin marketplace add NovusEdge/docket
+/plugin install docket@docket
+```
+
+The `docket` command lives at `bin/docket`. It needs Python 3.9 or later and no
+packages. Put it on PATH to use it outside Claude Code:
+
+```sh
+ln -s ~/Projects/docket/bin/docket ~/.local/bin/docket
+```
+
+## Use
+
+```sh
+docket add "Which database?" --answer "Postgres via psycopg 3" \
+  --cost "migration rewrite if reversed after schema lands"
+
+docket add "Use an ORM?" --state ruled-out --answer "No. Raw SQL for the FTS queries."
+
+docket add "Which async driver?" --answer "asyncpg" --because d1
+
+docket list --state settled
+docket list --find postgres
+docket show d3
+```
+
+The ledger is `.docket/ledger.jsonl` in the project, found by walking up from the
+working directory. A `SessionStart` hook prints it into context. A project with no
+ledger costs nothing.
+
+Commit the ledger to share decisions with collaborators. Gitignore it to keep them
+local. Either works.
+
+Run the tests with `python3 tests/test_docket.py`.
 
 ## Documents
 

@@ -1,0 +1,175 @@
+#!/usr/bin/env python3
+"""Append-only decision ledger. Standard library only, because a SessionStart
+hook runs this on every session and cannot wait on a dependency install."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+STATES = ("settled", "ruled-out", "open")
+LEDGER = Path(".docket/ledger.jsonl")
+
+
+def ledger_path(start: Path | None = None) -> Path:
+    """Find .docket/ledger.jsonl in the nearest enclosing directory.
+
+    Walks up so a subdirectory of a project shares the project's ledger.
+    """
+    here = (start or Path.cwd()).resolve()
+    for d in (here, *here.parents):
+        candidate = d / LEDGER
+        if candidate.exists():
+            return candidate
+    return here / LEDGER
+
+
+def read(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    entries = []
+    for n, line in enumerate(path.read_text().splitlines(), 1):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entries.append(json.loads(line))
+        except json.JSONDecodeError:
+            print(f"docket: skipped malformed line {n}", file=sys.stderr)
+    return entries
+
+
+def next_id(entries: list[dict]) -> str:
+    used = {e.get("id", "") for e in entries}
+    n = len(entries) + 1
+    while f"d{n}" in used:
+        n += 1
+    return f"d{n}"
+
+
+def cmd_add(args: argparse.Namespace) -> int:
+    path = ledger_path()
+    entries = read(path)
+
+    because = [b.strip() for b in (args.because or "").split(",") if b.strip()]
+    known = {e.get("id") for e in entries}
+    unknown = [b for b in because if b not in known]
+    if unknown:
+        print(f"docket: unknown justification ids: {', '.join(unknown)}", file=sys.stderr)
+        return 1
+
+    entry = {
+        "id": next_id(entries),
+        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "state": args.state,
+        "question": args.question,
+        "answer": args.answer,
+        # Empty means atomic. Populated means the entry depends on those ids, so
+        # reopening one of them must reopen this entry too.
+        "because": because,
+        "cost_if_wrong": args.cost or "",
+        "session": os.environ.get("CLAUDE_SESSION_ID", ""),
+    }
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as f:
+        f.write(json.dumps(entry) + "\n")
+    print(f"{entry['id']}  {entry['state']}  {entry['question']}")
+    return 0
+
+
+def _match(e: dict, term: str) -> bool:
+    term = term.lower()
+    return term in e.get("question", "").lower() or term in e.get("answer", "").lower()
+
+
+def cmd_list(args: argparse.Namespace) -> int:
+    entries = read(ledger_path())
+    if args.state:
+        entries = [e for e in entries if e.get("state") == args.state]
+    if args.find:
+        entries = [e for e in entries if _match(e, args.find)]
+    if not entries:
+        print("docket: nothing recorded")
+        return 0
+    for e in entries:
+        dep = f"  <- {','.join(e['because'])}" if e.get("because") else ""
+        print(f"{e['id']:<5} {e['state']:<9} {e['question']}{dep}")
+        print(f"      {e['answer']}")
+    return 0
+
+
+def cmd_show(args: argparse.Namespace) -> int:
+    for e in read(ledger_path()):
+        if e.get("id") == args.id:
+            print(json.dumps(e, indent=2))
+            return 0
+    print(f"docket: no entry {args.id}", file=sys.stderr)
+    return 1
+
+
+def cmd_context(args: argparse.Namespace) -> int:
+    """Print the ledger for injection at session start.
+
+    Prints nothing when the ledger is empty, so a project without one costs no
+    context.
+    """
+    entries = read(ledger_path())
+    if not entries:
+        return 0
+
+    settled = [e for e in entries if e.get("state") == "settled"]
+    ruled = [e for e in entries if e.get("state") == "ruled-out"]
+    still_open = [e for e in entries if e.get("state") == "open"]
+
+    print("# docket: decisions already made in this project")
+    print()
+    print("Treat these as binding. To contradict one, say so explicitly and")
+    print("record the reversal with `docket add`.")
+    print()
+    for label, group in (("Settled", settled), ("Ruled out", ruled), ("Open", still_open)):
+        if not group:
+            continue
+        print(f"## {label}")
+        for e in group:
+            print(f"- [{e['id']}] {e['question']} -> {e['answer']}")
+            if e.get("cost_if_wrong"):
+                print(f"  cost if wrong: {e['cost_if_wrong']}")
+        print()
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser(prog="docket", description=__doc__)
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    a = sub.add_parser("add", help="record a decision")
+    a.add_argument("question")
+    a.add_argument("--state", choices=STATES, default="settled")
+    a.add_argument("--answer", required=True)
+    a.add_argument("--because", help="comma-separated ids this depends on")
+    a.add_argument("--cost", help="what breaks if this is later reversed")
+    a.set_defaults(func=cmd_add)
+
+    ls = sub.add_parser("list", help="list decisions")
+    ls.add_argument("--state", choices=STATES)
+    ls.add_argument("--find", help="match question or answer text")
+    ls.set_defaults(func=cmd_list)
+
+    sh = sub.add_parser("show", help="print one entry as JSON")
+    sh.add_argument("id")
+    sh.set_defaults(func=cmd_show)
+
+    ctx = sub.add_parser("context", help="print the ledger for session injection")
+    ctx.set_defaults(func=cmd_context)
+
+    args = p.parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

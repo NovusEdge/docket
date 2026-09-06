@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "docket",
+  "description": "A decision ledger for long-running work. Decisions stay made across compaction.",
+  "owner": {
+    "name": "Aliasgar Khimani",
+    "url": "https://github.com/NovusEdge"
+  },
+  "plugins": [
+    {
+      "name": "docket",
+      "description": "Records decisions as settled, ruled out, or open, and loads them at session start so later work cannot silently contradict them.",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}

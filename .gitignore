@@ -1,0 +1,3 @@
+.docket/
+__pycache__/
+*.py[cod]
