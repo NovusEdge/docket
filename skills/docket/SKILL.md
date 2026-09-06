@@ -60,6 +60,14 @@ ids it depends on.
 docket add "Which async driver?" --answer "asyncpg" --because d3,d7
 ```
 
+A decision can rest on more than one independent line of support. Repeat
+`--because` for each alternative; the claim survives while any one of them
+still holds.
+
+```sh
+docket add "Ship this quarter?" --answer "Yes" --because d3,d7 --because d12
+```
+
 Justifications matter later. The ledger is append-only, so an entry written
 without them can never gain them. When a decision rests on another, say so as
 you record it.
@@ -95,7 +103,9 @@ Alongside the question, answer, state, `because`, and `cost_if_wrong`, every
 entry records who wrote it, which session, and which branch. These are captured
 at write time because the log is append-only and cannot gain them later.
 
-Set `DOCKET_AUTHOR` when an agent should identify itself by name.
+Set `DOCKET_AUTHOR` when an agent should identify itself by name. When no
+author can be detected, the entry records `"unknown"` rather than a blank
+field, and docket prints a warning to stderr naming `DOCKET_AUTHOR`.
 
 ## Where the ledger lives
 

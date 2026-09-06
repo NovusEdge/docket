@@ -61,7 +61,7 @@ def main() -> int:
 
         r = run(d, "show", "d3")
         entry = json.loads(r.stdout)
-        assert entry["because"] == ["d1"]
+        assert entry["because"] == [["d1"]]
         # Provenance fields are append-only and cannot be backfilled.
         assert entry["author"], "an entry must say who recorded it"
         assert "branch" in entry and "session" in entry
@@ -72,8 +72,61 @@ def main() -> int:
         r = run(sub, "list")
         assert "Which database?" in r.stdout, "ledger lookup must walk up"
 
-        # A malformed line is skipped, and the rest still parse.
+        # A legacy flat because (list of strings) still reads as one set.
         ledger = d / ".docket" / "ledger.jsonl"
+        legacy = json.dumps({
+            "id": "d4", "ts": "2020-01-01T00:00:00+00:00", "state": "settled",
+            "question": "Legacy?", "answer": "Yes", "because": ["d1"],
+            "cost_if_wrong": "", "session": "", "author": "legacy", "branch": "",
+        })
+        with ledger.open("a") as f:
+            f.write(legacy + "\n")
+        r = run(d, "list")
+        assert "d1" in r.stdout and "Legacy?" in r.stdout
+
+        # Repeated --because produces two alternative support sets.
+        r = run(d, "add", "Alternative supports?", "--answer", "Either works",
+                "--because", "d1,d2", "--because", "d1")
+        assert r.returncode == 0, r.stderr
+        d5 = json.loads(run(d, "show", "d5").stdout)
+        assert d5["because"] == [["d1", "d2"], ["d1"]], d5
+
+        # list renders a genuine nested because without crashing.
+        r = run(d, "list")
+        assert r.returncode == 0, r.stderr
+        assert "d1,d2 | d1" in r.stdout
+
+        # An unknown id inside any alternative set still fails validation.
+        r = run(d, "add", "Bad alt?", "--answer", "no", "--because", "d1", "--because", "d99")
+        assert r.returncode == 1, "unknown id in a later alternative set must fail"
+        assert "d99" in r.stderr
+
+        # A mixed-shape because (flat list holding a nested list) degrades
+        # instead of crashing list's rendering.
+        mixed = json.dumps({
+            "id": "dmixed", "ts": "2020-01-01T00:00:00+00:00", "state": "settled",
+            "question": "Mixed shape?", "answer": "n/a", "because": ["d1", ["d2", "d3"]],
+            "cost_if_wrong": "", "session": "", "author": "x", "branch": "",
+        })
+        with ledger.open("a") as f:
+            f.write(mixed + "\n")
+        r = run(d, "list")
+        assert r.returncode == 0, r.stderr
+        assert "dmixed" in r.stderr
+
+        # because holding a non-string, non-list element degrades the same way.
+        bad_elem = json.dumps({
+            "id": "dbadelem", "ts": "2020-01-01T00:00:00+00:00", "state": "settled",
+            "question": "Bad element?", "answer": "n/a", "because": [1, 2],
+            "cost_if_wrong": "", "session": "", "author": "x", "branch": "",
+        })
+        with ledger.open("a") as f:
+            f.write(bad_elem + "\n")
+        r = run(d, "list")
+        assert r.returncode == 0, r.stderr
+        assert "dbadelem" in r.stderr
+
+        # A malformed line is skipped, and the rest still parse.
         with ledger.open("a") as f:
             f.write("not json\n")
         r = run(d, "list")
@@ -142,6 +195,22 @@ def main() -> int:
             (d / "proj-a" / ".docket" / "ledger.jsonl").read_text().splitlines()[-1]
         )
         assert last["author"] == "codex", last
+
+        # No detectable author: entry gets "unknown", a stderr warning, exit 0.
+        env_blank = dict(os.environ)
+        env_blank["DOCKET_HOME"] = str(g)
+        for var in ("DOCKET_AUTHOR", "AI_AGENT", "CODEX_SANDBOX", "CODEX_HOME", "USER"):
+            env_blank.pop(var, None)
+        r = subprocess.run(
+            [sys.executable, DOCKET, "add", "No author?", "--answer", "n/a"],
+            cwd=d / "proj-a", capture_output=True, text=True, env=env_blank,
+        )
+        assert r.returncode == 0, r.stderr
+        assert "DOCKET_AUTHOR" in r.stderr
+        last = json.loads(
+            (d / "proj-a" / ".docket" / "ledger.jsonl").read_text().splitlines()[-1]
+        )
+        assert last["author"] == "unknown", last
 
     print("ok")
     return 0
