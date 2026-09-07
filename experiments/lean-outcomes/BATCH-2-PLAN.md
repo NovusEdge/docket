@@ -21,7 +21,7 @@
 ## Task 1: Reduction completeness
 
 - [x] State a representation theorem for every exhaustive, disjoint binary partition of realized outcomes; run Lean and observe the unfinished goal.
-- [x] Prove that choosing the intended class itself as `ι` reconstructs both classes as `R ∩ ι` and `R \\ ι`.
+- [x] Prove that choosing the intended class itself as `ι` reconstructs both classes as `R ∩ ι` and `R \ ι`.
 - [x] Prove uniqueness of the classification once `R` and `ι` are fixed.
 - [x] Record the result and its scope in Docket as `d5`.
 
@@ -37,7 +37,7 @@
 
 - [x] Model sections as state transformations and schedule invariance as commutativity.
 - [x] Attempt the partial-order-only theorem and encode a counterexample with no declared dependency but noncommuting effects.
-- [x] Prove the repaired theorem: cross-section commutativity makes either sequential schedule equal.
+- [x] Prove the repaired theorem: step-level pairwise commutation lifts to whole sections, so either sequential schedule gives the same state.
 - [x] Encode a crossing-dependency counterexample where the schedules produce different states.
 - [x] Record the failed original claim as `d7` and the repaired condition as `d8`.
 
@@ -64,9 +64,9 @@
 - [x] Inspect theorem axiom dependencies and scan for admitted proofs or custom axioms.
 - [x] Verify every new Docket entry and review the experiment-only diff.
 
-Verification on 2026-09-06: both Lean files compile with warnings as errors, the
+Verification on 2026-09-07: both Lean files compile with warnings as errors, the
 stress-test executable prints the expected five-result report, and the source has
-22 theorems with no `sorry`, `admit`, custom `axiom`, or `unsafe` declarations.
-The axiom audit found only Lean's standard `propext` in four finite-example proofs;
-the general theorems and all other examples have no axiom dependencies. Docket
-entries `d5` through `d11` were read back with their `because` links intact.
+24 theorems with no `sorry`, `admit`, custom `axiom`, or `unsafe` declarations.
+The axiom audit found only Lean's standard `propext`, in seven proofs; the other
+seventeen theorems have no axiom dependencies. Docket entries `d5` through `d11`
+were read back with their `because` links intact.

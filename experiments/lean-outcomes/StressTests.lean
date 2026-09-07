@@ -183,10 +183,47 @@ def NoCrossing (dependsOn : Step → Step → Prop)
   ∀ first second, left first → right second →
     ¬ dependsOn first second ∧ ¬ dependsOn second first
 
-theorem commuting_sections_match_both_sequential_schedules
-    (first second : Section State) (commute : Commute first second) :
-    ∀ initial, sequence first second initial = sequence second first initial := by
-  exact commute
+def runSteps (effect : Step → Section State) (steps : List Step) : Section State :=
+  fun initial => steps.foldl (fun state step => effect step state) initial
+
+def StepsCommute (effect : Step → Section State) (left right : List Step) : Prop :=
+  ∀ first ∈ left, ∀ second ∈ right, Commute (effect first) (effect second)
+
+theorem runSteps_cons (effect : Step → Section State) (step : Step) (rest : List Step)
+    (initial : State) :
+    runSteps effect (step :: rest) initial = runSteps effect rest (effect step initial) := by
+  simp [runSteps]
+
+theorem section_commutes_with_step
+    (effect : Step → Section State) (left : List Step) (second : Step)
+    (stepwise : ∀ first ∈ left, Commute (effect first) (effect second)) :
+    Commute (runSteps effect left) (effect second) := by
+  induction left with
+  | nil => intro initial; simp [sequence, runSteps]
+  | cons first rest inductionHypothesis =>
+      intro initial
+      have firstCommutes := stepwise first (List.mem_cons_self ..) initial
+      have restCommutes :=
+        inductionHypothesis (fun step present => stepwise step (List.mem_cons_of_mem _ present))
+      simp only [Commute, sequence, runSteps_cons] at firstCommutes restCommutes ⊢
+      rw [restCommutes, firstCommutes]
+
+theorem stepwise_commutation_lifts_to_sections
+    (effect : Step → Section State) (left right : List Step)
+    (stepwise : StepsCommute effect left right) :
+    Commute (runSteps effect left) (runSteps effect right) := by
+  induction right with
+  | nil => intro initial; simp [sequence, runSteps]
+  | cons second rest inductionHypothesis =>
+      intro initial
+      have headCommutes :=
+        section_commutes_with_step effect left second
+          (fun step present => stepwise step present second (List.mem_cons_self ..))
+      have restCommutes :=
+        inductionHypothesis fun first present step inRest =>
+          stepwise first present step (List.mem_cons_of_mem _ inRest)
+      simp only [Commute, sequence, runSteps_cons] at headCommutes restCommutes ⊢
+      rw [headCommutes, restCommutes]
 
 namespace Counterexample
 
@@ -316,12 +353,14 @@ def evaluate (answer : Question → Parallel.Section State)
     (schedule : List Question) (initial : State) : State :=
   schedule.foldl (fun state question => answer question state) initial
 
-def LogicallyIndependent (answer : Question → Parallel.Section State) : Prop :=
+-- Named for the operational property, not for logical independence of the
+-- questions. Section 5 of STRESS-TESTS.md turns on the two being different.
+def PairwiseCommuting (answer : Question → Parallel.Section State) : Prop :=
   ∀ first second, Parallel.Commute (answer first) (answer second)
 
-theorem independent_questions_are_permutation_invariant
+theorem commuting_answers_are_permutation_invariant
     (answer : Question → Parallel.Section State)
-    (independent : LogicallyIndependent answer)
+    (commuting : PairwiseCommuting answer)
     (permutation : firstSchedule.Perm secondSchedule) :
     ∀ initial,
       evaluate answer firstSchedule initial = evaluate answer secondSchedule initial := by
@@ -333,7 +372,7 @@ theorem independent_questions_are_permutation_invariant
   | swap first second tail =>
       intro initial
       simpa [evaluate, Parallel.Commute, Parallel.sequence] using
-        congrArg (evaluate answer tail) (independent second first initial)
+        congrArg (evaluate answer tail) (commuting second first initial)
   | trans firstPermutation secondPermutation firstHypothesis secondHypothesis =>
       intro initial
       exact (firstHypothesis initial).trans (secondHypothesis initial)
@@ -382,6 +421,7 @@ def main : IO Unit := do
   IO.println "1. PASS: every exhaustive, disjoint intended/unintended partition is expressible by R and ι."
   IO.println "2. FAIL: closure laws, even with Cl(∅) = ∅, do not constrain indirect outcomes."
   IO.println "3. FAIL: a strict dependency order with no crossing edge does not rule out interference."
+  IO.println "   PASS: step-level pairwise commutation lifts to whole sections."
   IO.println "4. PASS WITH LIMIT: transitive retraction is sound for jointly required supports."
   IO.println "   FAIL: a flat support set over-retracts alternative justifications."
   IO.println "5. PASS: commuting answer updates are permutation-invariant; two-update invariance iff they commute."

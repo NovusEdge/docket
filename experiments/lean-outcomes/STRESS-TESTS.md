@@ -12,7 +12,7 @@ lean --run StressTests.lean
 ```
 
 The first command exits silently with code 0 when every proof is complete. The
-second prints the result summary. The source contains 22 checked theorems and no
+second prints the result summary. The source contains 24 checked theorems and no
 custom axioms or admitted goals.
 
 ## 1. Intended and unintended reduction: passes with a scope condition
@@ -28,7 +28,7 @@ For every such partition, choose `ι` to be the intended class. Lean proves:
 
 ```text
 intended = R ∩ ι
-unintended = R \\ ι
+unintended = R \ ι
 ```
 
 It also proves that fixing `R` and `ι` fixes both classes uniquely. No valid
@@ -79,10 +79,12 @@ The empty relation is a strict partial order and has no crossing dependency.
 Applying A then B returns `2`; applying B then A returns `1`. The declared graph
 missed a real interaction.
 
-The repaired condition is that transformations from different sections commute
-for every initial state. Lean proves that commuting sections produce the same
-result in either schedule. It also checks a second model where `A ≺ B` crosses
-the boundary and the two schedules again return `2` and `1`.
+The repaired condition is stated over steps. Model a section as a list of steps
+and its effect as the fold of the step effects. If every step of one section
+commutes with every step of the other, Lean proves the two section effects
+commute, so either schedule gives the same final state. The proof is by
+induction on both step lists. Lean also checks a second model where `A ≺ B`
+crosses the boundary and the two schedules again return `2` and `1`.
 
 The graph can certify safe parallelism only if every order-sensitive interaction
 appears as a dependency. Docket records the counterexample as `d7` and the repair
