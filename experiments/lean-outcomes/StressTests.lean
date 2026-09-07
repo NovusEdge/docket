@@ -1,10 +1,14 @@
 import Std
 
+set_option autoImplicit false
+
 namespace Docket.StressTests
 
 abbrev Predicate (α : Type) := α → Prop
 
 namespace Reduction
+
+variable {Outcome : Type}
 
 def IsPartition (realized intended unintended : Predicate Outcome) : Prop :=
   (∀ outcome, realized outcome ↔ intended outcome ∨ unintended outcome) ∧
@@ -50,6 +54,8 @@ theorem classification_is_unique
 end Reduction
 
 namespace Consequences
+
+variable {Outcome : Type}
 
 abbrev Subset (left right : Predicate Outcome) :=
   ∀ outcome, left outcome → right outcome
@@ -117,10 +123,11 @@ theorem closure_laws_allow_any_indirect_split
     exact ⟨Or.inr ⟨directNonempty, desired⟩, disjoint outcome desired⟩
 
 inductive Path (edge : Outcome → Outcome → Prop) : Outcome → Outcome → Prop where
-  | refl (outcome) : Path edge outcome outcome
-  | step : edge source middle → Path edge middle target → Path edge source target
+  | refl (outcome : Outcome) : Path edge outcome outcome
+  | step {source middle target : Outcome} :
+      edge source middle → Path edge middle target → Path edge source target
 
-theorem Path.trans
+theorem Path.trans {edge : Outcome → Outcome → Prop} {source middle target : Outcome}
     (first : Path edge source middle) (second : Path edge middle target) :
     Path edge source target := by
   induction first with
@@ -166,6 +173,10 @@ end Consequences
 namespace Parallel
 
 abbrev Section (State : Type) := State → State
+
+section Generic
+
+variable {State Step : Type}
 
 def sequence (first second : Section State) (initial : State) : State :=
   second (first initial)
@@ -224,6 +235,8 @@ theorem stepwise_commutation_lifts_to_sections
           stepwise first present step (List.mem_cons_of_mem _ inRest)
       simp only [Commute, sequence, runSteps_cons] at headCommutes restCommutes ⊢
       rw [headCommutes, restCommutes]
+
+end Generic
 
 namespace Counterexample
 
@@ -288,6 +301,10 @@ namespace Retraction
 
 abbrev Supports (Claim : Type) := Claim → Claim → Prop
 
+section Generic
+
+variable {Claim : Type}
+
 inductive Removed (supports : Supports Claim) (premise : Claim) : Claim → Prop where
   | premise : Removed supports premise premise
   | dependent {claim support} :
@@ -315,6 +332,8 @@ theorem removal_is_minimal
   | premise => exact removesPremise
   | dependent requires supportRemoved inductionHypothesis =>
       exact removesDependents _ _ requires inductionHypothesis
+
+end Generic
 
 namespace AlternativeCounterexample
 
@@ -349,6 +368,10 @@ end Retraction
 
 namespace Order
 
+section Generic
+
+variable {Question State : Type}
+
 def evaluate (answer : Question → Parallel.Section State)
     (schedule : List Question) (initial : State) : State :=
   schedule.foldl (fun state question => answer question state) initial
@@ -361,6 +384,7 @@ def PairwiseCommuting (answer : Question → Parallel.Section State) : Prop :=
 theorem commuting_answers_are_permutation_invariant
     (answer : Question → Parallel.Section State)
     (commuting : PairwiseCommuting answer)
+    {firstSchedule secondSchedule : List Question}
     (permutation : firstSchedule.Perm secondSchedule) :
     ∀ initial,
       evaluate answer firstSchedule initial = evaluate answer secondSchedule initial := by
@@ -388,6 +412,8 @@ theorem two_question_invariance_iff_updates_commute
     TwoQuestionOrderInvariant answer first second ↔
       Parallel.Commute (answer first) (answer second) := by
   rfl
+
+end Generic
 
 namespace Counterexample
 

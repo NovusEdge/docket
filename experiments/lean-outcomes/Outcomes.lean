@@ -1,5 +1,7 @@
 import Std
 
+set_option autoImplicit false
+
 namespace Docket.Outcomes
 
 abbrev Chain (Step : Type) := List Step
@@ -7,6 +9,10 @@ abbrev Chain (Step : Type) := List Step
 abbrev Realization (Step Outcome : Type) := Chain Step → Outcome → Prop
 
 abbrev Intent (Step Outcome : Type) := Chain Step → Outcome → Prop
+
+section General
+
+variable {Step Outcome : Type}
 
 abbrev intentional (realizes : Realization Step Outcome) (intends : Intent Step Outcome)
     (chain : Chain Step) (outcome : Outcome) : Prop :=
@@ -40,6 +46,8 @@ theorem classifications_disjoint
       unintentional realizes intends chain outcome) := by
   intro both
   exact both.2.2 both.1.2
+
+end General
 
 namespace Backup
 
