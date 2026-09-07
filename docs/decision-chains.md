@@ -156,6 +156,10 @@ re-derived dependency retraction for search trees and cited no TMS theory
 (2608.10676). No system runs a real JTMS as an agent's belief store with a measured
 before-and-after comparison.
 
+Holding a claim while any one of several justifications survives is the
+assumption-based variant (de Kleer 1986). Its label for a node is a set of
+environments, which is the shape `because` takes here.
+
 Related prior art: DMN-Guided Prompting (Springer 2025) already uses DMN structure
 to decompose decisions into steps an LLM can answer. Do not claim novelty there.
 
@@ -174,6 +178,11 @@ predicates can document a wrong answer in high resolution.
 Composed predicates can each be locally correct while the assembled decision is
 globally wrong (2605.30335). That paper offers a computable residual and a runtime
 repair. This is the one evaluated mitigation available.
+
+Alternative justifications cost label size. An ATMS stores every minimal
+environment supporting a node, and that set grows exponentially in the number of
+assumptions (de Kleer 1986). This is the failure that ended the line of work.
+Nothing bounds it here yet.
 
 The graph freezes current thinking, and it only grows. Every surprise adds a node.
 Nobody deletes one. Models improve and the graph does not.
