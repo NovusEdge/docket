@@ -136,8 +136,19 @@ decision theory calls value of information.
 
 **Section.** A contiguous subsequence of a chain.
 
-**Parallel-valid.** A partition into sections is parallel-valid when no dependency
-crosses a section boundary. Equivalently, the sections are antichains under `≺`.
+**Parallel-valid.** A partition into sections is parallel-valid when the state
+transformations of every pair of sections commute.
+
+An absent crossing dependency does not establish this. Give two sections one step
+each, one setting the state to 1 and the other doubling it, and declare no
+dependency between them. The empty relation is a strict partial order and no edge
+crosses the boundary, yet the two schedules return 2 and 1. `≺` certifies
+parallel validity only when every noncommuting pair of steps carries an edge.
+
+Commutativity at the step level is enough. If every step of one section commutes
+with every step of the other, the two section transformations commute, so either
+schedule reaches the same state. `experiments/lean-outcomes/StressTests.lean`
+checks both the counterexample and the lift.
 
 A partition that is not parallel-valid produces compositional incoherence: each
 section computes correctly and the composition does not.
@@ -152,6 +163,12 @@ The implementation records three states for a decision.
 
 These map onto the three values a `PreToolUse` hook returns: `allow`, `deny`, and
 `ask`.
+
+**Supersession.** An entry carries the state it was written with and never loses
+it, because the log is append-only. A later entry names the ids it retires. The
+retired entry keeps its recorded state and stops counting as current, so a
+question answered later stops reading as open. State says what was decided;
+supersession says whether that decision is still the live one.
 
 ## Terms deliberately not defined here
 
