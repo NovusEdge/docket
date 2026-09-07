@@ -1,7 +1,7 @@
 # A formalism for outcomes, chains, and claims
 
-September 2026. Working notes toward a paper. This note states the formalism, the
-prior art it must cite, and the parts that need repair.
+September 2026. These working notes define the formalism for a proposed paper.
+They also identify required prior art and unresolved claims.
 
 ## Objects
 
@@ -17,10 +17,10 @@ Write `R(c) = { o ∈ O : (c, o) ∈ R }` for the outcomes a chain realizes.
 
 Write `R⁻¹(o) = { c ∈ C : (c, o) ∈ R }` for the chains that realize an outcome.
 
-## The taxonomy reduces to properties of R
+## The taxonomy reduces to `R` and `ι`
 
-`R` is a relation, not a function. The three proposed distinctions describe its
-cardinality plus one labelling function.
+`R` is a relation, not a function. The proposed distinctions describe its
+cardinality and one labeling function.
 
 **Many-to-one.** `|R⁻¹(o)| > 1`. Several chains realize the same outcome. This is
 outcome non-uniqueness.
@@ -33,30 +33,42 @@ side effects live.
 - Intentional outcomes of `c` are `R(c) ∩ ι(c)`.
 - Unintentional outcomes of `c` are `R(c) \ ι(c)`.
 
-Intentional versus unintentional is therefore not a third structural axis. It
-follows from one-to-many plus the intent label. State this reduction explicitly.
-It is a stronger result than three independent distinctions.
+Intentional and unintentional outcomes do not form a third structural axis. The
+classification follows from `R` and `ι`.
+
+This representation is complete for each exhaustive and disjoint binary
+partition of `R(c)`. Choose the intended class as `ι(c)` to reconstruct both
+classes. This result does not derive `ι` from `R`.
 
 **Direct and indirect.** Let `Cl : 2^O → 2^O` be a consequence operator. Then:
 
 - Direct outcomes of `c` are `R(c)`.
 - Indirect outcomes of `c` are `Cl(R(c)) \ R(c)`.
 
-`Cl` must be specified. Candidates: logical entailment, causal descendants in a
-structural model, or reachability in a state-transition system. The choice
-determines what the distinction means, so make it early.
+Generic closure laws do not give this distinction a fixed meaning. Extensivity,
+monotonicity, idempotence, and preservation of the empty set are insufficient.
+
+Specify `Cl` independently through a fixed logical, causal, or transition
+relation. Require a consequence path from a direct outcome to each indirect
+outcome.
 
 ## Claims and justification
 
-Each step is backed by claims. Define a justification function
-`j : Γ → 2^Γ` mapping a claim to its supporting claims.
+Each step has supporting claims. Define a justification function
+`j : Γ → 2^(2^Γ)`.
+
+The function maps each claim to alternative justification sets. Each inner set
+is one complete support for the claim.
 
 - A claim `γ` is **atomic** when `j(γ) = ∅`.
-- A claim `γ` is **reasoned** when `j(γ) ≠ ∅`.
+- A claim `γ` is **reasoned** when it has a non-empty justification set.
 
-This is the premise-and-justification structure of a truth maintenance system
-(Doyle 1979). Retraction machinery transfers directly. When a premise is
-withdrawn, every claim whose justification depends on it is withdrawn as well.
+This structure extends a truth maintenance system with alternative support
+(Doyle 1979; de Kleer 1986).
+
+When an atomic premise becomes unavailable, propagate that change through the
+support relation. Retain each reasoned claim while one complete justification
+set survives. Retain other atomic claims unless the work withdraws them explicitly.
 
 The regress problem applies. Every reasoned claim needs support. That support
 needs support. The chain terminates at atomic claims, loops, or continues without
@@ -72,31 +84,34 @@ Let `d` be a decomposition limit. Each step indexed by `k` expands into at most
 
 Two consequences follow.
 
-**A decomposed chain is no longer a sequence.** Expanding a step into sub-steps
-produces a tree, or a DAG when sub-steps share support. The notation must admit
-this. `C ⊆ S*` is too weak once `d > 1`.
+**A decomposed chain is no longer a sequence.** Expansion produces a tree. It
+produces a directed acyclic graph when sub-steps share support.
 
-**`d` is a budget, not a constant.** It follows from the user's intent and effort
-level. This is a pragmatic stopping rule laid on top of the regress. The
-principled alternative: expand a step only while a different answer at that step
-would change the final outcome. Classical decision theory calls this value of
-information.
+The notation must admit this structure. `C ⊆ S*` is too weak when `d > 1`.
+
+**`d` is a budget, not a constant.** The user's intent and effort level set this
+budget. It gives a practical stopping rule.
+
+A value-of-information test gives a stronger rule. Expand a step only when a
+different answer can change the final outcome.
 
 ## Sections and parallelism
 
 Let `≺` be a dependency relation on steps. Read `s_i ≺ s_j` as "step `s_j`
 depends on step `s_i`". Assume `≺` is a strict partial order.
 
-A section is a contiguous subsequence of the chain. A partition into sections is
-**parallel-valid** when no dependency crosses a section boundary.
+A section is a contiguous subsequence of the chain. A partition is
+**parallel-valid** when every pair of section transformations commutes.
 
-In order-theoretic terms, the sections must be antichains under `≺`, or the
-partition must respect a topological order of `≺`.
+An absent crossing edge does not prove this property. The dependency relation
+must include every pair of steps that do not commute.
 
-This replaces "the user defines steps as dependent or independent" with a
-checkable condition. A wrong independence claim is exactly the compositional
-incoherence failure (2605.30335): each section computes correctly, and the
-composition does not.
+Step-level commutativity is sufficient. If all cross-section step pairs commute,
+the complete section transformations also commute.
+
+When transformations do not commute, each section can be locally correct while
+their composition changes with the schedule. This is compositional incoherence
+(2605.30335).
 
 One result argues against wide parallelism. A single long chain can search an
 exponentially larger space than the same compute spent on many short parallel
@@ -133,8 +148,8 @@ formal apparatus. No work treats multiplicity as a named taxonomic axis. This is
 the strongest novelty claim of the three, and it still requires citing and
 distinguishing self-consistency.
 
-**Adjacent and easily confused.** Instrumental and terminal goals classify what is
-wanted. Direct and indirect outcomes classify what is reached. Readers will
+**Adjacent and easily confused.** Instrumental and terminal goals classify desired
+outcomes. Direct and indirect outcomes classify realized outcomes. Readers can
 conflate them. Add a footnote.
 
 **Evaluation precedent.** Agent benchmark surveys already separate outcome-level
@@ -144,9 +159,12 @@ taxonomy, implemented as two scores rather than stated as a formalism.
 
 ## Open problems this formalism does not solve
 
-Predicate and step order changes the answer. Option order alone swings results up
-to 75 percent on some benchmarks (2308.11483). Premise order costs over 30 percent
-on deductive tasks (2502.04134). No general fix exists.
+Answer order is irrelevant when all answer transformations commute. For two
+transformations, order invariance holds exactly when they commute.
+
+Real systems do not always satisfy this condition. Option order changes some
+benchmark results by up to 75 percent (2308.11483). Premise order also changes
+results on deductive tasks (2502.04134).
 
 Deciding that a claim is atomic is itself a reasoning step, and it can be wrong.
 There is no ground truth for self-evidence.

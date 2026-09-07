@@ -1,8 +1,10 @@
 # Definitions
 
-This file holds the formal vocabulary. Every other document defers to it. When a
-definition changes here, record the change in the ledger and update the documents
-that depend on it.
+This file defines the formal vocabulary. Other design documents use these
+definitions.
+
+When a definition changes, record the change in Docket. Then, update each
+document that uses the definition.
 
 ## Primitives
 
@@ -16,17 +18,18 @@ the set of outcomes.
 
 An outcome is one of two kinds.
 
-- A **world outcome** changes something outside the agent. A file written, a row
-  inserted, a service called, a branch pushed. World outcomes are observable
-  without asking the agent. Tool-call logs and filesystem state record them.
-- An **epistemic outcome** changes what is known or believed. A question settled,
-  an option ruled out, an assumption falsified. The ledger records these.
+- A **world outcome** changes something outside the agent. Examples include a
+  written file, an inserted row, a service call, and a pushed branch. Tool-call
+  logs and filesystem state show these outcomes.
+- An **epistemic outcome** changes the recorded knowledge. Examples include a
+  settled question, a rejected option, and a false assumption. Docket records
+  these outcomes.
 
-The two kinds differ in how they are collected. World outcomes are computed.
-Epistemic outcomes are declared. This matters because a stated chain of reasoning
-often fails to reflect the computation behind an answer, so asking an agent what
-it changed is unreliable for world outcomes while being the only option for
-epistemic ones.
+The collection method is different for each kind. The system computes world
+outcomes and records declared epistemic outcomes.
+
+An agent report is not sufficient evidence for a world outcome. Use tool-call
+logs and filesystem state as the evidence.
 
 The two kinds also differ in reversibility. World outcomes range from a scratch
 file to a force push. Epistemic outcomes are almost always cheap to reverse.
@@ -52,29 +55,29 @@ the outcome `o`.
 
 Three cardinality cases follow.
 
-**One to one.** The assumed default. Rarely the real case.
+**One-to-one.** The assumed default case.
 
-**Many to one.** `|R⁻¹(o)| > 1`. Several chains realize the same outcome. This is
+**Many-to-one.** `|R⁻¹(o)| > 1`. Several chains realize the same outcome. This is
 outcome non-uniqueness.
 
-**One to many.** `|R(c)| > 1`. One chain realizes several outcomes. Side effects
+**One-to-many.** `|R(c)| > 1`. One chain realizes several outcomes. Side effects
 live here.
 
 ## Intent
 
 **Intent.** `ι : C → 2^O`. The outcomes a chain aimed at.
 
-`ι` is supplied, not derived. Identical chains with identical realized outcomes
-can be classified differently under different intent relations, so `R` alone does
-not determine the classification. Intent must come from additional structure.
+The formalism receives `ι` as an input. It does not derive `ι` from `R`.
+Different intent relations can classify the same chain and realized outcomes
+differently.
 
 Given `ι`:
 
 - **Intentional outcomes** of `c` are `R(c) ∩ ι(c)`.
 - **Unintentional outcomes** of `c` are `R(c) \ ι(c)`.
 
-Intentional versus unintentional is therefore not an independent axis. It follows
-from the one-to-many case plus the intent label.
+Intentional and unintentional outcomes do not form an independent structural
+axis. The classification follows from `R` and `ι`.
 
 ## Direct and indirect
 
@@ -84,12 +87,14 @@ consequence.
 - **Direct outcomes** of `c` are `R(c)`.
 - **Indirect outcomes** of `c` are `Cl(R(c)) \ R(c)`.
 
-`Cl` must be specified before the distinction has content. Logical entailment,
-causal descendants in a structural model, and reachability in a transition system
-each give it a different meaning.
+Specify `Cl` independently before you classify indirect outcomes. Generic closure
+laws do not constrain the indirect set.
+
+A useful operator can follow paths in a fixed logical, causal, or transition
+relation. Each indirect outcome then has a path from a direct outcome.
 
 Do not confuse this with instrumental and terminal goals. Instrumental and
-terminal classify what is wanted. Direct and indirect classify what is reached.
+terminal classify desired outcomes. Direct and indirect classify realized outcomes.
 
 ## Claims and justification
 
@@ -97,19 +102,20 @@ terminal classify what is wanted. Direct and indirect classify what is reached.
 justification sets. Each inner set is one complete, independent support for the
 claim.
 
-- A claim `γ` is **atomic** when `j(γ) = {∅}` or `j(γ) = ∅`. It is a premise,
-  asserted rather than derived.
+- A claim `γ` is **atomic** when `j(γ) = ∅`. It is a premise that the work asserts.
 - A claim `γ` is **reasoned** when it has at least one non-empty justification
   set.
 
 A flat set of premises, `j(γ) = {A}`, is the single-alternative case. It is not
 a separate rule.
 
-This is the premise-and-justification structure of a truth maintenance system,
-extended to alternative support. Retraction follows: withdrawing a premise
-withdraws a justification set only when the premise belongs to it. A claim is
-retained while at least one of its justification sets survives intact. Only
-when every justification set has lost a member does the claim itself retract.
+This structure extends a truth maintenance system with alternative support.
+Withdrawing an atomic premise makes that premise unavailable. The change can
+make reasoned claims unavailable in turn.
+
+Retain a reasoned claim while one complete justification set survives. Retract
+the claim when no complete justification set survives. Retain other atomic
+claims unless the work withdraws them explicitly.
 
 Treating atomic claims as self-evident is foundationalism. It is an assumption,
 not a result. The regress it answers is real: every reasoned claim needs support,
@@ -124,10 +130,10 @@ reasoning.
 **Decomposition limit.** `d` bounds how far a step indexed by `k` expands into
 sub-steps.
 
-`d` is a budget, set by intent and effort. It is a pragmatic stopping rule laid on
-top of the regress. The principled alternative expands a step only while a
-different answer at that step would change the final outcome, which classical
-decision theory calls value of information.
+Intent and effort set the budget `d`. This budget stops the decomposition.
+
+A value-of-information test gives a stronger rule. Expand a step only when a
+different answer can change the final outcome.
 
 ## Dependency and parallelism
 
@@ -139,16 +145,23 @@ decision theory calls value of information.
 **Parallel-valid.** A partition into sections is parallel-valid when the state
 transformations of every pair of sections commute.
 
-An absent crossing dependency does not establish this. Give two sections one step
-each, one setting the state to 1 and the other doubling it, and declare no
-dependency between them. The empty relation is a strict partial order and no edge
-crosses the boundary, yet the two schedules return 2 and 1. `≺` certifies
-parallel validity only when every noncommuting pair of steps carries an edge.
+An absent crossing dependency does not establish parallel validity. Consider two
+sections with one step in each section:
 
-Commutativity at the step level is enough. If every step of one section commutes
-with every step of the other, the two section transformations commute, so either
-schedule reaches the same state. `experiments/lean-outcomes/StressTests.lean`
-checks both the counterexample and the lift.
+- The first step sets the state to 1.
+- The second step doubles the state.
+
+Declare no dependency between the steps. The empty relation is a strict partial
+order, but the two schedules return 2 and 1.
+
+The relation `≺` certifies parallel validity only if it contains every pair of
+steps that do not commute.
+
+Step-level commutativity is sufficient. If all cross-section step pairs commute,
+the two section transformations also commute.
+
+The Lean proofs check the counterexample and this lift in
+`experiments/lean-outcomes/StressTests.lean`.
 
 A partition that is not parallel-valid produces compositional incoherence: each
 section computes correctly and the composition does not.
@@ -157,23 +170,23 @@ section computes correctly and the composition does not.
 
 The implementation records three states for a decision.
 
-- **settled** — decided, and binding on later work.
-- **ruled-out** — eliminated, with the reason recorded.
-- **open** — unresolved, carried forward.
+- **settled** - The decision applies to later work.
+- **ruled-out** - The work rejected this option.
+- **open** - The question does not have an answer.
 
-These map onto the three values a `PreToolUse` hook returns: `allow`, `deny`, and
-`ask`.
+The proposed action gate maps these states to `allow`, `deny`, and `ask`. The
+current ledger does not enforce this mapping.
 
-**Supersession.** An entry carries the state it was written with and never loses
-it, because the log is append-only. A later entry names the ids it retires. The
-retired entry keeps its recorded state and stops counting as current, so a
-question answered later stops reading as open. State says what was decided;
-supersession says whether that decision is still the live one.
+**Supersession.** An entry keeps its recorded state because the log is
+append-only. A later entry can name the IDs that it retires.
+
+A retired entry remains in the history but is no longer current. State records
+the decision. Supersession records whether the decision remains current.
 
 ## Terms deliberately not defined here
 
-**Correctness** of an outcome. The formalism describes what was realized and what
-was aimed at. It says nothing about whether either was right.
+**Correctness** of an outcome. The formalism describes realized outcomes and intent.
+It does not judge either one.
 
-**Cost.** The ledger records a cost-if-wrong string for human reading. No metric
-is defined, and escalation thresholds currently rest on judgment.
+**Cost.** The ledger records a cost-if-wrong string for human reading. The ledger
+does not define a metric. People currently judge escalation thresholds.
