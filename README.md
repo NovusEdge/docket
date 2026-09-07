@@ -40,13 +40,21 @@ docket add "Use an ORM?" --state ruled-out --answer "No. Raw SQL for the FTS que
 
 docket add "Which async driver?" --answer "asyncpg" --because d1
 
+docket add "Which database? (reopens d1)" --answer "SQLite." --supersedes d1
+
 docket list --state settled
 docket list --find postgres
+docket list --superseded
 docket show d3
 ```
 
 A `SessionStart` hook prints the ledger into context. A project with no ledger
 costs nothing.
+
+Nothing is edited or deleted. `--supersedes` records that a later entry retires
+an earlier one, which drops the earlier entry from `list` and from the injected
+context. Without it an old `open` question keeps its own state and still reads
+as unresolved.
 
 Other harnesses are covered in [docs/installation.md](docs/installation.md):
 Codex CLI, OpenCode, Gemini CLI, Copilot CLI, and Cursor. They share one ledger,

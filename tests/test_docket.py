@@ -212,6 +212,57 @@ def main() -> int:
         )
         assert last["author"] == "unknown", last
 
+    # A later entry retires an earlier one. The log is append-only, so the
+    # retired entry keeps its own state forever and only this link exposes it.
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        (d / ".git").mkdir()
+        run(d, "init")
+        ledger = d / ".docket" / "ledger.jsonl"
+
+        run(d, "add", "Fix the schema doc", "--state", "open", "--answer", "Not done")
+        run(d, "add", "Unrelated", "--answer", "Still current")
+
+        r = run(d, "add", "Was it fixed?", "--answer", "Yes", "--supersedes", "d99")
+        assert r.returncode == 1, "superseding an unknown id must fail"
+        assert "d99" in r.stderr
+
+        r = run(d, "add", "Was it fixed?", "--answer", "Yes", "--supersedes", "d1")
+        assert r.returncode == 0, r.stderr
+        assert json.loads(run(d, "show", "d3").stdout)["supersedes"] == ["d1"]
+
+        r = run(d, "list", "--state", "open")
+        assert "Fix the schema doc" not in r.stdout, "a retired entry must leave the open list"
+
+        r = run(d, "list")
+        assert "Fix the schema doc" not in r.stdout
+        assert "Unrelated" in r.stdout, "only the retired entry is hidden"
+
+        r = run(d, "list", "--superseded")
+        assert "Fix the schema doc" in r.stdout
+        assert "superseded by d3" in r.stdout
+
+        r = run(d, "context")
+        assert "Fix the schema doc" not in r.stdout, "injected context must not carry stale state"
+        assert "Unrelated" in r.stdout
+
+        # show reaches a retired entry directly; the history stays readable.
+        assert json.loads(run(d, "show", "d1").stdout)["question"] == "Fix the schema doc"
+
+        # A malformed supersedes degrades the way a malformed because does.
+        bad = json.dumps({
+            "id": "dbad", "ts": "2020-01-01T00:00:00+00:00", "state": "settled",
+            "question": "Bad supersedes?", "answer": "n/a", "because": [],
+            "supersedes": [1], "cost_if_wrong": "", "session": "", "author": "x",
+            "branch": "",
+        })
+        with ledger.open("a") as f:
+            f.write(bad + "\n")
+        r = run(d, "list")
+        assert r.returncode == 0, r.stderr
+        assert "dbad" in r.stderr
+        assert "Unrelated" in r.stdout, "one bad entry must not hide the rest"
+
     print("ok")
     return 0
 

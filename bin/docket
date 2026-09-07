@@ -151,10 +151,13 @@ def cmd_add(args: argparse.Namespace) -> int:
         for group in (args.because or [])
     ]
     because = [s for s in because if s]
+    supersedes = [s.strip() for s in (args.supersedes or "").split(",") if s.strip()]
+
     known = {e.get("id") for e in entries}
     unknown = [b for s in because for b in s if b not in known]
+    unknown += [s for s in supersedes if s not in known]
     if unknown:
-        print(f"docket: unknown justification ids: {', '.join(unknown)}", file=sys.stderr)
+        print(f"docket: unknown ids: {', '.join(unknown)}", file=sys.stderr)
         return 1
 
     entry = {
@@ -166,6 +169,9 @@ def cmd_add(args: argparse.Namespace) -> int:
         # Empty means atomic. Each inner list is a complete, independent
         # justification; the claim survives while any one of them survives.
         "because": because,
+        # Ids this entry retires. The retired entry keeps its own state field
+        # forever, so this link is the only thing that marks that state stale.
+        "supersedes": supersedes,
         "cost_if_wrong": args.cost or "",
         "session": session_id(),
         "author": resolved_author(),
@@ -204,6 +210,27 @@ def justification_sets(e: dict) -> list[list[str]]:
     return []
 
 
+def retired_by(entries: list[dict]) -> dict[str, str]:
+    """Map each superseded id to the entry that retired it.
+
+    A shape this cannot parse is skipped the way a malformed because is: the
+    log is append-only, so a bad line can never repair itself, and hiding every
+    other entry behind it would be worse than ignoring it.
+    """
+    out: dict[str, str] = {}
+    for e in entries:
+        ids = e.get("supersedes") or []
+        if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
+            print(
+                f"docket: entry {e.get('id')} has an unparseable supersedes; ignoring it",
+                file=sys.stderr,
+            )
+            continue
+        for i in ids:
+            out[i] = e.get("id", "")
+    return out
+
+
 def _match(e: dict, term: str) -> bool:
     term = term.lower()
     return term in e.get("question", "").lower() or term in e.get("answer", "").lower()
@@ -211,6 +238,9 @@ def _match(e: dict, term: str) -> bool:
 
 def cmd_list(args: argparse.Namespace) -> int:
     entries = read(ledger_path())
+    retired = retired_by(entries)
+    if not args.superseded:
+        entries = [e for e in entries if e.get("id") not in retired]
     if args.state:
         entries = [e for e in entries if e.get("state") == args.state]
     if args.find:
@@ -222,7 +252,8 @@ def cmd_list(args: argparse.Namespace) -> int:
         sets = justification_sets(e)
         # " | " separates alternatives; each alternative's own ids stay comma-joined.
         dep = f"  <- {' | '.join(','.join(s) for s in sets)}" if sets else ""
-        print(f"{e['id']:<5} {e['state']:<9} {e['question']}{dep}")
+        gone = f"  (superseded by {retired[e['id']]})" if e.get("id") in retired else ""
+        print(f"{e['id']:<5} {e['state']:<9} {e['question']}{dep}{gone}")
         print(f"      {e['answer']}")
     return 0
 
@@ -271,6 +302,9 @@ def cmd_context(args: argparse.Namespace) -> int:
     if not entries:
         return 0
 
+    retired = retired_by(entries)
+    entries = [e for e in entries if e.get("id") not in retired]
+
     settled = [e for e in entries if e.get("state") == "settled"]
     ruled = [e for e in entries if e.get("state") == "ruled-out"]
     still_open = [e for e in entries if e.get("state") == "open"]
@@ -307,12 +341,19 @@ def main(argv: list[str] | None = None) -> int:
         "--because", action="append",
         help="comma-separated ids this depends on; repeat for an alternative support set",
     )
+    a.add_argument(
+        "--supersedes", help="comma-separated ids this entry retires",
+    )
     a.add_argument("--cost", help="what breaks if this is later reversed")
     a.set_defaults(func=cmd_add)
 
     ls = sub.add_parser("list", help="list decisions")
     ls.add_argument("--state", choices=STATES)
     ls.add_argument("--find", help="match question or answer text")
+    ls.add_argument(
+        "--superseded", action="store_true",
+        help="include entries a later decision retired",
+    )
     ls.set_defaults(func=cmd_list)
 
     sh = sub.add_parser("show", help="print one entry as JSON")

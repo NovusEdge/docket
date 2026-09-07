@@ -78,30 +78,38 @@ anything expensive. Skip it for anything cheap.
 ## Reading
 
 ```sh
-docket list                    # everything
+docket list                    # everything still current
 docket list --state settled    # one state
 docket list --find postgres    # match question or answer text
-docket show d4                 # one entry as JSON
+docket list --superseded       # include retired entries too
+docket show d4                 # one entry as JSON, retired or not
 ```
 
 ## Reopening a decision
 
 The ledger never edits or deletes. To reverse a decision, record the reversal and
-name the entry it replaces.
+name the entry it retires with `--supersedes`.
 
 ```sh
 docket add "Which database? (reopens d3)" --answer "SQLite. Postgres was overkill." \
+  --supersedes d3 \
   --cost "d9 and d11 assumed Postgres and need rechecking"
 ```
 
-Then check every entry whose `because` names the reopened id, and say plainly
+A retired entry keeps its own state forever, so an old `open` question would
+otherwise still read as open. `--supersedes` drops it from `list` and from the
+injected context, and `list --superseded` shows it again with the id that
+replaced it.
+
+Then check every entry whose `because` names the retired id, and say plainly
 which ones no longer hold. Retraction is manual in this version.
 
 ## What each entry carries
 
-Alongside the question, answer, state, `because`, and `cost_if_wrong`, every
-entry records who wrote it, which session, and which branch. These are captured
-at write time because the log is append-only and cannot gain them later.
+Alongside the question, answer, state, `because`, `supersedes`, and
+`cost_if_wrong`, every entry records who wrote it, which session, and which
+branch. These are captured at write time because the log is append-only and
+cannot gain them later.
 
 Set `DOCKET_AUTHOR` when an agent should identify itself by name. When no
 author can be detected, the entry records `"unknown"` rather than a blank
