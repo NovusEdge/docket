@@ -31,7 +31,7 @@ from typing import Callable, FrozenSet, List, Optional, Tuple
 
 GLYPHS = {"ok": "✓", "warn": "!", "bad": "✗", "skip": "·"}
 GLYPHS_ASCII = {"ok": "ok", "warn": "!", "bad": "x", "skip": "-"}
-COLORS = {"ok": "2", "warn": "3", "bad": "1", "skip": "8"}
+COLORS = {"ok": "32", "warn": "33", "bad": "31", "skip": "90"}
 
 
 def _use_color() -> bool:
@@ -60,16 +60,18 @@ GLYPH = GLYPHS if _use_glyphs() else GLYPHS_ASCII
 def _c(code: str, text: str) -> str:
     if not USE_COLOR:
         return text
-    return "\033[3%sm%s\033[0m" % (code, text)
+    return "\033[%sm%s\033[0m" % (code, text)
 
 
 def _dim(text: str) -> str:
-    return _c("8", text)
+    # 90 is bright black. "38" alone is the extended-colour introducer and
+    # expects 38;5;n, so terminals dropped it and dim text rendered as plain.
+    return _c("90", text)
 
 
 def head(title: str, sub: str = "") -> None:
     print()
-    line = "  %s %s" % (_c("3", title), _dim(sub)) if sub else "  %s" % _c("3", title)
+    line = "  %s %s" % (_c("33", title), _dim(sub)) if sub else "  %s" % _c("33", title)
     print(line)
     print("  " + _dim("─" * 50))
 
