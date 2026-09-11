@@ -416,6 +416,11 @@ def main() -> int:
         # this synthetic ledger to add a 9th, unlike the real one.
         assert max(rows) == 8, rows
 
+        # The collapse row itself must render: leftmost survivor, six joins,
+        # rightmost corner, matching the real d22 fan exactly.
+        r = run(d, "graph", "--style", "rail")
+        assert "├─┴─┴─┴─┴─┴─┴─╯" in r.stdout, r.stdout
+
     # Glyph fallback degrades on an encoding that cannot carry the box-drawing set.
     class _FakeStdout:
         encoding = "ascii"
