@@ -1,13 +1,14 @@
 """Run with: python3 tests/test_install.py"""
 
 import json
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "installer"))
 import install as inst
 
 
@@ -163,6 +164,21 @@ def main() -> int:
         assert inst.MARKER not in after, "uninstall must remove the PATH line it added"
         assert "alias ll" in after, "uninstall must leave the user's own rc lines"
 
+    # --dry-run from a downloaded script must not clone. A clone writes, and
+    # the swap put a real checkout on disk under the promise of writing nothing.
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        lone = d / "install.py"
+        shutil.copy(Path(__file__).resolve().parent.parent / "installer" / "install.py", lone)
+        env = dict(os.environ, HOME=str(d / "home"))
+        env.pop("XDG_DATA_HOME", None)
+        r = subprocess.run([sys.executable, str(lone), "--dry-run", "--yes"],
+                           cwd=str(d), capture_output=True, text=True, env=env)
+        assert r.returncode == 0, r.stderr
+        assert not (d / "home" / ".local" / "share" / "docket").exists(), \
+            "--dry-run must not clone a checkout onto disk"
+        assert "would clone" in r.stdout, r.stdout
+
     # An explicitly chosen harness is configured even when its directory is
     # absent, because the guided flow offers undetected harnesses for a tool
     # the user is about to install.
@@ -248,7 +264,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         env = {"HOME": tmp, "PATH": "/usr/bin:/bin"}
         r = subprocess.run(
-            [sys.executable, str(Path(__file__).resolve().parent.parent / "install.py"),
+            [sys.executable, str(Path(__file__).resolve().parent.parent / "installer" / "install.py"),
              "--dry-run", "--dir", str(Path(tmp) / "checkout")],
             input="", capture_output=True, text=True, env=env, timeout=30,
         )

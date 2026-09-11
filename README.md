@@ -11,9 +11,12 @@ The agent can continue after conversation compaction.
 Docket requires Python 3.10 or later. It has no Python package dependencies.
 
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/NovusEdge/docket/main/install.py
+curl -fsSLO https://raw.githubusercontent.com/NovusEdge/docket/main/installer/install.py
 python3 install.py
 ```
+
+`curl -O` saves the file as `install.py` in the current directory. From a
+checkout, run `python3 installer/install.py` instead.
 
 In a terminal, the installer walks you through the command location, which
 harnesses to configure, and the PATH change, and shows the full plan before
@@ -21,10 +24,9 @@ writing anything. It detects Claude Code, Codex, Gemini CLI, Cursor, GitHub
 Copilot CLI, and OpenCode, and pre-selects the ones it finds; you can select an
 undetected one too, if you're about to install it.
 
-Run `python3 install.py --yes` for the old defaults-only behavior with no
-prompts, the same as CI uses. Run `python3 install.py --dry-run` to see every
-file the installer would write. Run `python3 install.py --uninstall` to remove
-them. The uninstall keeps your decision ledgers.
+Add `--yes` for the defaults-only behaviour with no prompts, the same as CI
+uses. Add `--dry-run` to see every file the installer would write. Add
+`--uninstall` to remove them. The uninstall keeps your decision ledgers.
 
 Run the installer again to update. It pulls the current version and rewrites the
 configuration.

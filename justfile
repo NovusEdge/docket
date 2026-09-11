@@ -18,9 +18,9 @@ verify:
     set -euo pipefail
     home=$(mktemp -d)
     trap 'rm -rf "$home"' EXIT
-    HOME="$home" python3 install.py --yes
+    HOME="$home" python3 installer/install.py --yes
     "$home/.local/bin/docket" --version
-    HOME="$home" python3 install.py --uninstall --yes
+    HOME="$home" python3 installer/install.py --uninstall --yes
     for leftover in ".local/bin/docket" ".claude/skills/docket"; do
       if [ -e "$home/$leftover" ] || [ -L "$home/$leftover" ]; then
         echo "FAIL: uninstall left $leftover"
@@ -32,17 +32,17 @@ verify:
 # wire this machine
 [group('install')]
 install:
-    python3 install.py
+    python3 installer/install.py
 
 # print every file the installer would write, and write none of them
 [group('install')]
 dry:
-    python3 install.py --dry-run
+    python3 installer/install.py --dry-run
 
 # remove what the installer wrote; keeps every ledger
 [group('install')]
 uninstall:
-    python3 install.py --uninstall
+    python3 installer/install.py --uninstall
 
 # report the docket on PATH and the ledger active in this directory
 [group('install')]

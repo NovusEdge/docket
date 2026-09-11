@@ -13,12 +13,18 @@ agent harness.
 ## The installer
 
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/NovusEdge/docket/main/install.py
+curl -fsSLO https://raw.githubusercontent.com/NovusEdge/docket/main/installer/install.py
 python3 install.py
 ```
 
+`curl -O` saves the file as `install.py` in the current directory, whatever the
+depth of the URL. From a checkout, run `python3 installer/install.py`.
+
 The installer clones the repository if you do not run it from a checkout. It
 adds the command to `PATH`, and it configures each harness that it finds.
+
+An update clones into a temporary directory and swaps the result into place, so
+a local change in the install directory never blocks it.
 
 In a terminal, and without `--yes`, `--no-tty`, `--dry-run`, or `--harness`,
 the installer runs a guided flow instead of taking every default silently:

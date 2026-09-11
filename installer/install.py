@@ -781,9 +781,17 @@ def plan_uninstall(ctx: Ctx, prefix: Path, shell: str) -> List[Action]:
 
 
 def find_checkout() -> Optional[Path]:
+    """The checkout this script sits inside, or None when it was downloaded
+    on its own.
+
+    The script lives in installer/, so the repository root is its parent.
+    Downloaded alone with `curl -O` it lands in the working directory, where
+    neither candidate holds bin/docket and the caller clones instead.
+    """
     here = Path(__file__).resolve().parent
-    if (here / "bin" / "docket").exists():
-        return here
+    for candidate in (here.parent, here):
+        if (candidate / "bin" / "docket").exists():
+            return candidate
     return None
 
 
@@ -863,9 +871,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     checkout = find_checkout()
     if checkout is None:
         directory = Path(args.dir).expanduser() if args.dir else default_dir(home, os_name)
-        checkout = clone_checkout(directory, no_tty)
-        if checkout is None:
-            return 1
+        if args.dry_run:
+            # --dry-run promises to write nothing, and a clone writes. The
+            # planner only ever reads the checkout path, so planning against
+            # the directory the clone would land in gives the same answer.
+            checkout = directory
+            warn("checkout", "would clone into %s" % directory)
+        else:
+            checkout = clone_checkout(directory, no_tty)
+            if checkout is None:
+                return 1
 
     default_pfx = Path(args.prefix).expanduser() if args.prefix else default_prefix(home, os_name)
     prefix = ask_prefix(default_pfx, home, Path.cwd(), read_line, print) if interactive else default_pfx
