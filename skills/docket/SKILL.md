@@ -104,6 +104,22 @@ the retired entry. `docket list --superseded` includes it.
 Review entries that depend directly or indirectly on the retired ID. Docket does
 not automatically retire dependent entries.
 
+## Correct a wrong justification
+
+An entry can name the wrong supporting decision. Correct it the same way:
+record the decision again with the right `--because`, and retire the wrong
+entry with `--supersedes`.
+
+```sh
+docket add "Ask the model what it changed?" --state ruled-out \
+  --answer "No. World outcomes get computed from tool-call logs." \
+  --because d2 \
+  --supersedes d3
+```
+
+Do not record the correction as prose in a new entry. A reader of the ledger
+cannot apply it, so the wrong link stays in the graph.
+
 ## Entry data
 
 Each entry contains these fields:
