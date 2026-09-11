@@ -22,10 +22,12 @@ if sys.version_info < (3, 10):
 import argparse
 import json
 import os
+import shutil
 import subprocess
+import tempfile
 from collections import namedtuple
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, FrozenSet, List, Optional, Tuple
 
 GLYPHS = {"ok": "✓", "warn": "!", "bad": "✗", "skip": "·"}
 GLYPHS_ASCII = {"ok": "ok", "warn": "!", "bad": "x", "skip": "-"}
@@ -119,15 +121,27 @@ ReadFn = Callable[[Path], Optional[str]]
 
 Ctx = namedtuple(
     "Ctx",
-    "home os_name checkout python path_entries exists read_text link_target project cwd",
+    "home os_name checkout python path_entries exists read_text link_target project cwd forced",
 )
 
 
 def make_ctx(home: Path, os_name: str, checkout: Path, python: str,
              path_entries: List[str], exists: ExistsFn, read_text: ReadFn,
-             link_target: ReadFn, project: bool, cwd: Path) -> Ctx:
+             link_target: ReadFn, project: bool, cwd: Path,
+             forced: frozenset = frozenset()) -> Ctx:
     return Ctx(home, os_name, checkout, python, path_entries, exists, read_text,
-               link_target, project, cwd)
+               link_target, project, cwd, forced)
+
+
+def wanted(ctx: Ctx, name: str, directory: Path) -> bool:
+    """Whether to configure a harness the user did not have installed.
+
+    Detection decides what an unattended run touches. A name the user picked
+    outright overrides it, because the guided flow offers undetected harnesses
+    for a tool they are about to install, and a checkbox that configures
+    nothing is a lie.
+    """
+    return name in ctx.forced or ctx.exists(directory)
 
 
 def real_exists(p: Path) -> bool:
@@ -338,7 +352,7 @@ def _merge_hook_list(hooks: list, entry: dict, name_key: str = "name",
 
 
 def plan_gemini(ctx: Ctx) -> Tuple[List[Action], Row]:
-    if not ctx.exists(ctx.home / ".gemini"):
+    if not wanted(ctx, "gemini", ctx.home / ".gemini"):
         return [], Row("gemini", "skip", "~/.gemini not found")
 
     path = ctx.home / ".gemini" / "settings.json"
@@ -361,7 +375,7 @@ def _docket_owns(command: str, ctx: Ctx) -> bool:
 
 
 def plan_cursor(ctx: Ctx) -> Tuple[List[Action], Row]:
-    if not ctx.exists(ctx.home / ".cursor"):
+    if not wanted(ctx, "cursor", ctx.home / ".cursor"):
         return [], Row("cursor", "skip", "~/.cursor not found")
 
     actions: List[Action] = []
@@ -403,7 +417,8 @@ def copilot_hook_entry(ctx: Ctx) -> dict:
 
 
 def plan_copilot(ctx: Ctx) -> Tuple[List[Action], Row]:
-    present = ctx.exists(ctx.home / ".copilot") or on_path_cmd("copilot", ctx.path_entries, ctx.os_name, ctx.exists)
+    present = (wanted(ctx, "copilot", ctx.home / ".copilot")
+               or on_path_cmd("copilot", ctx.path_entries, ctx.os_name, ctx.exists))
     if not present:
         return [], Row("copilot", "skip", "copilot not found")
 
@@ -452,7 +467,7 @@ def opencode_plugin_source(ctx: Ctx) -> str:
 
 
 def plan_opencode(ctx: Ctx) -> Tuple[List[Action], Row]:
-    if not ctx.exists(ctx.home / ".config" / "opencode"):
+    if not wanted(ctx, "opencode", ctx.home / ".config" / "opencode"):
         return [], Row("opencode", "skip", "~/.config/opencode not found")
 
     path = ctx.home / ".config" / "opencode" / "plugins" / "docket" / "index.ts"
@@ -500,6 +515,8 @@ def plan(ctx: Ctx, prefix: Path, shell: str, selected: Optional[List[str]]) -> T
 
     names = selected if selected else list(HARNESS_TABLE)
     for name in names:
+        if name == "codex":
+            continue  # handled below: config.toml needs the codex CLI, not a Write
         fn = HARNESS_TABLE.get(name)
         if fn is None:
             rows.append(Row(name, "bad", "unknown harness"))
@@ -517,6 +534,144 @@ def plan(ctx: Ctx, prefix: Path, shell: str, selected: Optional[List[str]]) -> T
         else:
             rows.append(Row("codex", "skip", "codex not found"))
 
+    return actions, rows
+
+
+ReadLineFn = Callable[[], str]
+WriteFn = Callable[[str], None]
+
+
+def make_reader() -> ReadLineFn:
+    """EOF reads as blank, the same as ask()'s EOFError branch, so every
+    prompt below can treat "" as its accept-the-current-state input."""
+    def read_line() -> str:
+        try:
+            return input()
+        except EOFError:
+            return ""
+    return read_line
+
+
+def expand_home(p: str, home: Path) -> Path:
+    """Path.expanduser() reads the real $HOME; a test's fake home would be
+    ignored, so ~ is expanded against the home this run already resolved."""
+    if p == "~":
+        return home
+    if p.startswith("~/"):
+        return home / p[2:]
+    return Path(p)
+
+
+def ask_prefix(default: Path, home: Path, cwd: Path, read_line: ReadLineFn, write: WriteFn) -> Path:
+    write("")
+    write("  command location [%s]:" % default)
+    reply = read_line().strip()
+    chosen = expand_home(reply, home) if reply else default
+    if not chosen.is_absolute():
+        chosen = cwd / chosen
+    return chosen
+
+
+def parse_selection(reply: str, count: int) -> Optional[List[int]]:
+    """0-based indices from a space/comma-separated list of 1-based numbers,
+    or None if any token is not a valid index."""
+    tokens = reply.replace(",", " ").split()
+    indices = []
+    for t in tokens:
+        if not t.isdigit():
+            return None
+        i = int(t)
+        if i < 1 or i > count:
+            return None
+        indices.append(i - 1)
+    return indices
+
+
+def select_harnesses(names: List[str], detected: List[bool], read_line: ReadLineFn,
+                      write: WriteFn) -> List[str]:
+    checked = list(detected)
+    while True:
+        write("")
+        write("  harnesses (enter to accept, indices to toggle, all, none)")
+        for i, name in enumerate(names):
+            mark = "x" if checked[i] else " "
+            state = "detected" if detected[i] else "not detected"
+            write("    [%s] %d) %-12s %s" % (mark, i + 1, name, state))
+        reply = read_line().strip()
+        low = reply.lower()
+        if reply == "":
+            return [n for n, c in zip(names, checked) if c]
+        if low == "all":
+            checked = [True] * len(names)
+            continue
+        if low == "none":
+            checked = [False] * len(names)
+            continue
+        indices = parse_selection(reply, len(names))
+        if indices is None:
+            write("  not understood, try again")
+            continue
+        for i in indices:
+            checked[i] = not checked[i]
+
+
+def confirm(prompt: str, default_yes: bool, read_line: ReadLineFn, write: WriteFn) -> bool:
+    hint = "Y/n" if default_yes else "y/N"
+    while True:
+        write("  %s [%s]" % (prompt, hint))
+        reply = read_line().strip().lower()
+        if reply == "":
+            return default_yes
+        if reply in ("y", "yes"):
+            return True
+        if reply in ("n", "no"):
+            return False
+        write("  please answer y or n")
+
+
+def harness_names() -> List[str]:
+    return list(HARNESS_TABLE) + ["codex"]
+
+
+def detect_harnesses(ctx: Ctx) -> List[bool]:
+    detect = {
+        "claude-code": ctx.exists(ctx.home / ".claude"),
+        "gemini": ctx.exists(ctx.home / ".gemini"),
+        "cursor": ctx.exists(ctx.home / ".cursor"),
+        "copilot": ctx.exists(ctx.home / ".copilot")
+        or on_path_cmd("copilot", ctx.path_entries, ctx.os_name, ctx.exists),
+        "opencode": ctx.exists(ctx.home / ".config" / "opencode"),
+        "codex": codex_present(ctx),
+    }
+    return [detect[name] for name in harness_names()]
+
+
+def interactive_select_harnesses(ctx: Ctx, read_line: ReadLineFn, write: WriteFn) -> List[str]:
+    names = harness_names()
+    return select_harnesses(names, detect_harnesses(ctx), read_line, write)
+
+
+def confirm_path(ctx: Ctx, prefix: Path, shell: str, actions: List[Action], rows: List[Row],
+                  read_line: ReadLineFn, write: WriteFn) -> Tuple[List[Action], List[Row]]:
+    """Lets the user decline the rc-file write plan() already staged. Only
+    the "path" row can be declined; every other row was chosen in the
+    harness step above."""
+    idx = next((i for i, r in enumerate(rows) if r.harness == "path" and r.status == "warn"), None)
+    if idx is None:
+        return actions, rows
+
+    rc_path = shell_rc(ctx.home, shell)
+    write("")
+    write("  PATH")
+    write("  %s is not on PATH" % prefix)
+    write("  append to %s:" % rc_path)
+    write("    %s" % rc_line(shell, prefix))
+    if confirm("append it", True, read_line, write):
+        return actions, rows
+
+    actions = [a for a in actions if not (isinstance(a, Write) and Path(a.path) == rc_path)]
+    rows = list(rows)
+    rows[idx] = Row("path", "skip", "declined, add it yourself")
     return actions, rows
 
 
@@ -632,20 +787,53 @@ def find_checkout() -> Optional[Path]:
     return None
 
 
+def swap_checkout(new_tree: Path, dest: Path) -> None:
+    """Move new_tree into dest, keeping dest a directory throughout except
+    the brief window between steps 2 and 3.
+
+    shutil.move, not os.replace: dest usually lives outside /tmp, on a
+    different filesystem than new_tree, and os.replace refuses that.
+    """
+    if not dest.exists():
+        shutil.move(str(new_tree), str(dest))
+        return
+
+    aside = dest.with_name(dest.name + ".docket-old")
+    if aside.exists():
+        shutil.rmtree(aside)
+    shutil.move(str(dest), str(aside))
+    try:
+        shutil.move(str(new_tree), str(dest))
+    except OSError:
+        shutil.move(str(aside), str(dest))
+        raise
+    shutil.rmtree(aside)
+
+
 def clone_checkout(directory: Path, no_tty: bool) -> Optional[Path]:
+    """Clones to a temp directory and swaps it into place, rather than
+    `git pull --ff-only` on an existing target: a pull fails outright over
+    local modifications and leaves no way forward short of a manual delete.
+    A fresh clone plus a swap always succeeds and never inspects the old
+    tree's state."""
     chosen = ask("Clone docket into", str(directory), no_tty)
     target = Path(chosen).expanduser()
-    if target.exists() and any(target.iterdir()):
-        r = subprocess.run(["git", "-C", str(target), "pull", "--ff-only"])
+
+    tmp = Path(tempfile.mkdtemp(prefix="docket-clone-"))
+    try:
+        clone_dir = tmp / "checkout"
+        r = subprocess.run(["git", "clone", "https://github.com/NovusEdge/docket.git", str(clone_dir)])
         if r.returncode != 0:
-            bad("checkout", "%s exists and is not a clean docket clone" % target)
+            bad("checkout", "git clone failed")
+            return None
+        try:
+            swap_checkout(clone_dir, target)
+        except OSError as e:
+            bad("checkout", "could not replace %s: %s" % (target, e))
             return None
         return target
-    r = subprocess.run(["git", "clone", "https://github.com/NovusEdge/docket.git", str(target)])
-    if r.returncode != 0:
-        bad("checkout", "git clone failed")
-        return None
-    return target
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -661,6 +849,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = p.parse_args(argv)
 
     no_tty = args.no_tty or args.yes
+    interactive = (
+        not args.uninstall and not args.dry_run and not no_tty and not args.harness
+        and sys.stdin.isatty()
+    )
+    read_line = make_reader() if interactive else None
 
     home = Path.home()
     os_name = "nt" if os.name == "nt" else "posix"
@@ -674,7 +867,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         if checkout is None:
             return 1
 
-    prefix = Path(args.prefix).expanduser() if args.prefix else default_prefix(home, os_name)
+    default_pfx = Path(args.prefix).expanduser() if args.prefix else default_prefix(home, os_name)
+    prefix = ask_prefix(default_pfx, home, Path.cwd(), read_line, print) if interactive else default_pfx
     if sys.prefix != sys.base_prefix:
         warn("interpreter", "running from a venv; hooks will call %s" % sys.executable)
 
@@ -705,7 +899,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         ok("done", "your decision ledgers were left alone")
         return 0
 
-    actions, rows = plan(ctx, prefix, shell, args.harness)
+    selected = interactive_select_harnesses(ctx, read_line, print) if interactive else args.harness
+
+    # A name the user picked outright overrides the planner's own detection,
+    # so the guided flow can wire a tool they are about to install.
+    if selected:
+        ctx = ctx._replace(forced=frozenset(selected))
+
+    actions, rows = plan(ctx, prefix, shell, selected)
+    if interactive:
+        actions, rows = confirm_path(ctx, prefix, shell, actions, rows, read_line, print)
 
     head("docket install", str(checkout))
     for row in rows:
@@ -718,13 +921,21 @@ def main(argv: Optional[List[str]] = None) -> int:
             print("  " + describe(a))
         return 0
 
+    if interactive:
+        print()
+        print("  review")
+        for a in actions:
+            print("    " + describe(a))
+        if not confirm("proceed", True, read_line, print):
+            return 130
+
     try:
         apply(actions)
     except OSError as e:
         bad("apply", str(e))
         return 1
 
-    if (not args.harness or "codex" in args.harness) and codex_present(ctx):
+    if (not selected or "codex" in selected) and codex_present(ctx):
         for command in codex_commands(ctx):
             r = subprocess.run(command, capture_output=True, text=True)
             if r.returncode != 0:

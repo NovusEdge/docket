@@ -15,13 +15,16 @@ curl -fsSLO https://raw.githubusercontent.com/NovusEdge/docket/main/install.py
 python3 install.py
 ```
 
-The installer adds the `docket` command to your `PATH`. It also configures each
-agent harness that it finds on your machine: Claude Code, Codex, Gemini CLI,
-Cursor, GitHub Copilot CLI, and OpenCode.
+In a terminal, the installer walks you through the command location, which
+harnesses to configure, and the PATH change, and shows the full plan before
+writing anything. It detects Claude Code, Codex, Gemini CLI, Cursor, GitHub
+Copilot CLI, and OpenCode, and pre-selects the ones it finds; you can select an
+undetected one too, if you're about to install it.
 
-Run `python3 install.py --dry-run` first to see every file that the installer
-writes. Run `python3 install.py --uninstall` to remove them. The uninstall keeps
-your decision ledgers.
+Run `python3 install.py --yes` for the old defaults-only behavior with no
+prompts, the same as CI uses. Run `python3 install.py --dry-run` to see every
+file the installer would write. Run `python3 install.py --uninstall` to remove
+them. The uninstall keeps your decision ledgers.
 
 Run the installer again to update. It pulls the current version and rewrites the
 configuration.

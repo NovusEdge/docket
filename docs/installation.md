@@ -20,14 +20,32 @@ python3 install.py
 The installer clones the repository if you do not run it from a checkout. It
 adds the command to `PATH`, and it configures each harness that it finds.
 
+In a terminal, and without `--yes`, `--no-tty`, `--dry-run`, or `--harness`,
+the installer runs a guided flow instead of taking every default silently:
+
+1. It asks where to put the `docket` command, showing the resolved default.
+2. It lists every harness with its detection result, pre-checked when
+   detected. Accept with Enter, type indices to toggle them, or type `all` or
+   `none`. An undetected harness can still be selected, for a tool you are
+   about to install.
+3. If the chosen location is not already on `PATH`, it shows the exact line
+   and file and asks before appending.
+4. It prints the full plan and asks for confirmation before writing anything.
+
+Ctrl-C at any point exits without writing anything.
+
 | Option | Effect |
 |---|---|
-| `--dry-run` | Print every file without writing it |
-| `--harness NAME` | Configure one harness; repeat for more |
+| `--dry-run` | Print every file without writing it, non-interactively |
+| `--harness NAME` | Configure one harness; repeat for more; skips the guided flow |
 | `--project` | Configure this repository instead of your home directory |
 | `--prefix DIR` | Put the command in `DIR` |
 | `--yes` | Take every default and do not prompt |
+| `--no-tty` | Treat stdin as non-interactive, same effect as `--yes` on prompting |
 | `--uninstall` | Remove what the installer wrote |
+
+CI and `just verify` use `--yes` (or a non-tty stdin), which keeps taking every
+default with no prompts and no rc-file write, exactly as before.
 
 The uninstall keeps every ledger.
 
