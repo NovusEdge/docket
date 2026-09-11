@@ -62,6 +62,21 @@ docket add "Which async driver?" \
   --answer "Select the driver after the concurrency requirement is known."
 ```
 
+The answer can come positionally or via `--answer`, not both:
+
+```sh
+docket add "Which database?" "Postgres with psycopg 3"
+```
+
+`docket ruled-out` and `docket open` are shorthand for `add --state ruled-out`
+and `add --state open`. They accept `--because`, `--supersedes`, and `--cost`
+like `add` does:
+
+```sh
+docket ruled-out "Use an ORM?" "No. Use SQL for the full-text search queries."
+docket open "Which async driver?" "Select the driver after the concurrency requirement is known."
+```
+
 Use IDs that exist in your ledger. Use `--because` to identify supporting
 decisions. Separate joint requirements with commas:
 
@@ -89,12 +104,19 @@ to add an alternative set.
 docket list
 docket list --state settled
 docket list --find postgres
+docket list --oneline
 docket show d3
+docket show d3 --json
 docket context
 ```
 
-`list` shows current entries. `show` prints one entry as JSON. `context` prints
-the text that Docket gives to the agent.
+`list` shows current entries, wrapped and coloured to the terminal; `--oneline`
+prints one line per entry with no answer. `--plain` and `--pretty` force the
+colour gate off or on. `show` prints one entry, human-readable, resolving its
+`--because` ids to the question text they cite; `--json` prints the entry as
+stored. `context` prints the text that Docket gives to the agent.
+
+`docket completion bash|zsh|fish` prints a completion script for that shell.
 
 ## Replace a decision
 

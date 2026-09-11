@@ -84,7 +84,8 @@ docket list                    # Show all current entries.
 docket list --state settled    # Show one state.
 docket list --find postgres    # Search questions and answers.
 docket list --superseded       # Include retired entries.
-docket show d4                 # Show one entry as JSON.
+docket list --oneline          # One line per entry, no answer.
+docket show d4 --json          # Show one entry as JSON.
 ```
 
 ## Replace a decision

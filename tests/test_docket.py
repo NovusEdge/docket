@@ -89,7 +89,7 @@ def main() -> int:
         envelope = json.loads(r.stdout)
         assert "Which database?" in envelope["additional_context"]
 
-        r = run(d, "show", "d3")
+        r = run(d, "show", "d3", "--json")
         entry = json.loads(r.stdout)
         assert entry["because"] == [["d1"]]
         # Provenance fields are append-only and cannot be backfilled.
@@ -118,7 +118,7 @@ def main() -> int:
         r = run(d, "add", "Alternative supports?", "--answer", "Either works",
                 "--because", "d1,d2", "--because", "d1")
         assert r.returncode == 0, r.stderr
-        d5 = json.loads(run(d, "show", "d5").stdout)
+        d5 = json.loads(run(d, "show", "d5", "--json").stdout)
         assert d5["because"] == [["d1", "d2"], ["d1"]], d5
 
         # list renders a genuine nested because without crashing.
@@ -259,7 +259,7 @@ def main() -> int:
 
         r = run(d, "add", "Was it fixed?", "--answer", "Yes", "--supersedes", "d1")
         assert r.returncode == 0, r.stderr
-        assert json.loads(run(d, "show", "d3").stdout)["supersedes"] == ["d1"]
+        assert json.loads(run(d, "show", "d3", "--json").stdout)["supersedes"] == ["d1"]
 
         r = run(d, "list", "--state", "open")
         assert "Fix the schema doc" not in r.stdout, "a retired entry must leave the open list"
@@ -277,7 +277,7 @@ def main() -> int:
         assert "Unrelated" in r.stdout
 
         # show reaches a retired entry directly; the history stays readable.
-        assert json.loads(run(d, "show", "d1").stdout)["question"] == "Fix the schema doc"
+        assert json.loads(run(d, "show", "d1", "--json").stdout)["question"] == "Fix the schema doc"
 
         # A malformed supersedes degrades the way a malformed because does.
         bad = json.dumps({
@@ -430,6 +430,80 @@ def main() -> int:
         assert docket_cli._use_glyphs() is False
     finally:
         docket_cli.sys.stdout = real_stdout
+
+    # list wrapping, --oneline, positional answer, shorthands, show, completion
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        (d / ".git").mkdir()
+        run(d, "init")
+
+        long_answer = "word " * 100  # forces list to wrap
+        run(d, "add", "Long one", "--answer", long_answer)  # d1
+
+        r = run(d, "list", "--pretty")
+        for line in r.stdout.splitlines():
+            visible = re.sub(r"\033\[[0-9;]*m", "", line)
+            assert len(visible) <= 80, visible
+
+        r = run(d, "list", "--plain")
+        assert "\033[" not in r.stdout
+
+        # Positional answer and --answer must produce identical entries.
+        r = run(d, "add", "Positional?", "answer text")
+        assert r.returncode == 0, r.stderr
+        pos = json.loads(run(d, "show", "d2", "--json").stdout)
+        r = run(d, "add", "Flag?", "--answer", "answer text")
+        flag = json.loads(run(d, "show", "d3", "--json").stdout)
+        assert pos["answer"] == flag["answer"] == "answer text"
+
+        r = run(d, "add", "Both?", "positional", "--answer", "flag")
+        assert r.returncode == 1, "positional and --answer together must be an error"
+        r = run(d, "add", "Neither?")
+        assert r.returncode == 1, "an answer is required"
+
+        r = run(d, "list", "--oneline")
+        assert "answer text" not in r.stdout, "--oneline must not print the answer"
+        assert len([l for l in r.stdout.splitlines() if l.strip()]) == 3
+
+        # show wraps its fields under a hanging indent, the way list does.
+        r = run(d, "show", "d1")
+        assert r.returncode == 0, r.stderr
+        for line in r.stdout.splitlines():
+            assert len(line) <= 80 or "Session:" in line, line
+        assert any(l.startswith("          ") for l in r.stdout.splitlines()), \
+            "a wrapped answer must be indented past its label"
+
+        # State shorthands are equivalent to add --state X, and take --because.
+        r = run(d, "ruled-out", "No ORM", "Correct")
+        assert r.returncode == 0, r.stderr
+        assert json.loads(run(d, "show", "d4", "--json").stdout)["state"] == "ruled-out"
+
+        r = run(d, "open", "Which driver", "TBD", "--because", "d1")
+        assert r.returncode == 0, r.stderr
+        d5 = json.loads(run(d, "show", "d5", "--json").stdout)
+        assert d5["state"] == "open" and d5["because"] == [["d1"]]
+
+        # show is human-readable by default and resolves because to question text.
+        r = run(d, "show", "d5")
+        assert "TBD" in r.stdout and "Long one" in r.stdout, r.stdout
+        assert not r.stdout.lstrip().startswith("{")
+
+        r = run(d, "show", "d5", "--json")
+        assert json.loads(r.stdout)["id"] == "d5"
+
+        for shell in ("bash", "zsh", "fish"):
+            r = run(d, "completion", shell)
+            assert r.returncode == 0, r.stderr
+            assert r.stdout.strip(), f"{shell} completion must not be empty"
+            assert "ruled-out" in r.stdout and "show" in r.stdout
+
+        # One entry stays one line, so a long question truncates instead of
+        # wrapping. Wrapping would break piping the mode into grep.
+        run(d, "add", "A question far longer than any terminal is wide, " * 4, "a")
+        r = run(d, "list", "--oneline")
+        for line in r.stdout.splitlines():
+            assert len(line) <= 80, line
+        assert "…" in r.stdout or "..." in r.stdout
 
     print("ok")
     return 0

@@ -161,6 +161,14 @@ def next_id(entries: list[dict]) -> str:
 
 
 def cmd_add(args: argparse.Namespace) -> int:
+    if args.answer_pos and args.answer_flag:
+        print("docket: give the answer once, not both positionally and as --answer", file=sys.stderr)
+        return 1
+    if not args.answer_pos and not args.answer_flag:
+        print("docket: an answer is required, positionally or via --answer", file=sys.stderr)
+        return 1
+    args.answer = args.answer_pos or args.answer_flag
+
     path = ledger_path()
     entries = read(path)
 
@@ -256,6 +264,23 @@ def _match(e: dict, term: str) -> bool:
     return term in e.get("question", "").lower() or term in e.get("answer", "").lower()
 
 
+_LIST_ID_W, _LIST_STATE_W = 5, 9
+_LIST_HEAD_W = _LIST_ID_W + 1 + _LIST_STATE_W + 1  # clears the id+state columns
+
+
+def _list_dim_tail(line: str, marker: str, use_color: bool) -> str:
+    """Dim a line from `marker` onward, if the line carries it at all.
+
+    Wrapping can split the marker onto a line of its own or leave it whole;
+    either way the dim colour must start where the marker starts, not at
+    column 0.
+    """
+    idx = line.find(marker)
+    if idx == -1 or not use_color:
+        return line
+    return line[:idx] + _c(_DIM, line[idx:], use_color)
+
+
 def cmd_list(args: argparse.Namespace) -> int:
     entries = read(ledger_path())
     retired = retired_by(entries)
@@ -268,13 +293,38 @@ def cmd_list(args: argparse.Namespace) -> int:
     if not entries:
         print("docket: nothing recorded")
         return 0
+
+    use_color = False if args.plain else True if args.pretty else _use_color()
+    width = shutil.get_terminal_size().columns
+
+    if args.oneline:
+        for e in entries:
+            id_str = _c(_STATE_COLOR.get(e["state"], _DIM), f"{e['id']:<{_LIST_ID_W}}", use_color)
+            # Truncated, never wrapped: one entry stays one line, which is what
+            # makes the mode scannable and pipeable into grep.
+            room = max(width - _LIST_ID_W - _LIST_STATE_W - 2, 20)
+            question = textwrap.shorten(e["question"], width=room, placeholder="…")
+            print(f"{id_str} {e['state']:<{_LIST_STATE_W}} {question}")
+        return 0
+
     for e in entries:
         sets = justification_sets(e)
         # " | " separates alternatives; each alternative's own ids stay comma-joined.
         dep = f"  <- {' | '.join(','.join(s) for s in sets)}" if sets else ""
         gone = f"  (superseded by {retired[e['id']]})" if e.get("id") in retired else ""
-        print(f"{e['id']:<5} {e['state']:<9} {e['question']}{dep}{gone}")
-        print(f"      {e['answer']}")
+
+        id_str = _c(_STATE_COLOR.get(e["state"], _DIM), f"{e['id']:<{_LIST_ID_W}}", use_color)
+        state_str = _c(_STATE_COLOR.get(e["state"], _DIM), f"{e['state']:<{_LIST_STATE_W}}", use_color)
+
+        avail = max(width - _LIST_HEAD_W, 20)
+        wrapped = textwrap.wrap(e["question"] + dep + gone, width=avail) or [""]
+        print(f"{id_str} {state_str} " + _list_dim_tail(_list_dim_tail(wrapped[0], "<-", use_color), "(superseded by", use_color))
+        for line in wrapped[1:]:
+            line = _list_dim_tail(_list_dim_tail(line, "<-", use_color), "(superseded by", use_color)
+            print(" " * _LIST_HEAD_W + line)
+
+        for line in textwrap.wrap(e["answer"], width=max(width - 6, 20)) or [""]:
+            print("      " + line)
     return 0
 
 
@@ -642,12 +692,47 @@ def cmd_graph(args: argparse.Namespace) -> int:
 
 
 def cmd_show(args: argparse.Namespace) -> int:
-    for e in read(ledger_path()):
-        if e.get("id") == args.id:
-            print(json.dumps(e, indent=2))
-            return 0
-    print(f"docket: no entry {args.id}", file=sys.stderr)
-    return 1
+    entries = read(ledger_path())
+    by_id = {e.get("id"): e for e in entries}
+    e = by_id.get(args.id)
+    if not e:
+        print(f"docket: no entry {args.id}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(e, indent=2))
+        return 0
+
+    def cite(i: str) -> str:
+        q = by_id.get(i, {}).get("question")
+        return f"{i} ({q})" if q else i
+
+    width = shutil.get_terminal_size().columns
+
+    def field(label: str, value: str) -> None:
+        """One labelled field, wrapped under a hanging indent past the label."""
+        indent = " " * (len(label) + 4)
+        for i, line in enumerate(textwrap.wrap(f"  {label}: {value}", width=width,
+                                               subsequent_indent=indent) or [f"  {label}:"]):
+            print(line)
+
+    for line in textwrap.wrap(f"{e['id']}  {e.get('state', '')}  {e.get('question', '')}",
+                              width=width, subsequent_indent=" " * 15):
+        print(line)
+    field("Answer", e.get("answer", ""))
+    sets = justification_sets(e)
+    if sets:
+        field("Because", " | ".join(", ".join(cite(i) for i in s) for s in sets))
+    supersedes = e.get("supersedes") or []
+    if supersedes:
+        field("Supersedes", ", ".join(cite(i) for i in supersedes))
+    retired = retired_by(entries)
+    if e["id"] in retired:
+        field("Superseded by", cite(retired[e["id"]]))
+    if e.get("cost_if_wrong"):
+        field("Cost if wrong", e["cost_if_wrong"])
+    print(f"  Author: {e.get('author', '')}  Session: {e.get('session', '')}  Branch: {e.get('branch', '')}")
+    return 0
 
 
 def cmd_where(args: argparse.Namespace) -> int:
@@ -749,24 +834,106 @@ def cmd_context(args: argparse.Namespace) -> int:
     return 0
 
 
+_COMPLETION_FLAGS = (
+    "--state", "--answer", "--because", "--supersedes", "--cost",
+    "--find", "--superseded", "--oneline", "--json", "--plain", "--pretty",
+    "--style", "--for", "--version",
+)
+_COMPLETION_CMDS = ("add", "ruled-out", "open", "list", "show", "graph", "context", "where", "init", "completion")
+
+_BASH_COMPLETION = f"""\
+_docket() {{
+    local cur prev
+    cur="${{COMP_WORDS[COMP_CWORD]}}"
+    prev="${{COMP_WORDS[COMP_CWORD-1]}}"
+    case "$prev" in
+        --state) COMPREPLY=($(compgen -W "{' '.join(STATES)}" -- "$cur")); return ;;
+        --because|--supersedes|show)
+            COMPREPLY=($(compgen -W "$(docket list --oneline 2>/dev/null | awk '{{print $1}}')" -- "$cur")); return ;;
+        completion) COMPREPLY=($(compgen -W "bash zsh fish" -- "$cur")); return ;;
+    esac
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=($(compgen -W "{' '.join(_COMPLETION_FLAGS)}" -- "$cur")); return
+    fi
+    COMPREPLY=($(compgen -W "{' '.join(_COMPLETION_CMDS)}" -- "$cur"))
+}}
+complete -F _docket docket
+"""
+
+_ZSH_COMPLETION = f"""\
+#compdef docket
+
+_docket_ids() {{
+    local -a ids
+    ids=(${{(f)"$(docket list --oneline 2>/dev/null | awk '{{print $1}}')"}})
+    _describe 'id' ids
+}}
+
+_arguments -C \\
+    '1: :({' '.join(_COMPLETION_CMDS)})' \\
+    '*::arg:->args'
+
+case $words[1] in
+    show) _docket_ids ;;
+    completion) _values 'shell' bash zsh fish ;;
+    add|ruled-out|open)
+        _arguments \\
+            '--state[decision state]:state:({' '.join(STATES)})' \\
+            '--answer[answer text]:answer:' \\
+            '--because[supporting ids]:id:_docket_ids' \\
+            '--supersedes[retired ids]:id:_docket_ids' \\
+            '--cost[cost if wrong]:cost:'
+        ;;
+esac
+"""
+
+_FISH_COMPLETION = f"""\
+set -l docket_cmds {' '.join(_COMPLETION_CMDS)}
+complete -c docket -n "not __fish_seen_subcommand_from $docket_cmds" -a "$docket_cmds"
+complete -c docket -n "__fish_seen_subcommand_from show" -a "(docket list --oneline 2>/dev/null | awk '{{print \\$1}}')"
+complete -c docket -n "__fish_seen_subcommand_from add ruled-out open" -l because -a "(docket list --oneline 2>/dev/null | awk '{{print \\$1}}')"
+complete -c docket -n "__fish_seen_subcommand_from add ruled-out open" -l supersedes -a "(docket list --oneline 2>/dev/null | awk '{{print \\$1}}')"
+complete -c docket -n "__fish_seen_subcommand_from add" -l state -a "{' '.join(STATES)}"
+complete -c docket -n "__fish_seen_subcommand_from completion" -a "bash zsh fish"
+"""
+
+_COMPLETIONS = {"bash": _BASH_COMPLETION, "zsh": _ZSH_COMPLETION, "fish": _FISH_COMPLETION}
+
+
+def cmd_completion(args: argparse.Namespace) -> int:
+    print(_COMPLETIONS[args.shell], end="")
+    return 0
+
+
+def _add_decision_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("question")
+    p.add_argument("answer_pos", metavar="answer", nargs="?", help="the answer text")
+    p.add_argument("--answer", dest="answer_flag", help="the answer text, alternative to the positional")
+    p.add_argument(
+        "--because", action="append",
+        help="comma-separated ids this depends on; repeat for an alternative support set",
+    )
+    p.add_argument("--supersedes", help="comma-separated ids this entry retires")
+    p.add_argument("--cost", help="what breaks if this is later reversed")
+    p.set_defaults(func=cmd_add)
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="docket", description=__doc__)
     p.add_argument("--version", action=VersionAction, nargs=0, help="print the release and exit")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     a = sub.add_parser("add", help="record a decision")
-    a.add_argument("question")
+    _add_decision_args(a)
     a.add_argument("--state", choices=STATES, default="settled")
-    a.add_argument("--answer", required=True)
-    a.add_argument(
-        "--because", action="append",
-        help="comma-separated ids this depends on; repeat for an alternative support set",
-    )
-    a.add_argument(
-        "--supersedes", help="comma-separated ids this entry retires",
-    )
-    a.add_argument("--cost", help="what breaks if this is later reversed")
-    a.set_defaults(func=cmd_add)
+
+    ro = sub.add_parser("ruled-out", help="record a rejected decision")
+    _add_decision_args(ro)
+    ro.set_defaults(state="ruled-out")
+
+    op = sub.add_parser("open", help="record a question with no answer yet")
+    _add_decision_args(op)
+    op.set_defaults(state="open")
 
     ls = sub.add_parser("list", help="list decisions")
     ls.add_argument("--state", choices=STATES)
@@ -775,6 +942,9 @@ def main(argv: list[str] | None = None) -> int:
         "--superseded", action="store_true",
         help="include entries a later decision retired",
     )
+    ls.add_argument("--oneline", action="store_true", help="one line per entry, no answer")
+    ls.add_argument("--plain", action="store_true", help="force colour off")
+    ls.add_argument("--pretty", action="store_true", help="force colour on, e.g. piping to less -R")
     ls.set_defaults(func=cmd_list)
 
     gr = sub.add_parser("graph", help="draw the support graph")
@@ -785,8 +955,9 @@ def main(argv: list[str] | None = None) -> int:
     gr.add_argument("--pretty", action="store_true", help="force colour on, e.g. piping to less -R")
     gr.set_defaults(func=cmd_graph)
 
-    sh = sub.add_parser("show", help="print one entry as JSON")
+    sh = sub.add_parser("show", help="print one entry, human-readable")
     sh.add_argument("id")
+    sh.add_argument("--json", action="store_true", help="print the entry as JSON")
     sh.set_defaults(func=cmd_show)
 
     ctx = sub.add_parser("context", help="print the ledger for session injection")
@@ -801,6 +972,10 @@ def main(argv: list[str] | None = None) -> int:
 
     it = sub.add_parser("init", help="move this project's ledger into the repository")
     it.set_defaults(func=cmd_init)
+
+    co = sub.add_parser("completion", help="print a shell completion script")
+    co.add_argument("shell", choices=("bash", "zsh", "fish"))
+    co.set_defaults(func=cmd_completion)
 
     args = p.parse_args(argv)
     return args.func(args)
