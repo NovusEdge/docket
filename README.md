@@ -24,6 +24,10 @@ writing anything. It detects Claude Code, Codex, Gemini CLI, Cursor, GitHub
 Copilot CLI, and OpenCode, and pre-selects the ones it finds; you can select an
 undetected one too, if you're about to install it.
 
+On Linux and macOS this runs in a small interface the installer fetches into
+its own cache directory on first use. If that fetch fails for any reason it
+falls back to plain prompts; Windows always uses plain prompts.
+
 Add `--yes` for the defaults-only behaviour with no prompts, the same as CI
 uses. Add `--dry-run` to see every file the installer would write. Add
 `--uninstall` to remove them. The uninstall keeps your decision ledgers.

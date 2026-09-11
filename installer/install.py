@@ -146,6 +146,16 @@ def wanted(ctx: Ctx, name: str, directory: Path) -> bool:
     return name in ctx.forced or ctx.exists(directory)
 
 
+def hook_python() -> str:
+    """The interpreter to bake into hooks and the Windows shim.
+
+    The TUI runs from a venv this installer creates and may later delete, so
+    the re-exec passes the original interpreter through the environment. Baking
+    the venv's python would break every hook the moment the cache is cleared.
+    """
+    return os.environ.get("DOCKET_REAL_PYTHON") or sys.executable
+
+
 def real_exists(p: Path) -> bool:
     return p.exists()
 
@@ -631,6 +641,65 @@ def confirm(prompt: str, default_yes: bool, read_line: ReadLineFn, write: WriteF
         write("  please answer y or n")
 
 
+def wants_tui(args: argparse.Namespace, os_name: str, isatty: bool) -> bool:
+    """Whether to bootstrap the Textual front end instead of the classic
+    prompt flow. Any flag that already picks a non-interactive path must
+    skip the venv and the network entirely -- CI and `just verify` rely on
+    that. Windows has no inline-render mode, so it always keeps the prompts.
+    """
+    if args.uninstall or args.dry_run or args.yes or args.no_tty or args.harness:
+        return False
+    if os_name == "nt":
+        return False
+    return isatty
+
+
+def tui_child(env: dict) -> bool:
+    """True inside the re-exec'd process, so a bootstrap failure there can
+    never loop back into another bootstrap attempt."""
+    return "DOCKET_TUI_CHILD" in env
+
+
+def tui_venv_dir(home: Path) -> Path:
+    if env := os.environ.get("XDG_CACHE_HOME"):
+        return Path(env).expanduser() / "docket" / "venv"
+    return home / ".cache" / "docket" / "venv"
+
+
+class TUIUnavailable(Exception):
+    """No network, PyPI blocked, a proxy, or a venv creation error. Anything
+    here must fall back to the prompt flow rather than fail the install."""
+
+
+def _create_venv(vdir: Path) -> None:
+    import venv
+    venv.EnvBuilder(with_pip=True).create(str(vdir))
+
+
+def _pip_install_textual(vpython: Path) -> None:
+    r = subprocess.run([str(vpython), "-m", "pip", "install", "-q", "textual>=8,<9"])
+    if r.returncode != 0:
+        raise subprocess.CalledProcessError(r.returncode, "pip install textual")
+
+
+def ensure_tui_venv(vdir: Path, create=_create_venv, install=_pip_install_textual) -> Path:
+    """The venv's python, creating and provisioning it on first use. `create`
+    and `install` are swappable so a test can simulate a network failure
+    without touching pip or the filesystem."""
+    vpython = vdir / "bin" / "python3"
+    if vpython.exists():
+        return vpython
+    try:
+        create(vdir)
+    except OSError as e:
+        raise TUIUnavailable(str(e))
+    try:
+        install(vpython)
+    except (OSError, subprocess.CalledProcessError) as e:
+        raise TUIUnavailable(str(e))
+    return vpython
+
+
 def harness_names() -> List[str]:
     return list(HARNESS_TABLE) + ["codex"]
 
@@ -846,6 +915,107 @@ def clone_checkout(directory: Path, no_tty: bool) -> Optional[Path]:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def run_tui(ctx: Ctx, default_pfx: Path, shell: str
+            ) -> Optional[Tuple[Path, Optional[List[str]], List[Action], List[Row]]]:
+    """The Textual front end. Collects the same three answers the prompt
+    flow asks for, then calls the existing plan() to get the actions and
+    rows main() already knows how to apply and report -- no planning logic
+    lives here."""
+    from textual.app import App, ComposeResult
+    from textual.screen import Screen
+    from textual.widgets import Button, Footer, Input, SelectionList, Static
+
+    names = harness_names()
+    detected = detect_harnesses(ctx)
+
+    class PrefixScreen(Screen):
+        def compose(self) -> ComposeResult:
+            yield Static("Where should the docket command go?")
+            yield Input(value=str(default_pfx), id="prefix")
+            yield Button("Next", id="next", variant="primary")
+            yield Footer()
+
+        def on_button_pressed(self, event: Button.Pressed) -> None:
+            self.dismiss(self.query_one("#prefix", Input).value)
+
+    class HarnessScreen(Screen):
+        def compose(self) -> ComposeResult:
+            yield Static("Which harnesses should docket configure?")
+            yield Static("An undetected one is still selectable, for a tool you are about to install.")
+            options = [
+                ("%s (%s)" % (n, "detected" if d else "not detected"), n, d)
+                for n, d in zip(names, detected)
+            ]
+            yield SelectionList(*options, id="harnesses")
+            yield Button("Next", id="next", variant="primary")
+            yield Footer()
+
+        def on_button_pressed(self, event: Button.Pressed) -> None:
+            self.dismiss(list(self.query_one("#harnesses", SelectionList).selected))
+
+    class PathScreen(Screen):
+        def __init__(self, rc_path: Path, line: str) -> None:
+            super().__init__()
+            self.rc_path = rc_path
+            self.line = line
+
+        def compose(self) -> ComposeResult:
+            yield Static("%s is not on PATH. Append to %s?" % (default_pfx, self.rc_path))
+            yield Static(self.line)
+            yield Button("Yes", id="yes", variant="primary")
+            yield Button("No", id="no")
+            yield Footer()
+
+        def on_button_pressed(self, event: Button.Pressed) -> None:
+            self.dismiss(event.button.id == "yes")
+
+    class ReviewScreen(Screen):
+        def __init__(self, actions: List[Action]) -> None:
+            super().__init__()
+            self.actions = actions
+
+        def compose(self) -> ComposeResult:
+            yield Static("Review")
+            for a in self.actions:
+                yield Static(describe(a))
+            yield Button("Confirm", id="confirm", variant="primary")
+            yield Button("Cancel", id="cancel")
+            yield Footer()
+
+        def on_button_pressed(self, event: Button.Pressed) -> None:
+            self.dismiss(event.button.id == "confirm")
+
+    class InstallApp(App):
+        def on_mount(self) -> None:
+            self.run_worker(self.flow())
+
+        async def flow(self) -> None:
+            typed = await self.push_screen_wait(PrefixScreen())
+            prefix = expand_home(typed, ctx.home) if typed else default_pfx
+            if not prefix.is_absolute():
+                prefix = ctx.cwd / prefix
+
+            selected = await self.push_screen_wait(HarnessScreen())
+            local_ctx = ctx._replace(forced=frozenset(selected))
+            actions, rows = plan(local_ctx, prefix, shell, selected)
+
+            idx = next((i for i, r in enumerate(rows) if r.harness == "path" and r.status == "warn"), None)
+            if idx is not None:
+                rc_path = shell_rc(ctx.home, shell)
+                keep = await self.push_screen_wait(PathScreen(rc_path, rc_line(shell, prefix)))
+                if not keep:
+                    actions = [a for a in actions if not (isinstance(a, Write) and Path(a.path) == rc_path)]
+                    rows = list(rows)
+                    rows[idx] = Row("path", "skip", "declined, add it yourself")
+
+            confirmed = await self.push_screen_wait(ReviewScreen(actions))
+            self.exit(result=(prefix, selected, actions, rows) if confirmed else None)
+
+    app = InstallApp()
+    app.run(inline=True)
+    return app.return_value
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     p = argparse.ArgumentParser(prog="install.py", description=__doc__)
     p.add_argument("--dir", help="where to put the checkout if it must be cloned")
@@ -870,6 +1040,31 @@ def main(argv: Optional[List[str]] = None) -> int:
     path_entries = os.environ.get("PATH", "").split(os.pathsep)
     shell = os.environ.get("SHELL", "/bin/sh")
 
+    run_tui_flow = False
+    if wants_tui(args, os_name, sys.stdin.isatty()):
+        if tui_child(os.environ):
+            try:
+                import textual  # noqa: F401  -- reachable only inside the bootstrapped venv
+                run_tui_flow = True
+            except ImportError:
+                pass
+        else:
+            print("  fetching the install interface (textual, about 30 MB)...")
+            try:
+                vpython = ensure_tui_venv(tui_venv_dir(home))
+                # Carry the interpreter that started us. Hooks and the Windows
+                # shim bake an absolute python path, and the venv below is a
+                # cache this installer owns and may delete.
+                os.execve(str(vpython), [str(vpython), __file__] + sys.argv[1:],
+                          dict(os.environ, DOCKET_TUI_CHILD="1",
+                               DOCKET_REAL_PYTHON=sys.executable))
+            except TUIUnavailable as e:
+                warn("tui", "could not fetch the interface (%s), using prompts instead" % e)
+
+    if run_tui_flow:
+        interactive = False
+        read_line = None
+
     checkout = find_checkout()
     if checkout is None:
         directory = Path(args.dir).expanduser() if args.dir else default_dir(home, os_name)
@@ -886,11 +1081,14 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     default_pfx = Path(args.prefix).expanduser() if args.prefix else default_prefix(home, os_name)
     prefix = ask_prefix(default_pfx, home, Path.cwd(), read_line, print) if interactive else default_pfx
-    if sys.prefix != sys.base_prefix:
-        warn("interpreter", "running from a venv; hooks will call %s" % sys.executable)
+    python = hook_python()
+    # Only the user's own venv is worth warning about. The TUI venv is one
+    # this installer created, and hook_python() already looks past it.
+    if "DOCKET_REAL_PYTHON" not in os.environ and sys.prefix != sys.base_prefix:
+        warn("interpreter", "running from a venv; hooks will call %s" % python)
 
     ctx = make_ctx(
-        home=home, os_name=os_name, checkout=checkout, python=sys.executable,
+        home=home, os_name=os_name, checkout=checkout, python=python,
         path_entries=path_entries, exists=real_exists, read_text=real_read_text,
         link_target=real_link_target, project=args.project, cwd=Path.cwd(),
     )
@@ -916,16 +1114,22 @@ def main(argv: Optional[List[str]] = None) -> int:
         ok("done", "your decision ledgers were left alone")
         return 0
 
-    selected = interactive_select_harnesses(ctx, read_line, print) if interactive else args.harness
+    if run_tui_flow:
+        result = run_tui(ctx, default_pfx, shell)
+        if result is None:
+            return 130
+        prefix, selected, actions, rows = result
+    else:
+        selected = interactive_select_harnesses(ctx, read_line, print) if interactive else args.harness
 
-    # A name the user picked outright overrides the planner's own detection,
-    # so the guided flow can wire a tool they are about to install.
-    if selected:
-        ctx = ctx._replace(forced=frozenset(selected))
+        # A name the user picked outright overrides the planner's own detection,
+        # so the guided flow can wire a tool they are about to install.
+        if selected:
+            ctx = ctx._replace(forced=frozenset(selected))
 
-    actions, rows = plan(ctx, prefix, shell, selected)
-    if interactive:
-        actions, rows = confirm_path(ctx, prefix, shell, actions, rows, read_line, print)
+        actions, rows = plan(ctx, prefix, shell, selected)
+        if interactive:
+            actions, rows = confirm_path(ctx, prefix, shell, actions, rows, read_line, print)
 
     head("docket install", str(checkout))
     for row in rows:

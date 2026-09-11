@@ -27,18 +27,28 @@ An update clones into a temporary directory and swaps the result into place, so
 a local change in the install directory never blocks it.
 
 In a terminal, and without `--yes`, `--no-tty`, `--dry-run`, or `--harness`,
-the installer runs a guided flow instead of taking every default silently:
+the installer runs a guided flow instead of taking every default silently.
 
-1. It asks where to put the `docket` command, showing the resolved default.
-2. It lists every harness with its detection result, pre-checked when
-   detected. Accept with Enter, type indices to toggle them, or type `all` or
-   `none`. An undetected harness can still be selected, for a tool you are
-   about to install.
+On Linux and macOS it fetches a small Textual-based interface for that flow:
+a venv under `$XDG_CACHE_HOME/docket/venv` (or `~/.cache/docket/venv`), created
+on first use and reused after. If the venv can't be created or `pip install`
+fails -- no network, PyPI blocked, a proxy -- the installer prints one warning
+naming the reason and falls back to the same flow as plain prompts. Windows
+always uses prompts: Textual's inline render mode does not exist there, and
+running it full-screen would need Windows Terminal and would erase the
+installer's own on-screen record when it exits.
+
+Either way, the flow asks the same four things:
+
+1. Where to put the `docket` command, showing the resolved default.
+2. Which harnesses to configure, each with its detection result. Detected
+   ones start selected. An undetected harness can still be selected, for a
+   tool you are about to install.
 3. If the chosen location is not already on `PATH`, it shows the exact line
    and file and asks before appending.
-4. It prints the full plan and asks for confirmation before writing anything.
+4. The full plan, for confirmation before writing anything.
 
-Ctrl-C at any point exits without writing anything.
+Ctrl-C, or cancelling in the interface, exits without writing anything.
 
 | Option | Effect |
 |---|---|

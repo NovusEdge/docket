@@ -190,6 +190,19 @@ def main() -> int:
     actions, row = inst.plan_cursor(forced)
     assert row.status == "ok" and actions, "a chosen harness must be configured"
 
+    # The TUI re-exec runs under a venv this installer owns and may delete.
+    # Baking that interpreter into a hook breaks it the moment the cache is
+    # cleared, so the original interpreter travels in the environment.
+    saved = os.environ.pop("DOCKET_REAL_PYTHON", None)
+    try:
+        assert inst.hook_python() == sys.executable
+        os.environ["DOCKET_REAL_PYTHON"] = "/usr/bin/python3.12"
+        assert inst.hook_python() == "/usr/bin/python3.12"
+    finally:
+        os.environ.pop("DOCKET_REAL_PYTHON", None)
+        if saved is not None:
+            os.environ["DOCKET_REAL_PYTHON"] = saved
+
     # PATH membership rejects a look-alike directory.
     assert inst.on_path(PurePosixPath("/home/u/.local/bin"), ["/home/u/.local/binx"]) is False
     assert inst.on_path(PurePosixPath("/home/u/.local/bin"), ["/home/u/.local/bin"]) is True
@@ -346,6 +359,69 @@ def main() -> int:
                               posix_home4 / ".local" / "bin", "/bin/bash", ["cursor"])
     cursor_row = next(r for r in rows if r.harness == "cursor")
     assert cursor_row.status == "ok", "plan() must honour a forced selection passed through ctx"
+
+    # --- TUI bootstrap decisions ---
+    class FakeArgs:
+        def __init__(self, uninstall=False, dry_run=False, yes=False, no_tty=False, harness=None):
+            self.uninstall = uninstall
+            self.dry_run = dry_run
+            self.yes = yes
+            self.no_tty = no_tty
+            self.harness = harness
+
+    assert inst.wants_tui(FakeArgs(), "posix", True) is True
+    assert inst.wants_tui(FakeArgs(), "posix", False) is False, "no tty must not bootstrap a venv"
+    assert inst.wants_tui(FakeArgs(uninstall=True), "posix", True) is False
+    assert inst.wants_tui(FakeArgs(dry_run=True), "posix", True) is False
+    assert inst.wants_tui(FakeArgs(yes=True), "posix", True) is False
+    assert inst.wants_tui(FakeArgs(no_tty=True), "posix", True) is False
+    assert inst.wants_tui(FakeArgs(harness=["cursor"]), "posix", True) is False
+    assert inst.wants_tui(FakeArgs(), "nt", True) is False, "Windows has no inline mode and must keep the prompts"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        assert inst.tui_venv_dir(d) == d / ".cache" / "docket" / "venv"
+        env_home = dict(os.environ)
+        env_home["XDG_CACHE_HOME"] = str(d / "xdg")
+        old = os.environ.get("XDG_CACHE_HOME")
+        os.environ["XDG_CACHE_HOME"] = str(d / "xdg")
+        try:
+            assert inst.tui_venv_dir(d) == d / "xdg" / "docket" / "venv"
+        finally:
+            if old is None:
+                os.environ.pop("XDG_CACHE_HOME", None)
+            else:
+                os.environ["XDG_CACHE_HOME"] = old
+
+    assert inst.tui_child({"DOCKET_TUI_CHILD": "1"}) is True
+    assert inst.tui_child({}) is False, "an unset guard must allow one bootstrap attempt"
+
+    # A pip failure (no network, blocked PyPI, a proxy) must raise
+    # TUIUnavailable rather than propagate, so the caller falls back to
+    # the prompt flow instead of crashing the install.
+    with tempfile.TemporaryDirectory() as tmp:
+        vdir = Path(tmp) / "venv"
+
+        def fake_create(d):
+            (d / "bin").mkdir(parents=True)
+
+        def fake_install_fails(vpython):
+            raise OSError("no network")
+
+        raised = False
+        try:
+            inst.ensure_tui_venv(vdir, create=fake_create, install=fake_install_fails)
+        except inst.TUIUnavailable:
+            raised = True
+        assert raised, "a pip failure must surface as TUIUnavailable, not raise past the caller"
+        (vdir / "bin" / "python3").write_text("")
+
+        # A venv that already exists is reused without calling create/install again.
+        def fail_if_called(*a):
+            raise AssertionError("must not re-run create/install for an existing venv")
+
+        got = inst.ensure_tui_venv(vdir, create=fail_if_called, install=fail_if_called)
+        assert got == vdir / "bin" / "python3"
 
     print("ok")
     return 0
