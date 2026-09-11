@@ -6,42 +6,35 @@ choices, rejected options, and open questions outside the conversation history.
 When an agent session starts or resumes, Docket loads the current decisions.
 The agent can continue after conversation compaction.
 
-## Install for Claude Code
+## Install
 
 Docket requires Python 3.10 or later. It has no Python package dependencies.
 
-Add the marketplace. Then, install the plugin:
-
-```text
-/plugin marketplace add NovusEdge/docket
-/plugin install docket@NovusEdge
+```sh
+curl -fsSLO https://raw.githubusercontent.com/NovusEdge/docket/main/install.py
+python3 install.py
 ```
 
-Start a new Claude Code session after the installation. The plugin loads the
-current decisions and provides the Docket skill.
+The installer adds the `docket` command to your `PATH`. It also configures each
+agent harness that it finds on your machine: Claude Code, Codex, Gemini CLI,
+Cursor, GitHub Copilot CLI, and OpenCode.
 
-## Install the command
+Run `python3 install.py --dry-run` first to see every file that the installer
+writes. Run `python3 install.py --uninstall` to remove them. The uninstall keeps
+your decision ledgers.
 
-Clone the repository:
+Run the installer again to update. It pulls the current version and rewrites the
+configuration.
+
+Start a new agent session after the installation. Then run this command to
+verify:
 
 ```sh
-git clone https://github.com/NovusEdge/docket.git ~/Projects/docket
+docket --version
 ```
 
-Add the command to your `PATH` if you want to use it in a shell:
-
-```sh
-mkdir -p ~/.local/bin
-ln -s ~/Projects/docket/bin/docket ~/.local/bin/docket
-```
-
-Run this command to verify the installation:
-
-```sh
-docket --help
-```
-
-Confirm that the output starts with `usage: docket`.
+For one harness at a time, a project-local installation, or manual
+configuration, see [installation options](docs/installation.md).
 
 ## Record a decision
 
