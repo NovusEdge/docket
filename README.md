@@ -1,148 +1,167 @@
 # docket
 
-A decision ledger for long-running agent work.
+Docket keeps decisions available during long agent tasks. It records settled
+choices, rejected options, and open questions outside the conversation history.
 
-An agent settles dozens of small questions during a long task. Those answers stay
-in prose. Compaction removes the prose. Twenty steps later the agent contradicts a
-decision it already made, and nothing detects this.
-
-docket records decisions so they stay made. Each entry is `settled`, `ruled-out`,
-or `open`. Reopening a settled decision retracts the decisions that depend on it.
-
-## Status
-
-Phase 1 works: record and recall, with no enforcement. The remaining five phases
-are in [docs/north-star.md](docs/north-star.md).
+When an agent session starts or resumes, Docket loads the current decisions.
+The agent can continue after conversation compaction.
 
 ## Install
 
+Docket requires Python 3.10 or later. It has no Python package dependencies.
+
 ```sh
-/plugin marketplace add NovusEdge/docket
-/plugin install docket@NovusEdge
+curl -fsSLO https://raw.githubusercontent.com/NovusEdge/docket/main/installer/install.py
+python3 install.py
 ```
 
-The command lives at `bin/docket`. It needs Python 3.9 or later and no packages.
-The session hook prints its absolute path, so nothing has to go on PATH.
+`curl -O` saves the file as `install.py` in the current directory. From a
+checkout, run `python3 installer/install.py` instead.
 
-For your own shell use, symlink it:
+In a terminal, the installer walks you through the command location, which
+harnesses to configure, and the PATH change, and shows the full plan before
+writing anything. It detects Claude Code, Codex, Gemini CLI, Cursor, GitHub
+Copilot CLI, and OpenCode, and pre-selects the ones it finds; you can select an
+undetected one too, if you're about to install it.
+
+Add `--yes` for the defaults-only behaviour with no prompts, the same as CI
+uses. Add `--dry-run` to see every file the installer would write. Add
+`--uninstall` to remove them. The uninstall keeps your decision ledgers.
+
+Run the installer again to update. It pulls the current version and rewrites the
+configuration.
+
+Start a new agent session after the installation. Then run this command to
+verify:
 
 ```sh
-ln -s ~/Projects/docket/bin/docket ~/.local/bin/docket
+docket --version
 ```
 
-## Use
+For one harness at a time, a project-local installation, or manual
+configuration, see [installation options](docs/installation.md).
+
+## Record a decision
+
+The default state is `settled`:
 
 ```sh
-docket add "Which database?" --answer "Postgres via psycopg 3" \
-  --cost "migration rewrite if reversed after schema lands"
+docket add "Which database?" \
+  --answer "Postgres with psycopg 3" \
+  --cost "A later change requires a schema migration."
+```
 
-docket add "Use an ORM?" --state ruled-out --answer "No. Raw SQL for the FTS queries."
+Use `ruled-out` for a rejected option:
 
-docket add "Which async driver?" --answer "asyncpg" --because d1
+```sh
+docket add "Use an ORM?" \
+  --state ruled-out \
+  --answer "No. Use SQL for the full-text search queries."
+```
 
-docket add "Which database? (reopens d1)" --answer "SQLite." --supersedes d1
+Use `open` when the work does not have an answer:
 
+```sh
+docket add "Which async driver?" \
+  --state open \
+  --answer "Select the driver after the concurrency requirement is known."
+```
+
+The answer can come positionally or via `--answer`, not both:
+
+```sh
+docket add "Which database?" "Postgres with psycopg 3"
+```
+
+`docket ruled-out` and `docket open` are shorthand for `add --state ruled-out`
+and `add --state open`. They accept `--because`, `--supersedes`, and `--cost`
+like `add` does:
+
+```sh
+docket ruled-out "Use an ORM?" "No. Use SQL for the full-text search queries."
+docket open "Which async driver?" "Select the driver after the concurrency requirement is known."
+```
+
+Use IDs that exist in your ledger. Use `--because` to identify supporting
+decisions. Separate joint requirements with commas:
+
+```sh
+docket add "Use asyncpg?" \
+  --answer "Yes." \
+  --because d1,d3
+```
+
+Repeat `--because` to record alternative support sets:
+
+```sh
+docket add "Ship this quarter?" \
+  --answer "Yes." \
+  --because d1,d3 \
+  --because d2
+```
+
+Each `--because` occurrence records one complete support set. Repeat the option
+to add an alternative set.
+
+## Read decisions
+
+```sh
+docket list
 docket list --state settled
 docket list --find postgres
-docket list --superseded
+docket list --oneline
 docket show d3
+docket show d3 --json
+docket context
 ```
 
-A `SessionStart` hook prints the ledger into context. A project with no ledger
-costs nothing.
+`list` shows current entries, wrapped and coloured to the terminal; `--oneline`
+prints one line per entry with no answer. `--plain` and `--pretty` force the
+colour gate off or on. `show` prints one entry, human-readable, resolving its
+`--because` ids to the question text they cite; `--json` prints the entry as
+stored. `context` prints the text that Docket gives to the agent.
 
-Nothing is edited or deleted. `--supersedes` records that a later entry retires
-an earlier one, which drops the earlier entry from `list` and from the injected
-context. Without it an old `open` question keeps its own state and still reads
-as unresolved.
+`docket completion bash|zsh|fish` prints a completion script for that shell.
 
-Other harnesses are covered in [docs/installation.md](docs/installation.md):
-Codex CLI, OpenCode, Gemini CLI, Copilot CLI, and Cursor. They share one ledger,
-so a project can be worked on from several tools without the decisions
-diverging.
+## Replace a decision
 
-## Where the ledger lives
-
-By default, under `~/.claude/docket/`, keyed by the project's path. Nothing to
-create, nothing to gitignore.
+Record a new decision and use `--supersedes` to retire the old entry:
 
 ```sh
-docket where    # print which file is in use
-docket init     # move it into the repository as .docket/
+docket add "Which database?" \
+  --answer "SQLite is sufficient." \
+  --supersedes d1 \
+  --cost "Review the decisions that depend on d1."
 ```
 
-`docket init` is how a team commits and shares decisions. Existing entries move
-with it. A `.docket/ledger.jsonl` in the project always wins over the global
-store.
+Docket keeps the retired entry in the history. The normal list and agent context
+show only current entries.
 
-The project is identified by its git root, so a subdirectory shares the same
-ledger. `DOCKET_HOME` relocates the global store, and `CLAUDE_CONFIG_DIR` is
-honoured so an isolated Claude profile keeps its own.
+Use this command to include retired entries:
 
-Run the tests with `python3 tests/test_docket.py`.
+```sh
+docket list --superseded
+```
 
-## Documents
+Docket does not automatically retire dependent decisions. Review decisions that
+depend directly or indirectly on the retired ID through `--because`.
 
-**[docs/decision-chains.md](docs/decision-chains.md)** — what the literature says
-about making agent decisions durable, and which parts of the obvious design it
-rules out. Synthesizes five reviews across roughly 40 papers.
+## Choose the ledger location
 
-**[docs/definitions.md](docs/definitions.md)** — the formal vocabulary. Every
-other document defers to it.
+Inside a Git repository, Docket stores one global ledger per Git root under
+`~/.claude/docket/`. Outside Git, it uses the current directory.
 
-**[docs/outcome-formalism.md](docs/outcome-formalism.md)** — a formalism for
-chains, outcomes, and claims. Treating chains-to-outcomes as a relation rather
-than a function reduces a three-part taxonomy to two cardinality properties and
-one labelling function.
+Use these commands to inspect or change the location:
 
-**[docs/north-star.md](docs/north-star.md)** — the full system, and a build order
-where each phase ships something useful on its own.
+```sh
+docket where
+docket init
+```
 
-## Position
+`docket init` copies existing entries to `.docket/ledger.jsonl`. It also makes
+that project ledger active. Commit `.docket/` when a team must share decisions.
 
-Structure imposed on a modern reasoning model mostly buys extra compute. Tree and
-graph scaffolds deliver approximately what repeated sampling delivers at the same
-token budget. External structure is worth its cost only where it does something
-the model cannot do alone.
+Set `DOCKET_HOME` to select a different global directory. Docket also respects
+`CLAUDE_CONFIG_DIR` for isolated Claude profiles.
 
-Persisting a decision across a compaction boundary is one of those things.
-
-## Design commitments
-
-Escalation follows reversibility, not confidence. An action whose mistake costs a
-five-line edit proceeds with a logged ruling. An action that deletes data waits
-for a human. Confidence thresholds are provably the wrong deferral rule.
-
-The ledger records what was committed to. It does not record why. A visible
-reasoning chain often fails to reflect the computation behind the answer, so the
-ledger is checkable against later behavior rather than trusted as an explanation.
-
-Decisions are labelled atomic or reasoned. Reasoned decisions carry the entries
-they depend on. This is the premise-and-justification structure of a truth
-maintenance system (Doyle 1979), which supplies the retraction machinery.
-
-## Open gaps this work targets
-
-Reversibility as the deferral threshold. Deferral theory carries a free
-cost-of-error parameter, and nobody has applied blast radius to it.
-
-Deferral where the expert degrades. Machine learning theory models the human as an
-oracle with a fixed error rate. Human-factors research shows that deferring
-degrades that oracle.
-
-A relevance filter on sub-questions. A question earns its place only when a
-different answer changes the final action.
-
-A truth-maintenance-shaped ledger under an agent. No system runs one with a
-measured before-and-after comparison.
-
-## Prior art
-
-The documents cite prior art in full. The two to read first: Ward et al. on the
-formal definition of intention in causal models (arXiv:2402.07221), and Krakovna
-et al. on side effects through relative reachability (arXiv:1806.01186).
-
-## Verification limits
-
-Several citations came from search summaries rather than direct paper reads. Check
-any citation before it carries weight.
+See [installation options](docs/installation.md) for other agent harnesses.

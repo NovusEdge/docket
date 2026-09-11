@@ -1,7 +1,7 @@
 # Decision chains for long-running agent work
 
-September 2026. This note synthesizes five literature reviews. It also states the
-design those reviews point at.
+September 2026. This note summarizes five literature reviews. It also describes
+the resulting design.
 
 ## The problem
 
@@ -13,53 +13,59 @@ There is a mechanical cause. Summarization flattens causal structure into plain
 text. It destroys the links that record which conclusions depend on which earlier
 claim. The dependency graph is the part that summarization discards.
 
-## Current design
+## Current system
 
-The decision graph is a YAML file in git. Each node holds a predicate. The model
-answers each predicate with `settled`, `ruled-out`, or `open`. Deterministic code
-walks the graph.
+Docket stores an append-only decision ledger. Each entry has a `settled`,
+`ruled-out`, or `open` state.
 
-Each call appends one JSONL line. The line records the node, the question, the
-answer, the edge taken, and a timestamp. That log serves three purposes. It is the
-audit trail. It is the replay input. It is the eval set.
+An entry can record alternative support sets in `because`. A later entry can use
+`supersedes` to retire an earlier entry.
 
-One implementation covers both modes. The modes differ only in the response to
-`open`. With a human present, the walker stops and asks. The answer then becomes
-`settled`. Without a human, the walker makes a ruling. It records what the ruling
-costs if it is wrong. It continues, and it reports every ruling at the end.
+The session hook loads current entries when an agent session starts. Docket keeps
+retired entries in the history and omits them from normal views.
 
-Reversibility sets the threshold between the two. An open question whose wrong
-answer costs a five-line edit gets a ruling and a log entry. An open question that
-deletes data or writes to a shared branch stops and waits. This applies in both
-modes.
+The current command does not retract dependent entries automatically. A person or
+agent must review each entry that depends on a retired entry.
 
-Outcome-directed reasoning builds backward from the decision. A node earns its
-place only if a different answer changes the final action. Open-ended exploration
-uses none of this structure, because collapsing it destroys its purpose.
+## Target system
 
-## What the evidence establishes
+The target system adds a decision graph and a deterministic graph walker. It also
+adds automatic dependency retraction, outcome tracking, and an action gate.
 
-**Reasoning chains are often unfaithful.** The visible chain frequently fails to
-reflect the computation that produced the answer (2503.08679, and Anthropic 2025).
-Some 2026 work argues the trace can be epiphenomenal. In that view the model
-settles the answer before it emits the thinking tokens (2606.13603, 2603.26410).
-This is the most replicated finding in the review. A trace is therefore not a
-record of *why*. It is a record of what the agent committed to. You can check that
-record against later behavior.
+Reversibility sets the proposed threshold for human review. A low-cost mistake can
+continue with a recorded decision. An irreversible or shared change waits for a
+person.
 
-**Elaborate topologies mostly provide extra compute.** At a fixed token budget,
-tree and graph scaffolds deliver approximately what repeated sampling delivers
-(2507.14419, 2506.04210). The Tree-of-Thoughts benefit depends on the model's
-ability to discriminate good branches from bad ones. That ability collapses outside
-curated puzzle benchmarks (2410.17820). One lab reported the Graph-of-Thoughts
-gains on its own benchmarks, and no independent replication exists (2308.09687).
+Outcome-directed reasoning starts with the final decision. A question is relevant
+only when a different answer can change the final action.
 
-**Reasoning models search internally.** They often perform as well without an
-external scaffold (2504.09858, 2510.19176). Imposed structure can degrade them
-through overthinking (2412.21187, 2501.18585). External structure is worth its cost
-only where it does something the model cannot do alone. Examples: tool calls,
-retrieval, verification against ground truth, and persistence across a compaction
-boundary.
+Open-ended exploration does not use this structure. A fixed decision graph would
+limit the purpose of exploration.
+
+## Reported findings
+
+**Reasoning chains can be unfaithful.** The visible chain can differ from the
+computation that produced the answer (2503.08679; Anthropic 2025).
+
+Other work reports that a model can select an answer before it emits reasoning
+tokens (2606.13603, 2603.26410).
+
+Therefore, treat a trace as a record of the stated commitment. Do not treat it as
+proof of the internal computation.
+
+**Elaborate topologies can provide extra compute.** At a fixed token budget, some
+studies report results comparable to repeated sampling (2507.14419, 2506.04210).
+
+Tree-of-Thoughts also depends on the model's ability to select useful branches.
+One study reports weaker selection outside curated puzzle benchmarks
+(2410.17820).
+
+**Reasoning models can search internally.** Some studies report similar results
+without an external scaffold (2504.09858, 2510.19176).
+
+Other studies report that imposed structure can reduce performance
+(2412.21187, 2501.18585). Use external structure for operations that require
+persistent or verifiable state.
 
 **Agents contradict their earlier conclusions.** Several benchmarks measure this
 (2606.22936, 2602.11619, 2608.08160). Hidden-state convergence at an early step
@@ -67,11 +73,11 @@ predicts later behavioral consistency. It does not predict correctness. Committe
 wrong and committed-correct trajectories are not separable in activation space. A
 consistent agent is therefore not a correct agent.
 
-**Confidence thresholds are the wrong deferral rule.** Mozannar and Sontag proved
-the naive confidence-threshold rejector is inconsistent (2006.01862). Optimal
-deferral depends on two error probabilities: the model's, and the expert's on that
-same instance. Most LLM systems substitute an uncertainty proxy. This substitution
-loses the consistency guarantee.
+**Confidence alone is not a sufficient deferral rule.** Mozannar and Sontag show
+that a basic confidence-threshold rejector is inconsistent (2006.01862).
+
+Optimal deferral also depends on the expert's error probability for the same
+instance. An uncertainty proxy does not preserve this guarantee.
 
 **More capable models abstain worse.** AbstentionBench tested 20 frontier models on
 20 datasets (2506.09038). Reasoning fine-tuning degraded abstention. The models
@@ -91,77 +97,77 @@ loss, because it removes the interleaving.
 2607.01433). Pipelines that keep them as separate stages outperform pipelines that
 force both into one pass (2506.05128).
 
-**Predicate order changes the answer.** Option order alone swings results up to 75
-percent on some benchmarks (2308.11483). Premise order costs over 30 percent on
-deductive tasks (2502.04134). Two causes contribute: real uncertainty near decision
-boundaries, and positional bias independent of content. No general fix exists.
+**Predicate order can change the answer.** Some benchmarks report changes of up
+to 75 percent after option reordering (2308.11483).
+
+Premise order also changes results on deductive tasks (2502.04134). Commuting
+answer transformations remove this sensitivity, but real updates do not always
+commute.
 
 **Full automation is not the safe default.** Mixed-initiative autonomy outperforms
 both extremes on robotics navigation tasks. It also reduces operator workload
 (1911.04848, 2211.14095).
 
-## What the evidence excludes
+## Design choices
 
-**DSPy.** It optimizes prompts per backend. A model swap requires a recompile. For
-a comparison of two models on one predicate, it adds nothing over sending both the
-same prompt. Its optimizers require roughly 50 to 100 labelled examples before they
-are worth the cost.
+**DSPy.** DSPy optimizes prompts for a selected backend. Docket needs a stable
+decision record across backends, so DSPy does not replace the ledger.
 
-**DMN.** It is a real OMG standard. It has the best verification tooling here,
-including formal overlap and completeness checks for decision tables (Calvanese et
-al., BPM 2016, and `dmn-check`). It serializes to XML. Its engines run on the JVM
-and in JS. Nobody reviews DMN in a diff. Copy its completeness check, which is
-about fifteen lines. Do not adopt the standard.
+**DMN.** DMN provides formal overlap and completeness checks for decision tables
+(Calvanese et al., BPM 2016; `dmn-check`). It also requires the DMN data model and
+runtime.
 
-**LangGraph.** The shape is correct: checkpointed state and conditional edges. It
-is a runtime for a loop you can write in fifty lines.
+Docket can adopt the relevant checks without adopting DMN as its storage format.
 
-**Cedar and OPA.** These are worth their cost when several people own policy
-independently, or when the project requires formal verification. Neither condition
-applies at one-person scale.
+**LangGraph.** LangGraph provides checkpointed state and conditional edges. Docket
+does not need its full workflow runtime for the current ledger.
 
-**Guardrail frameworks.** They target safety and topic control. They produce no
-audit trail, which is the actual requirement here.
+**Cedar and OPA.** These systems support independently managed policy. Docket does
+not need this policy layer for the current single-ledger design.
 
-**Argo, CWL, and BPMN.** These are task graphs. The requirement is a graph of
-decisions, which is a different grain.
+**Guardrail frameworks.** These frameworks control model output and tool use.
+Docket instead needs a durable decision history.
 
-**PMML and ONNX.** These serialize models. They are the wrong abstraction layer.
+**Argo, CWL, and BPMN.** These systems describe task graphs. Docket records
+decisions and their support relations.
 
-## Four open gaps
+**PMML and ONNX.** These formats serialize models. They do not represent a
+decision ledger.
 
-Each gap has support in the literature. No published work occupies any of them.
+## Research questions
 
-**Reversibility as the deferral threshold.** Several independent 2025 and 2026
-sources treat reversibility as a first-class variable (2608.07440, 2606.16465,
-2506.23844). One states that a fully reversible action cannot generate claimable
-loss, even under uncertainty. Deferral theory already carries a free cost-of-error
-parameter. Nobody has applied blast radius to that parameter.
+**Can reversibility set the deferral threshold?** Several sources treat
+reversibility as a decision variable (2608.07440, 2606.16465, 2506.23844).
 
-**Deferral where the expert degrades.** ML theory models the human as an oracle
-with a fixed error rate. Human-factors research shows the act of deferring degrades
-that oracle. A reviewer under high throughput stops reviewing and approves by
-default (2502.10036, 2109.05067). No formulation exists in which the expert's error
-rate depends on the deferral rate. This is the deepest of the four gaps.
+Deferral theory includes a cost-of-error parameter. Further review must determine
+whether prior work maps operational impact to this parameter.
 
-**A relevance filter on sub-questions.** A question earns its place only if a
-different answer changes the final action. Classical decision theory calls this
-value of information. It is theoretically obvious and unimplemented for LLM
-reasoning. The closest precedents never use the term (2503.22674, 2410.13788).
+**How does deferral rate affect the reviewer?** Many models use a fixed human
+error rate. Human-factors studies report weaker review at high throughput
+(2502.10036, 2109.05067).
 
-**A truth-maintenance-shaped ledger.** Truth maintenance systems record a
-justification for each belief. They retract dependents automatically when a premise
-is withdrawn (Doyle 1979). That is this design, from 1979. ReTree independently
-re-derived dependency retraction for search trees and cited no TMS theory
-(2608.10676). No system runs a real JTMS as an agent's belief store with a measured
-before-and-after comparison.
+Further review must identify models in which the expert's error rate depends on
+the deferral rate.
+
+**Can value of information filter sub-questions?** A question is relevant only
+when a different answer can change the final action.
+
+Classical decision theory calls this value of information. The cited agent work
+uses related tests without this term (2503.22674, 2410.13788).
+
+**Can a truth maintenance system support an agent ledger?** Truth maintenance
+systems record justifications and retract dependents after premise withdrawal
+(Doyle 1979).
+
+ReTree applies dependency retraction to search trees (2608.10676). Further review
+must identify measured agent systems that use a complete JTMS.
 
 Holding a claim while any one of several justifications survives is the
 assumption-based variant (de Kleer 1986). Its label for a node is a set of
 environments, which is the shape `because` takes here.
 
-Related prior art: DMN-Guided Prompting (Springer 2025) already uses DMN structure
-to decompose decisions into steps an LLM can answer. Do not claim novelty there.
+DMN-Guided Prompting (Springer 2025) uses DMN structure to decompose decisions
+into questions for an LLM. Do not claim this decomposition as novel.
 
 ## Risks with no known fix
 
@@ -179,37 +185,28 @@ Composed predicates can each be locally correct while the assembled decision is
 globally wrong (2605.30335). That paper offers a computable residual and a runtime
 repair. This is the one evaluated mitigation available.
 
-Alternative justifications cost label size. An ATMS stores every minimal
-environment supporting a node, and that set grows exponentially in the number of
-assumptions (de Kleer 1986). This is the failure that ended the line of work.
-Nothing bounds it here yet.
+Alternative justifications increase label size. An ATMS stores every minimal
+environment that supports a node (de Kleer 1986).
+
+The number of environments can grow exponentially with the number of assumptions.
+Docket does not yet define a bound.
 
 The graph freezes current thinking, and it only grows. Every surprise adds a node.
 Nobody deletes one. Models improve and the graph does not.
 
-## Implementation notes
+## Implementation constraints
 
-No off-the-shelf product covers the full shape. A few hundred lines of Python
-outperforms any surveyed framework at this scale.
+The current implementation uses one Python command and an append-only ledger. It
+does not require a workflow framework.
 
-The `PreToolUse` hook in Claude Code returns `allow`, `deny`, or `ask`. These map
-onto the three predicate values exactly. The hook runs before the permission-mode
-check. A `deny` holds even under `--dangerously-skip-permissions`. Anthropic has an
-unshipped function-hook mechanism behind a flag in build 2.1.260. It replaces shell
-commands with a TypeScript module.
+The proposed action gate needs a hook before tool execution. The integration must
+map the ledger decision to the hook response for each supported harness.
 
-Replay costs almost nothing. Run the same walker and supply the logged answers
-instead of calling the model.
+Replay can use recorded answers instead of new model calls. Evaluation export can
+use the same records after the project defines outcome labels.
 
-Codex through ChatGPT desktop is not callable from code. Automatic cross-model
-disagreement is therefore unavailable. Sampling one model several times is the
-substitute. Self-consistency is the better-calibrated signal in any case. Note that
-its assumed mechanism does not hold: voting masks noise instead of verifying the
-reasoning (2305.14279, 2506.18781).
-
-For observability, Phoenix carries the least lock-in because it emits
-OpenTelemetry spans. Braintrust and Langfuse both convert production traces into
-eval sets.
+Cross-model comparison requires a callable interface for each selected model.
+Repeated sampling from one model measures a different property.
 
 ## Verification limits
 

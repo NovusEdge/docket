@@ -1,23 +1,24 @@
 # Execution ledger: north star and build order
 
-September 2026. This note describes the full system. It also gives a build order
-where each phase is useful on its own.
+September 2026. This note describes the target system and its proposed delivery
+order. Each stage must provide useful behavior on its own.
 
-## Division of labour
+## Division of labor
 
 `superpowers:brainstorming` handles divergent work. It explores intent, surfaces
 requirements, and widens the option space. Keep it.
 
-This system handles convergent work. It records what was decided, holds those
-decisions binding, and reports what the work changed.
+This system handles convergent work. It records decisions, treats them as
+binding, and reports what the work changed.
 
-The two need different shapes. Convergent and divergent reasoning are separable
-capabilities, and pipelines that keep them as separate stages outperform pipelines
-that force both into one pass (2510.26490, 2506.05128). Splitting the tools
-follows that result.
+The two tasks need different structures. Convergent and divergent reasoning are
+separable capabilities (2510.26490, 2506.05128).
 
-The handoff point is the moment a design is approved. Brainstorming ends there.
-The ledger starts there.
+The cited studies report better results when pipelines separate these tasks.
+This design therefore uses separate tools.
+
+Approval marks the handoff point. Brainstorming ends there. The ledger starts
+there.
 
 ## The full system
 
@@ -25,33 +26,41 @@ The ledger starts there.
 
 A persistent record of decisions, stored outside any one session.
 
-Each entry holds:
+Each entry contains:
 
-- `id` — a stable identifier.
-- `question` — what was being decided.
-- `state` — `settled`, `ruled-out`, or `open`.
-- `answer` — the decision.
-- `justification` — the entry ids this decision depends on. An empty list marks
-  an atomic decision.
-- `cost_if_wrong` — what breaks if this is later reversed.
-- `timestamp` and `session`.
+- `id` - A stable identifier.
+- `question` - The question that the entry answers.
+- `state` - `settled`, `ruled-out`, or `open`.
+- `answer` - The selected answer.
+- `because` - Alternative sets of supporting entry IDs.
+- `supersedes` - Entry IDs that this entry retires.
+- `cost_if_wrong` - The effect of a later reversal.
+- `timestamp`, `session`, `author`, and `branch` - Provenance fields.
 
-Storage: JSONL for the append path. Promote to SQLite when the query "what did we
-settle about X" needs an index.
+The current command stores append-only JSONL. By default, it stores one ledger
+for each Git repository under `~/.claude/docket/`.
+
+The `docket init` command copies existing entries to `.docket/ledger.jsonl`.
+It then makes the project ledger active.
 
 The ledger loads at session start. It survives compaction, which is the specific
 thing a session cannot do for itself. Summarization flattens causal structure and
 destroys the links that record which conclusions depend on which claim
 (2602.06052, 2606.11213).
 
-### 2. Retraction
+### 2. Supersession and retraction
 
-Reopening a settled decision retracts every decision whose justification depends
-on it.
+The current `--supersedes` option retires an earlier entry. The history keeps the
+retired entry, but normal views omit it.
 
-This is dependency-directed backtracking from truth maintenance systems (Doyle
-1979). The justification field is what makes it possible. Without it, reopening a
-decision leaves orphaned conclusions in place.
+Automatic retraction is target behavior. When an entry retires a decision, the
+system must examine each dependent justification set.
+
+Retain a dependent decision while one complete justification set survives.
+Retract the decision when no complete justification set survives.
+
+This behavior is dependency-directed backtracking from truth maintenance systems
+(Doyle 1979). The `because` field provides the required dependency links.
 
 ### 3. Outcome tracking
 
@@ -71,76 +80,79 @@ equivalent exists for tool-using agents.
 Before asking a question, test whether a different answer changes the plan. Drop
 the question when it does not.
 
-Classical decision theory calls this value of information. It covers a measured
-weakness: models score 40 to 50 percent at identifying which missing variable is
-load-bearing, while solving the fully specified problem correctly (2503.22674).
-They also detect ambiguity and answer anyway instead of asking (2605.25284).
+Classical decision theory calls this value of information. One study measured a
+related weakness (2503.22674).
+
+Models identified the necessary missing variable in 40 to 50 percent of the
+tests. The same models solved the fully specified problems.
+
+Models can also detect ambiguity and answer without asking for the missing
+information (2605.25284).
 
 ### 5. Parallel validity
 
-Before dispatching parallel work, check that no dependency crosses a boundary.
+Before dispatching parallel work, check that the section transformations
+commute.
 
-State the dependency relation as a strict partial order on work items. A partition
-is valid only when its sections are antichains under that order. A wrong
-independence claim produces the compositional incoherence failure: each section
-computes correctly, and the composition does not (2605.30335).
+A dependency relation can certify this property only if it contains every pair
+of steps that do not commute. Missing an interaction can change the result.
+
+Step-level commutativity gives a sufficient check. If all cross-section step
+pairs commute, the complete section transformations also commute.
+
+A wrong independence claim causes compositional incoherence. Each section can be
+locally correct while their composition changes with the schedule (2605.30335).
 
 ### 6. The gate
 
 A `PreToolUse` hook consults the ledger before an action runs.
 
-The hook returns `allow`, `deny`, or `ask`, which map onto the three ledger states
-exactly. The hook runs before the permission-mode check, and a `deny` holds even
-under `--dangerously-skip-permissions`.
+The target hook returns `allow`, `deny`, or `ask`. These values correspond to the
+three ledger states.
+
+The target design adds this gate. The current Docket hook only loads the ledger
+at session start.
 
 Escalation threshold: reversibility, not confidence. An action whose mistake costs
 a five-line edit proceeds with a logged ruling. An action that deletes data or
 writes to a shared branch waits for a human.
 
-Confidence thresholds are provably the wrong rule. Optimal deferral depends on the
-expert's error rate as well as the model's (2006.01862).
+Confidence alone is not a sufficient threshold. Optimal deferral also depends on
+the expert's error rate (2006.01862).
 
 ### 7. Replay and eval mining
 
 Replay: run the walker again and supply the logged answers instead of calling the
 model.
 
-Eval mining: export the ledger to Parquet. Each settled decision with a known
-outcome becomes a labelled example.
+Eval mining: export the ledger to Parquet. Use each settled decision with a known
+outcome as a labeled example.
 
-## Build order
+## Proposed delivery order
 
-Each phase ships something useful. Each phase depends only on those before it.
+Each stage depends on the preceding stages.
 
-**Phase 1. Record and recall.**
-A JSONL ledger and a skill that loads it at session start. No enforcement, no
-retraction. The system only remembers.
-This alone fixes the contradiction problem, which is the reason the system exists.
+**Stage 1. Record and recall.** Store decisions outside one session. Load current
+decisions when a session starts.
 
-**Phase 2. Intent and side effects.**
-Declare intended outcomes before work. Record realized outcomes after. Report the
-difference.
-Pure prompt discipline. No new code beyond two ledger fields.
+**Stage 2. Record support and supersession.** Record alternative support sets.
+Retire an earlier entry without deleting its history.
 
-**Phase 3. Question pruning.**
-Add the value-of-information test before any clarifying question.
-Also pure prompt. Measurable against the questions it drops.
+**Stage 3. Retract dependent decisions.** Recalculate support after a
+supersession. Retract a decision only when no complete support set survives.
 
-**Phase 4. Justification and retraction.**
-Add the `justification` field and the retraction walk. Reopening a decision now
-withdraws its dependents.
-This is the first phase that needs real code, and it is the first that borrows
-directly from truth maintenance theory.
+**Stage 4. Track outcomes.** Record intended outcomes before work. Compute
+realized world outcomes after work. Report the unintentional outcomes.
 
-**Phase 5. Parallel validity.**
-Add the dependency order and the antichain check before parallel dispatch.
-Roughly ten lines with networkx.
+**Stage 5. Prune questions.** Apply the value-of-information test before a
+clarifying question. Drop a question when no answer can change the final action.
 
-**Phase 6. The gate.**
-Add the `PreToolUse` hook. The ledger now blocks actions that contradict settled
-decisions.
-Leave this last. It is the only phase that can stop work incorrectly, and it needs
-the earlier phases to have earned trust first.
+**Stage 6. Validate parallel work.** Verify cross-section commutativity before
+parallel dispatch. Use the dependency graph only when it contains all
+noncommuting step pairs.
+
+**Stage 7. Gate and replay actions.** Add the action gate after the ledger has
+reliable support and outcome data. Add replay and evaluation exports.
 
 ## What this does not fix
 
@@ -153,7 +165,7 @@ human-factors literature reports as the normal outcome (2502.10036, 2109.05067).
 
 A clean ledger resembles evidence. The reasoning that produced an entry often
 fails to reflect the computation behind it (2503.08679, 2606.13603). The ledger
-records what was committed to. It does not record why.
+records the commitment. It does not record why.
 
 The ledger only grows. Every surprise adds an entry, and nobody deletes one.
 Schedule a review, the same way Anthropic recommends tearing down accumulated

@@ -1,134 +1,158 @@
 ---
 name: docket
-description: Use when a decision gets made during a long piece of work that later steps must not silently contradict, when the user asks what was already decided, when reopening a settled decision, or when they say "docket", "record this", or "what did we settle". Records decisions to an append-only ledger that loads at session start.
+description: Keep decisions available to later work. Use for settled choices, rejected options, open questions, reversals, and prior-decision checks.
 ---
 
 # docket
 
-An append-only ledger of decisions. It exists because compaction removes the
-prose that held a decision, and later work then contradicts it without noticing.
+Docket is an append-only decision ledger. It keeps decisions available after
+conversation compaction.
 
-The ledger loads automatically at session start. Decisions already recorded
-appear in context before you do anything.
+Docket loads current decisions at session start. Read these decisions before you
+start work.
 
-## The three states
+## Decision states
 
-**settled** — decided, and binding on everything after it.
+**settled** - The decision applies to later work.
 
-**ruled-out** — eliminated, with the reason. Stops the same ground being
-re-covered.
+**ruled-out** - The work rejected this option.
 
-**open** — unresolved, and carried forward as such.
+**open** - The question does not have an answer.
 
-## When to record
+## When to record a decision
 
-Record after a decision is actually made, not while it is being discussed.
+Record a decision after the work reaches an answer. Do not record active
+discussion.
 
-A decision belongs in the ledger when a later step could contradict it without
-anyone noticing. That covers a chosen approach, a rejected alternative, a
-constraint the user stated, and an assumption the work now rests on.
+Record a decision when later work could contradict it. Applicable decisions
+include:
 
-It does not cover facts, which the code or the docs already hold. It does not
-cover things obvious from one file. Do not record every exchange.
+- A selected approach
+- A rejected option
+- A constraint from the user
+- An assumption that supports later work
 
-## Running the command
+Do not record facts that the code or documentation already contains. Do not
+record information that one file clearly shows.
 
-The session context printed by docket at startup names the absolute path to the
-command. Use that path. Do not assume `docket` is on PATH, because putting it
-there is an optional step the user may not have taken.
+## Run the command
 
-The examples below write `docket` for readability. Substitute the path from the
-session context.
+Use the absolute command path from the session context. Do not assume that
+`docket` is on `PATH`.
 
-## Recording
+The examples use `docket` for readability. Replace it with the absolute path when
+necessary.
+
+## Record a decision
 
 ```sh
-docket add "Which database?" --answer "Postgres via psycopg 3" \
-  --cost "migration rewrite if reversed after schema lands"
+docket add "Which database?" --answer "Postgres with psycopg 3" \
+  --cost "A later change requires a schema migration."
 
 docket add "Use an ORM?" --state ruled-out \
-  --answer "No. Raw SQL for the FTS queries, which is the point of the exercise."
+  --answer "No. Use SQL for the full-text search queries."
 
-docket add "Async or sync engine for the CLI preset?" --state open \
-  --answer "Undecided. Sync unless a caller needs concurrency."
+docket add "Async or synchronous driver?" --state open \
+  --answer "Select the driver after the concurrency requirement is known."
 ```
 
-Use `--because` when a decision only holds because an earlier one does. Pass the
-ids it depends on.
+Use IDs from the current ledger. Use `--because` when earlier decisions support
+the new decision. Separate joint requirements with commas:
 
 ```sh
 docket add "Which async driver?" --answer "asyncpg" --because d3,d7
 ```
 
-A decision can rest on more than one independent line of support. Repeat
-`--because` for each alternative; the claim survives while any one of them
-still holds.
+Repeat `--because` for alternative support sets:
 
 ```sh
-docket add "Ship this quarter?" --answer "Yes" --because d3,d7 --because d12
+docket add "Ship this quarter?" --answer "Yes." \
+  --because d3,d7 \
+  --because d12
 ```
 
-Justifications matter later. The ledger is append-only, so an entry written
-without them can never gain them. When a decision rests on another, say so as
-you record it.
+Each `--because` occurrence records one complete support set. Repeat the option
+to add an alternative set. The append-only ledger cannot add these links later.
 
-`--cost` states what breaks if the decision is reversed later. Write it for
-anything expensive. Skip it for anything cheap.
+Use `--cost` to record the effect of a reversal. Add this value when a reversal
+has a high cost.
 
-## Reading
+## Read decisions
 
 ```sh
-docket list                    # everything still current
-docket list --state settled    # one state
-docket list --find postgres    # match question or answer text
-docket list --superseded       # include retired entries too
-docket show d4                 # one entry as JSON, retired or not
+docket list                    # Show all current entries.
+docket list --state settled    # Show one state.
+docket list --find postgres    # Search questions and answers.
+docket list --superseded       # Include retired entries.
+docket list --oneline          # One line per entry, no answer.
+docket show d4 --json          # Show one entry as JSON.
 ```
 
-## Reopening a decision
+## Replace a decision
 
-The ledger never edits or deletes. To reverse a decision, record the reversal and
-name the entry it retires with `--supersedes`.
+Record the replacement and identify the retired entry with `--supersedes`:
 
 ```sh
-docket add "Which database? (reopens d3)" --answer "SQLite. Postgres was overkill." \
+docket add "Which database?" --answer "SQLite is sufficient." \
   --supersedes d3 \
-  --cost "d9 and d11 assumed Postgres and need rechecking"
+  --cost "Review d9 and d11 because they depend on d3."
 ```
 
-A retired entry keeps its own state forever, so an old `open` question would
-otherwise still read as open. `--supersedes` drops it from `list` and from the
-injected context, and `list --superseded` shows it again with the id that
-replaced it.
+The retired entry keeps its recorded state. Normal lists and session context omit
+the retired entry. `docket list --superseded` includes it.
 
-Then check every entry whose `because` names the retired id, and say plainly
-which ones no longer hold. Retraction is manual in this version.
+Review entries that depend directly or indirectly on the retired ID. Docket does
+not automatically retire dependent entries.
 
-## What each entry carries
+## Correct a wrong justification
 
-Alongside the question, answer, state, `because`, `supersedes`, and
-`cost_if_wrong`, every entry records who wrote it, which session, and which
-branch. These are captured at write time because the log is append-only and
-cannot gain them later.
+An entry can name the wrong supporting decision. Correct it the same way:
+record the decision again with the right `--because`, and retire the wrong
+entry with `--supersedes`.
 
-Set `DOCKET_AUTHOR` when an agent should identify itself by name. When no
-author can be detected, the entry records `"unknown"` rather than a blank
-field, and docket prints a warning to stderr naming `DOCKET_AUTHOR`.
+```sh
+docket add "Ask the model what it changed?" --state ruled-out \
+  --answer "No. World outcomes get computed from tool-call logs." \
+  --because d2 \
+  --supersedes d3
+```
 
-## Where the ledger lives
+Do not record the correction as prose in a new entry. A reader of the ledger
+cannot apply it, so the wrong link stays in the graph.
 
-By default the ledger sits under `~/.claude/docket/`, keyed by the project's
-path. A new project needs no setup and no gitignore entry.
+## Entry data
 
-Run `docket where` to print which file is in use.
+Each entry contains these fields:
 
-Run `docket init` to move the ledger into the repository as `.docket/`, which is
-how a team commits and shares decisions. Any existing entries move with it.
+- `question`
+- `answer`
+- `state`
+- `because`
+- `supersedes`
+- `cost_if_wrong`
+- `author`
+- `session`
+- `branch`.
 
-## What this does not do
+Docket records these fields when it writes the entry. The append-only ledger
+cannot change an earlier entry.
 
-It does not block actions. It records and recalls, and nothing more.
+Set `DOCKET_AUTHOR` when the agent must use a specified author name. If author
+detection fails, Docket records `"unknown"` and writes a warning to standard error.
 
-It does not record why a decision was made. A stated chain of reasoning often
-fails to reflect the computation behind an answer, so treat the ledger as a
-record of what was committed to, checkable against later behavior.
+## Ledger location
+
+By default, Docket stores the ledger under `~/.claude/docket/`. It uses the Git
+root to identify the project. Outside Git, it uses the current directory.
+
+Run `docket where` to show the active ledger file.
+
+Run `docket init` to copy existing entries to `.docket/ledger.jsonl`. The command
+makes the project ledger active. A team can commit `.docket/` to share decisions.
+
+## Limits
+
+Docket records and recalls decisions. It does not block actions.
+
+Docket records the selected answer. It does not claim that the recorded reason
+matches the model's internal computation.

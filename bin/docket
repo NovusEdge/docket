@@ -7,8 +7,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
+import textwrap
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -23,6 +25,24 @@ def global_root() -> Path:
     if env := os.environ.get("CLAUDE_CONFIG_DIR"):
         return Path(env).expanduser() / "docket"
     return Path.home() / ".claude" / "docket"
+
+
+def version() -> str:
+    """The release, from the VERSION file beside the checkout.
+
+    Read only when --version asks for it. The SessionStart hook runs `context`
+    on every session and must not pay for a file read it never uses.
+    """
+    try:
+        return (Path(__file__).resolve().parent.parent / "VERSION").read_text().strip()
+    except OSError:
+        return "unknown"
+
+
+class VersionAction(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        print(f"docket {version()}")
+        parser.exit()
 
 
 def session_id() -> str:
@@ -141,6 +161,14 @@ def next_id(entries: list[dict]) -> str:
 
 
 def cmd_add(args: argparse.Namespace) -> int:
+    if args.answer_pos and args.answer_flag:
+        print("docket: give the answer once, not both positionally and as --answer", file=sys.stderr)
+        return 1
+    if not args.answer_pos and not args.answer_flag:
+        print("docket: an answer is required, positionally or via --answer", file=sys.stderr)
+        return 1
+    args.answer = args.answer_pos or args.answer_flag
+
     path = ledger_path()
     entries = read(path)
 
@@ -236,6 +264,23 @@ def _match(e: dict, term: str) -> bool:
     return term in e.get("question", "").lower() or term in e.get("answer", "").lower()
 
 
+_LIST_ID_W, _LIST_STATE_W = 5, 9
+_LIST_HEAD_W = _LIST_ID_W + 1 + _LIST_STATE_W + 1  # clears the id+state columns
+
+
+def _list_dim_tail(line: str, marker: str, use_color: bool) -> str:
+    """Dim a line from `marker` onward, if the line carries it at all.
+
+    Wrapping can split the marker onto a line of its own or leave it whole;
+    either way the dim colour must start where the marker starts, not at
+    column 0.
+    """
+    idx = line.find(marker)
+    if idx == -1 or not use_color:
+        return line
+    return line[:idx] + _c(_DIM, line[idx:], use_color)
+
+
 def cmd_list(args: argparse.Namespace) -> int:
     entries = read(ledger_path())
     retired = retired_by(entries)
@@ -248,23 +293,446 @@ def cmd_list(args: argparse.Namespace) -> int:
     if not entries:
         print("docket: nothing recorded")
         return 0
+
+    use_color = False if args.plain else True if args.pretty else _use_color()
+    width = shutil.get_terminal_size().columns
+
+    if args.oneline:
+        for e in entries:
+            id_str = _c(_STATE_COLOR.get(e["state"], _DIM), f"{e['id']:<{_LIST_ID_W}}", use_color)
+            # Truncated, never wrapped: one entry stays one line, which is what
+            # makes the mode scannable and pipeable into grep.
+            room = max(width - _LIST_ID_W - _LIST_STATE_W - 2, 20)
+            question = textwrap.shorten(e["question"], width=room, placeholder="…")
+            print(f"{id_str} {e['state']:<{_LIST_STATE_W}} {question}")
+        return 0
+
     for e in entries:
         sets = justification_sets(e)
         # " | " separates alternatives; each alternative's own ids stay comma-joined.
         dep = f"  <- {' | '.join(','.join(s) for s in sets)}" if sets else ""
         gone = f"  (superseded by {retired[e['id']]})" if e.get("id") in retired else ""
-        print(f"{e['id']:<5} {e['state']:<9} {e['question']}{dep}{gone}")
-        print(f"      {e['answer']}")
+
+        id_str = _c(_STATE_COLOR.get(e["state"], _DIM), f"{e['id']:<{_LIST_ID_W}}", use_color)
+        state_str = _c(_STATE_COLOR.get(e["state"], _DIM), f"{e['state']:<{_LIST_STATE_W}}", use_color)
+
+        avail = max(width - _LIST_HEAD_W, 20)
+        wrapped = textwrap.wrap(e["question"] + dep + gone, width=avail) or [""]
+        print(f"{id_str} {state_str} " + _list_dim_tail(_list_dim_tail(wrapped[0], "<-", use_color), "(superseded by", use_color))
+        for line in wrapped[1:]:
+            line = _list_dim_tail(_list_dim_tail(line, "<-", use_color), "(superseded by", use_color)
+            print(" " * _LIST_HEAD_W + line)
+
+        for line in textwrap.wrap(e["answer"], width=max(width - 6, 20)) or [""]:
+            print("      " + line)
+    return 0
+
+
+# Duplicated from install.py:30-61 rather than imported: bin/docket ships and
+# runs standalone, so it cannot assume install.py sits beside it.
+#
+# An agent env var (the same names author() checks) forces colour off even on
+# a real tty. Cursor, Copilot in VS Code, and Windsurf run agent shell
+# commands over node-pty, so isatty() alone reads as "human" there. Wrongly
+# guessing pretty puts escape codes in a model's context window; wrongly
+# guessing plain costs a person one flag, so the asymmetry decides it.
+_AGENT_ENV_VARS = (
+    "CLAUDE_SESSION_ID", "CLAUDE_CODE_BRIDGE_SESSION_ID", "SESSION_ID",
+    "AI_AGENT", "CODEX_SANDBOX", "CODEX_HOME",
+)
+
+
+def _use_color() -> bool:
+    if os.environ.get("NO_COLOR"):
+        return False
+    if not sys.stdout.isatty():
+        return False
+    if os.name == "nt" and not os.environ.get("WT_SESSION"):
+        return False
+    if any(os.environ.get(v) for v in _AGENT_ENV_VARS):
+        return False
+    return True
+
+
+def _use_glyphs() -> bool:
+    enc = getattr(sys.stdout, "encoding", None) or ""
+    try:
+        "●".encode(enc)
+        return True
+    except (LookupError, UnicodeEncodeError):
+        return False
+
+
+_STATE_COLOR = {"settled": "2", "ruled-out": "1", "open": "3"}  # green, red, yellow
+_DIM = "8"
+
+_GRAPH_GLYPHS = {
+    "bullet": "●", "open": "○", "retired": "⊘", "vert": "│", "tee": "├─ ", "elbow": "└─ ",
+    "hbar": "─", "ltee": "├", "join": "┴", "cross": "┼", "corner": "╯",
+}
+_GRAPH_GLYPHS_ASCII = {
+    "bullet": "*", "open": "o", "retired": "x", "vert": "|", "tee": "+- ", "elbow": "`- ",
+    "hbar": "-", "ltee": "+", "join": "+", "cross": "+", "corner": "'",
+}
+
+
+def _c(code: str, text: str, use_color: bool) -> str:
+    return "\033[3%sm%s\033[0m" % (code, text) if use_color else text
+
+
+def _node_info(e: dict, retired: dict[str, str]) -> dict:
+    """Precompute what every graph renderer needs from one entry.
+
+    supports is the union of ids across every alternative set, in first-seen
+    order, so the forest can hang a node under its first support and name the
+    rest as extras without walking justification_sets() again per renderer.
+    """
+    sets = justification_sets(e)
+    supports: list[str] = []
+    for s in sets:
+        for i in s:
+            if i not in supports:
+                supports.append(i)
+    return {
+        "id": e["id"],
+        "state": e.get("state", ""),
+        "question": e.get("question", ""),
+        "answer": e.get("answer", ""),
+        "cost": e.get("cost_if_wrong", ""),
+        "sets": sets,
+        "supports": supports,
+        "retired_by": retired.get(e["id"], ""),
+    }
+
+
+def _formula(sets: list[list[str]]) -> str:
+    return " | ".join(",".join(s) for s in sets)
+
+
+def _graph_entries(args: argparse.Namespace) -> tuple[list[dict], dict[str, str]]:
+    """Entries for `graph`, including retired ones.
+
+    Unlike cmd_list, retired entries stay in, or the edges a later entry drew
+    to them would dangle.
+    """
+    entries = read(ledger_path())
+    retired = retired_by(entries)
+    if args.state:
+        entries = [e for e in entries if e.get("state") == args.state]
+    if args.find:
+        entries = [e for e in entries if _match(e, args.find)]
+    return entries, retired
+
+
+def _id_num(eid: str) -> int:
+    try:
+        return int(eid[1:])
+    except (ValueError, IndexError):
+        return 0
+
+
+def _state_glyph(state: str, glyphs: dict, use_color: bool) -> str:
+    g = glyphs["open"] if state == "open" else glyphs["bullet"]
+    return _c(_STATE_COLOR.get(state, _DIM), g, use_color)
+
+
+def _label(info: dict, glyphs: dict, use_color: bool) -> tuple[str, int]:
+    """The `glyph id  state ` prefix shared by forest and compact rows, plus
+    its printable width (ANSI codes have zero display width, so the width is
+    computed from an uncoloured copy rather than len() on the coloured one)."""
+    rest = f"{info['id']:<4}{info['state']:<11}"
+    plain_glyph = glyphs["open"] if info["state"] == "open" else glyphs["bullet"]
+    plain = f"{plain_glyph} {rest}"
+    colored = f"{_state_glyph(info['state'], glyphs, use_color)} {rest}"
+    return colored, len(plain)
+
+
+def _id_state(info: dict) -> str:
+    """id + state with no glyph, for the rail: the glyph already sits in the
+    lane at the node's own column, so repeating it in the label would double it."""
+    return f"{info['id']:<4}{info['state']:<11}"
+
+
+def _forest_roots(entries: list[dict], nodes: dict[str, dict]) -> list[str]:
+    """Entries nothing supports. A support the graph filtered out (--state,
+    --find) also makes its dependent a root: there is nothing to hang it under."""
+    visible = set(nodes)
+    roots = [
+        e["id"] for e in entries
+        if not nodes[e["id"]]["supports"] or not (set(nodes[e["id"]]["supports"]) & visible)
+    ]
+    return sorted(roots, key=_id_num, reverse=True)
+
+
+def _forest_children(entries: list[dict], nodes: dict[str, dict], roots: list[str]) -> dict[str, list[str]]:
+    """Map each support id to the children hung under it (its primary support
+    only; extras are named in text, never drawn, so each node has one parent)."""
+    children: dict[str, list[str]] = {}
+    roots_set = set(roots)
+    for e in sorted(entries, key=lambda e: _id_num(e["id"])):
+        eid = e["id"]
+        if eid in roots_set:
+            continue
+        supports = [s for s in nodes[eid]["supports"] if s in nodes]
+        if not supports:
+            continue
+        children.setdefault(supports[0], []).append(eid)
+    return children
+
+
+def _forest_lines(nodes: dict[str, dict], roots: list[str], children: dict[str, list[str]],
+                   glyphs: dict, use_color: bool, width: int) -> list[str]:
+    lines: list[str] = []
+
+    def walk(eid: str, ancestor_last: list[bool]) -> None:
+        info = nodes[eid]
+        prefix = "".join(("   " if last else glyphs["vert"] + "  ") for last in ancestor_last[:-1])
+        if ancestor_last:
+            prefix += glyphs["elbow"] if ancestor_last[-1] else glyphs["tee"]
+        label, label_width = _label(info, glyphs, use_color)
+
+        extras = info["supports"][1:]
+        text = info["question"]
+        if extras:
+            text += "  (also <- %s)" % ", ".join(extras)
+        if len(info["sets"]) > 1:
+            text += "\n" + _formula(info["sets"])
+        if info["retired_by"]:
+            text += "\n" + _c(_DIM, f"{glyphs['retired']} retired by {info['retired_by']}", use_color)
+        # The answer is what separates forest from compact; compact is the
+        # one-line view.
+        text += "\n" + info["answer"]
+        if info["cost"]:
+            text += "\n" + "! cost: " + info["cost"]
+
+        cont_prefix = "".join(("   " if last else glyphs["vert"] + "  ") for last in ancestor_last)
+        avail = max(width - len(prefix) - label_width, 20)
+        wrapped_lines: list[str] = []
+        for para in text.split("\n"):
+            wrapped_lines.extend(textwrap.wrap(para, width=avail) or [""])
+
+        lines.append(prefix + label + " " + wrapped_lines[0])
+        for extra_line in wrapped_lines[1:]:
+            lines.append(cont_prefix + " " * label_width + " " + extra_line)
+
+        kids = sorted(children.get(eid, []), key=_id_num)
+        for i, kid in enumerate(kids):
+            walk(kid, ancestor_last + [i == len(kids) - 1])
+
+    # A root has no parent, so it carries no connector. Passing a depth here
+    # drew every root as a child of something invisible.
+    for r in roots:
+        walk(r, [])
+    return lines
+
+
+def _compact_lines(nodes: dict[str, dict], roots: list[str], children: dict[str, list[str]],
+                    glyphs: dict, use_color: bool) -> list[str]:
+    lines: list[str] = []
+
+    def walk(eid: str, ancestor_last: list[bool]) -> None:
+        info = nodes[eid]
+        prefix = "".join(("   " if last else glyphs["vert"] + "  ") for last in ancestor_last[:-1])
+        if ancestor_last:
+            prefix += glyphs["elbow"] if ancestor_last[-1] else glyphs["tee"]
+        label, _ = _label(info, glyphs, use_color)
+        retired = f"  {_c(_DIM, glyphs['retired'] + ' retired by ' + info['retired_by'], use_color)}" if info["retired_by"] else ""
+        lines.append(f"{prefix}{label} {info['question']}{retired}")
+        kids = sorted(children.get(eid, []), key=_id_num)
+        for i, kid in enumerate(kids):
+            walk(kid, ancestor_last + [i == len(kids) - 1])
+
+    for r in roots:
+        walk(r, [])
+    return lines
+
+
+def _find_or_alloc(columns: list[str | None], label: str) -> int:
+    """A column labelled `label`, reusing the leftmost freed one if none
+    exists. The ledger's ids are monotonic and append-only, so processing
+    newest-first means every column we need has either already been opened by
+    a dependent, or never existed; there is no need for git's full graph
+    algorithm to find it."""
+    if label in columns:
+        return columns.index(label)
+    for i, c in enumerate(columns):
+        if c is None:
+            columns[i] = label
+            return i
+    columns.append(label)
+    return len(columns) - 1
+
+
+def _rail_lines(entries_desc: list[dict], nodes: dict[str, dict], glyphs: dict, use_color: bool,
+                 width: int) -> list[str]:
+    columns: list[str | None] = []
+    rows: list[tuple[int, list[str | None], dict]] = []
+
+    for e in entries_desc:
+        eid = e["id"]
+        c = _find_or_alloc(columns, eid)
+        # Every other column waiting on this id merges into c. The join has to
+        # be drawn before the node row, or the lanes vanish and the picture
+        # claims those dependents led nowhere.
+        dupes = [i for i in range(len(columns)) if i != c and columns[i] == eid]
+        if dupes:
+            rows.append((c, list(columns), None, dupes))
+            for i in dupes:
+                columns[i] = None
+        snapshot = list(columns)
+
+        info = nodes[eid]
+        supports = [s for s in info["supports"] if s in nodes]
+        if not supports:
+            columns[c] = None  # a root drops its column
+        else:
+            columns[c] = supports[0]
+            for extra in supports[1:]:
+                _find_or_alloc(columns, extra)
+        # The node's column stays open only while it still awaits a support;
+        # continuation rows read this to know whether to draw a lane under it.
+        rows.append((c, snapshot, info, columns[c] is not None))
+
+    lines: list[str] = []
+    for c, snapshot, info, state in rows:
+        if info is None:
+            lines.append(_rail_join(snapshot, c, state, glyphs, use_color))
+            continue
+
+        plain_cells, cells = [], []
+        for i in range(len(snapshot)):
+            if i == c:
+                plain_cells.append(glyphs["open"] if info["state"] == "open" else glyphs["bullet"])
+                cells.append(_state_glyph(info["state"], glyphs, use_color))
+            elif snapshot[i] is not None:
+                plain_cells.append(glyphs["vert"])
+                cells.append(_c(_DIM, glyphs["vert"], use_color))
+            else:
+                plain_cells.append(" ")
+                cells.append(" ")
+        lane, plain_lane = " ".join(cells), " ".join(plain_cells)
+
+        # A continuation row shows lanes only. Reusing plain_lane here drew the
+        # node's own glyph again on every wrapped line.
+        cont_cells = list(plain_cells)
+        cont_cells[c] = glyphs["vert"] if state else " "
+        label = _id_state(info)
+        avail = max(width - len(plain_lane) - 1 - len(label) - 1, 20)
+        text = info["question"]
+        extras = info["supports"][1:]
+        if extras:
+            text += "  (also <- %s)" % ", ".join(extras)
+        if len(info["sets"]) > 1:
+            text += "\n" + _formula(info["sets"])
+        if info["retired_by"]:
+            text += "\n" + f"{glyphs['retired']} retired by {info['retired_by']}"
+        wrapped: list[str] = []
+        for para in text.split("\n"):
+            wrapped.extend(textwrap.wrap(para, width=avail) or [""])
+        cont = " ".join(cont_cells) + " " * (len(label) + 2)
+        lines.append(f"{lane} {label} {wrapped[0]}")
+        for extra_line in wrapped[1:]:
+            lines.append(f"{cont}{extra_line}")
+    return lines
+
+
+def _rail_join(columns: list[str | None], c: int, dupes: list[int],
+               glyphs: dict, use_color: bool) -> str:
+    """The row that merges every lane awaiting one id back into column c.
+
+    c is always the leftmost such column, because _find_or_alloc returns the
+    first match, so the join only ever runs rightwards.
+    """
+    last = max(dupes)
+    cells = []
+    for i in range(len(columns)):
+        if i == c:
+            cells.append(glyphs["ltee"])
+        elif i == last:
+            cells.append(glyphs["corner"])
+        elif i in dupes:
+            cells.append(glyphs["join"])
+        elif columns[i] is not None:
+            # An unrelated lane the join has to cross.
+            cells.append(glyphs["cross"] if c < i < last else glyphs["vert"])
+        else:
+            cells.append(glyphs["hbar"] if c < i < last else " ")
+    row = ""
+    for i, cell in enumerate(cells):
+        row += cell
+        if i < len(cells) - 1:
+            row += glyphs["hbar"] if c <= i < last else " "
+    return _c(_DIM, row, use_color)
+
+
+def cmd_graph(args: argparse.Namespace) -> int:
+    entries, retired = _graph_entries(args)
+    if not entries:
+        print("docket: nothing recorded")
+        return 0
+
+    use_color = False if args.plain else True if args.pretty else _use_color()
+    glyphs = _GRAPH_GLYPHS if _use_glyphs() else _GRAPH_GLYPHS_ASCII
+    width = shutil.get_terminal_size().columns
+    nodes = {e["id"]: _node_info(e, retired) for e in entries}
+    entries_desc = sorted(entries, key=lambda e: _id_num(e["id"]), reverse=True)
+
+    if args.style == "rail":
+        lines = _rail_lines(entries_desc, nodes, glyphs, use_color, width)
+    else:
+        roots = _forest_roots(entries, nodes)
+        children = _forest_children(entries, nodes, roots)
+        if args.style == "compact":
+            lines = _compact_lines(nodes, roots, children, glyphs, use_color)
+        else:
+            lines = _forest_lines(nodes, roots, children, glyphs, use_color, width)
+
+    print("\n".join(lines))
     return 0
 
 
 def cmd_show(args: argparse.Namespace) -> int:
-    for e in read(ledger_path()):
-        if e.get("id") == args.id:
-            print(json.dumps(e, indent=2))
-            return 0
-    print(f"docket: no entry {args.id}", file=sys.stderr)
-    return 1
+    entries = read(ledger_path())
+    by_id = {e.get("id"): e for e in entries}
+    e = by_id.get(args.id)
+    if not e:
+        print(f"docket: no entry {args.id}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(e, indent=2))
+        return 0
+
+    def cite(i: str) -> str:
+        q = by_id.get(i, {}).get("question")
+        return f"{i} ({q})" if q else i
+
+    width = shutil.get_terminal_size().columns
+
+    def field(label: str, value: str) -> None:
+        """One labelled field, wrapped under a hanging indent past the label."""
+        indent = " " * (len(label) + 4)
+        for i, line in enumerate(textwrap.wrap(f"  {label}: {value}", width=width,
+                                               subsequent_indent=indent) or [f"  {label}:"]):
+            print(line)
+
+    for line in textwrap.wrap(f"{e['id']}  {e.get('state', '')}  {e.get('question', '')}",
+                              width=width, subsequent_indent=" " * 15):
+        print(line)
+    field("Answer", e.get("answer", ""))
+    sets = justification_sets(e)
+    if sets:
+        field("Because", " | ".join(", ".join(cite(i) for i in s) for s in sets))
+    supersedes = e.get("supersedes") or []
+    if supersedes:
+        field("Supersedes", ", ".join(cite(i) for i in supersedes))
+    retired = retired_by(entries)
+    if e["id"] in retired:
+        field("Superseded by", cite(retired[e["id"]]))
+    if e.get("cost_if_wrong"):
+        field("Cost if wrong", e["cost_if_wrong"])
+    print(f"  Author: {e.get('author', '')}  Session: {e.get('session', '')}  Branch: {e.get('branch', '')}")
+    return 0
 
 
 def cmd_where(args: argparse.Namespace) -> int:
@@ -292,15 +760,39 @@ def cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_context(args: argparse.Namespace) -> int:
-    """Print the ledger for injection at session start.
+def run_prefix(os_name: str, python: str, me: str) -> str:
+    """The command an agent should run, quoted for the interpreter it needs.
 
-    Prints nothing when the ledger is empty, so a project without one costs no
+    A no-extension, shebangless file runs verbatim on POSIX but not on
+    Windows, so cmd.exe/PowerShell needs the interpreter spelled out.
+    """
+    if os_name == "nt":
+        return f'"{python}" "{me}"'
+    return me
+
+
+# Harnesses that want context as their own hook envelope instead of plain
+# text, keyed by the --for value. docs/installation.md is the source for
+# these shapes; codex is absent because no local hooks.json on this machine
+# shows what it expects, and guessing would ship a shape nobody verified.
+CONTEXT_ENVELOPES = {
+    "gemini": lambda text: {
+        "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text},
+    },
+    "copilot": lambda text: {"additionalContext": text},
+    "cursor": lambda text: {"additional_context": text},
+}
+
+
+def build_context() -> str:
+    """The ledger text `context` injects at session start.
+
+    Empty string for an empty ledger, so a project without one costs no
     context.
     """
     entries = read(ledger_path())
     if not entries:
-        return 0
+        return ""
 
     retired = retired_by(entries)
     entries = [e for e in entries if e.get("id") not in retired]
@@ -309,43 +801,139 @@ def cmd_context(args: argparse.Namespace) -> int:
     ruled = [e for e in entries if e.get("state") == "ruled-out"]
     still_open = [e for e in entries if e.get("state") == "open"]
 
-    me = Path(__file__).resolve()
-    print("# docket: decisions already made in this project")
-    print()
-    print("Treat these as binding. To contradict one, say so explicitly and")
-    print("record the reversal. Record decisions by running:")
-    print()
-    print(f"    {me} add \"question\" --answer \"...\"")
-    print()
+    me = run_prefix(os.name, sys.executable, str(Path(__file__).resolve()))
+    lines = [
+        "# docket: decisions already made in this project",
+        "",
+        "Treat these as binding. To contradict one, say so explicitly and",
+        "record the reversal. Record decisions by running:",
+        "",
+        f"    {me} add \"question\" --answer \"...\"",
+        "",
+    ]
     for label, group in (("Settled", settled), ("Ruled out", ruled), ("Open", still_open)):
         if not group:
             continue
-        print(f"## {label}")
+        lines.append(f"## {label}")
         for e in group:
-            print(f"- [{e['id']}] {e['question']} -> {e['answer']}")
+            lines.append(f"- [{e['id']}] {e['question']} -> {e['answer']}")
             if e.get("cost_if_wrong"):
-                print(f"  cost if wrong: {e['cost_if_wrong']}")
-        print()
+                lines.append(f"  cost if wrong: {e['cost_if_wrong']}")
+        lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def cmd_context(args: argparse.Namespace) -> int:
+    text = build_context()
+    if not text:
+        return 0
+    if args.for_harness:
+        print(json.dumps(CONTEXT_ENVELOPES[args.for_harness](text)))
+    else:
+        print(text, end="")
     return 0
+
+
+_COMPLETION_FLAGS = (
+    "--state", "--answer", "--because", "--supersedes", "--cost",
+    "--find", "--superseded", "--oneline", "--json", "--plain", "--pretty",
+    "--style", "--for", "--version",
+)
+_COMPLETION_CMDS = ("add", "ruled-out", "open", "list", "show", "graph", "context", "where", "init", "completion")
+
+_BASH_COMPLETION = f"""\
+_docket() {{
+    local cur prev
+    cur="${{COMP_WORDS[COMP_CWORD]}}"
+    prev="${{COMP_WORDS[COMP_CWORD-1]}}"
+    case "$prev" in
+        --state) COMPREPLY=($(compgen -W "{' '.join(STATES)}" -- "$cur")); return ;;
+        --because|--supersedes|show)
+            COMPREPLY=($(compgen -W "$(docket list --oneline 2>/dev/null | awk '{{print $1}}')" -- "$cur")); return ;;
+        completion) COMPREPLY=($(compgen -W "bash zsh fish" -- "$cur")); return ;;
+    esac
+    if [[ "$cur" == -* ]]; then
+        COMPREPLY=($(compgen -W "{' '.join(_COMPLETION_FLAGS)}" -- "$cur")); return
+    fi
+    COMPREPLY=($(compgen -W "{' '.join(_COMPLETION_CMDS)}" -- "$cur"))
+}}
+complete -F _docket docket
+"""
+
+_ZSH_COMPLETION = f"""\
+#compdef docket
+
+_docket_ids() {{
+    local -a ids
+    ids=(${{(f)"$(docket list --oneline 2>/dev/null | awk '{{print $1}}')"}})
+    _describe 'id' ids
+}}
+
+_arguments -C \\
+    '1: :({' '.join(_COMPLETION_CMDS)})' \\
+    '*::arg:->args'
+
+case $words[1] in
+    show) _docket_ids ;;
+    completion) _values 'shell' bash zsh fish ;;
+    add|ruled-out|open)
+        _arguments \\
+            '--state[decision state]:state:({' '.join(STATES)})' \\
+            '--answer[answer text]:answer:' \\
+            '--because[supporting ids]:id:_docket_ids' \\
+            '--supersedes[retired ids]:id:_docket_ids' \\
+            '--cost[cost if wrong]:cost:'
+        ;;
+esac
+"""
+
+_FISH_COMPLETION = f"""\
+set -l docket_cmds {' '.join(_COMPLETION_CMDS)}
+complete -c docket -n "not __fish_seen_subcommand_from $docket_cmds" -a "$docket_cmds"
+complete -c docket -n "__fish_seen_subcommand_from show" -a "(docket list --oneline 2>/dev/null | awk '{{print \\$1}}')"
+complete -c docket -n "__fish_seen_subcommand_from add ruled-out open" -l because -a "(docket list --oneline 2>/dev/null | awk '{{print \\$1}}')"
+complete -c docket -n "__fish_seen_subcommand_from add ruled-out open" -l supersedes -a "(docket list --oneline 2>/dev/null | awk '{{print \\$1}}')"
+complete -c docket -n "__fish_seen_subcommand_from add" -l state -a "{' '.join(STATES)}"
+complete -c docket -n "__fish_seen_subcommand_from completion" -a "bash zsh fish"
+"""
+
+_COMPLETIONS = {"bash": _BASH_COMPLETION, "zsh": _ZSH_COMPLETION, "fish": _FISH_COMPLETION}
+
+
+def cmd_completion(args: argparse.Namespace) -> int:
+    print(_COMPLETIONS[args.shell], end="")
+    return 0
+
+
+def _add_decision_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("question")
+    p.add_argument("answer_pos", metavar="answer", nargs="?", help="the answer text")
+    p.add_argument("--answer", dest="answer_flag", help="the answer text, alternative to the positional")
+    p.add_argument(
+        "--because", action="append",
+        help="comma-separated ids this depends on; repeat for an alternative support set",
+    )
+    p.add_argument("--supersedes", help="comma-separated ids this entry retires")
+    p.add_argument("--cost", help="what breaks if this is later reversed")
+    p.set_defaults(func=cmd_add)
 
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="docket", description=__doc__)
+    p.add_argument("--version", action=VersionAction, nargs=0, help="print the release and exit")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     a = sub.add_parser("add", help="record a decision")
-    a.add_argument("question")
+    _add_decision_args(a)
     a.add_argument("--state", choices=STATES, default="settled")
-    a.add_argument("--answer", required=True)
-    a.add_argument(
-        "--because", action="append",
-        help="comma-separated ids this depends on; repeat for an alternative support set",
-    )
-    a.add_argument(
-        "--supersedes", help="comma-separated ids this entry retires",
-    )
-    a.add_argument("--cost", help="what breaks if this is later reversed")
-    a.set_defaults(func=cmd_add)
+
+    ro = sub.add_parser("ruled-out", help="record a rejected decision")
+    _add_decision_args(ro)
+    ro.set_defaults(state="ruled-out")
+
+    op = sub.add_parser("open", help="record a question with no answer yet")
+    _add_decision_args(op)
+    op.set_defaults(state="open")
 
     ls = sub.add_parser("list", help="list decisions")
     ls.add_argument("--state", choices=STATES)
@@ -354,13 +942,29 @@ def main(argv: list[str] | None = None) -> int:
         "--superseded", action="store_true",
         help="include entries a later decision retired",
     )
+    ls.add_argument("--oneline", action="store_true", help="one line per entry, no answer")
+    ls.add_argument("--plain", action="store_true", help="force colour off")
+    ls.add_argument("--pretty", action="store_true", help="force colour on, e.g. piping to less -R")
     ls.set_defaults(func=cmd_list)
 
-    sh = sub.add_parser("show", help="print one entry as JSON")
+    gr = sub.add_parser("graph", help="draw the support graph")
+    gr.add_argument("--style", choices=("forest", "rail", "compact"), default="forest")
+    gr.add_argument("--state", choices=STATES)
+    gr.add_argument("--find", help="match question or answer text")
+    gr.add_argument("--plain", action="store_true", help="force colour off")
+    gr.add_argument("--pretty", action="store_true", help="force colour on, e.g. piping to less -R")
+    gr.set_defaults(func=cmd_graph)
+
+    sh = sub.add_parser("show", help="print one entry, human-readable")
     sh.add_argument("id")
+    sh.add_argument("--json", action="store_true", help="print the entry as JSON")
     sh.set_defaults(func=cmd_show)
 
     ctx = sub.add_parser("context", help="print the ledger for session injection")
+    ctx.add_argument(
+        "--for", dest="for_harness", choices=sorted(CONTEXT_ENVELOPES),
+        help="wrap the ledger text in this harness's own hook envelope",
+    )
     ctx.set_defaults(func=cmd_context)
 
     wh = sub.add_parser("where", help="print which ledger file is in use")
@@ -368,6 +972,10 @@ def main(argv: list[str] | None = None) -> int:
 
     it = sub.add_parser("init", help="move this project's ledger into the repository")
     it.set_defaults(func=cmd_init)
+
+    co = sub.add_parser("completion", help="print a shell completion script")
+    co.add_argument("shell", choices=("bash", "zsh", "fish"))
+    co.set_defaults(func=cmd_completion)
 
     args = p.parse_args(argv)
     return args.func(args)

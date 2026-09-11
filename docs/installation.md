@@ -1,61 +1,167 @@
 # Installation
 
-Docket needs two things from a harness.
+Docket requires Python 3.10 or later. It has no Python package dependencies.
 
-1. A session-start hook that runs `docket context` and puts its output in front
-   of the model.
-2. An instruction document that tells the model when to record a decision.
+An agent harness needs two integrations:
 
-The command itself is one Python 3 file with no dependencies, so it runs
-anywhere. Only the two integration points differ per harness.
+1. A session-start hook runs `docket context` and adds its output to the model context.
+2. An instruction document tells the model when to record a decision.
 
-Every harness below reads the same ledger, so one project can be worked on from
-several tools without the decisions diverging.
+All integrations use the same ledger. A project can therefore use more than one
+agent harness.
 
-## The command
-
-Clone the repository, then point the harness at `bin/docket`.
+## The installer
 
 ```sh
-git clone https://github.com/NovusEdge/docket ~/Projects/docket
+curl -fsSLO https://raw.githubusercontent.com/NovusEdge/docket/main/installer/install.py
+python3 install.py
 ```
 
-Optionally put it on `PATH` for your own shell use:
+`curl -O` saves the file as `install.py` in the current directory, whatever the
+depth of the URL. From a checkout, run `python3 installer/install.py`.
+
+The installer clones the repository if you do not run it from a checkout. It
+adds the command to `PATH`, and it configures each harness that it finds.
+
+An update clones into a temporary directory and swaps the result into place, so
+a local change in the install directory never blocks it.
+
+In a terminal, and without `--yes`, `--no-tty`, `--dry-run`, or `--harness`,
+the installer runs a guided flow instead of taking every default silently:
+
+1. It asks where to put the `docket` command, showing the resolved default.
+2. It lists every harness with its detection result, pre-checked when
+   detected. Accept with Enter, type indices to toggle them, or type `all` or
+   `none`. An undetected harness can still be selected, for a tool you are
+   about to install.
+3. If the chosen location is not already on `PATH`, it shows the exact line
+   and file and asks before appending.
+4. It prints the full plan and asks for confirmation before writing anything.
+
+Ctrl-C at any point exits without writing anything.
+
+| Option | Effect |
+|---|---|
+| `--dry-run` | Print every file without writing it, non-interactively |
+| `--harness NAME` | Configure one harness; repeat for more; skips the guided flow |
+| `--project` | Configure this repository instead of your home directory |
+| `--prefix DIR` | Put the command in `DIR` |
+| `--yes` | Take every default and do not prompt |
+| `--no-tty` | Treat stdin as non-interactive, same effect as `--yes` on prompting |
+| `--uninstall` | Remove what the installer wrote |
+
+CI and `just verify` use `--yes` (or a non-tty stdin), which keeps taking every
+default with no prompts and no rc-file write, exactly as before.
+
+The uninstall keeps every ledger.
+
+Run the installer again to update.
+
+## Manual installation
+
+Clone the repository:
 
 ```sh
+git clone https://github.com/NovusEdge/docket.git ~/Projects/docket
+```
+
+Add the command to `PATH` if you want to use it in a shell:
+
+```sh
+mkdir -p ~/.local/bin
 ln -s ~/Projects/docket/bin/docket ~/.local/bin/docket
 ```
 
-The hooks below call the file by absolute path, so `PATH` is not required.
+The hook examples use an absolute path. They do not require `PATH`.
+
+`docket context --for gemini|copilot|cursor` prints the ledger inside that
+harness's hook envelope. The examples below use it, so a hook needs no shell
+pipe.
 
 ## Claude Code
+
+This integration has a live test.
+
+Add the marketplace and install Docket:
 
 ```text
 /plugin marketplace add NovusEdge/docket
 /plugin install docket@NovusEdge
 ```
 
-The plugin ships `hooks/hooks.json`, which Claude Code loads by convention, and
-`skills/docket/SKILL.md`.
+Start a new session after installation. The plugin loads `hooks/hooks.json` and
+the Docket skill.
 
 ## OpenAI Codex CLI
 
-Codex reads `.codex-plugin/plugin.json`, which this repository ships. It points
-at the same `hooks/hooks.json` and `skills/` directory that Claude Code uses,
-because the hook schemas are compatible.
+The repository contains `.codex-plugin/plugin.json`. Add the marketplace and
+install Docket:
 
-To wire it up by hand instead, put this in `~/.codex/hooks.json` or
-`<repo>/.codex/hooks.json`:
+```sh
+codex plugin marketplace add NovusEdge/docket
+codex plugin add docket@NovusEdge
+```
+
+Start a new Codex task after installation. Codex loads the bundled skill and
+session hook.
+
+Set `DOCKET_AUTHOR=codex` in the hook environment when you require this author
+name.
+Docket uses automatic detection when the variable is absent.
+
+## OpenCode
+
+Create `~/.config/opencode/plugins/docket/index.ts`, or
+`.opencode/plugins/docket/index.ts` for one project:
+
+```js
+import { execFileSync } from "node:child_process"
+
+const PYTHON = "/usr/bin/python3"
+const DOCKET = "/path/to/docket/bin/docket"
+
+export const Docket = async () => {
+  return {
+    "experimental.chat.system.transform": async (input, output) => {
+      try {
+        const ledger = execFileSync(PYTHON, [DOCKET, "context"], {
+          encoding: "utf8",
+          env: { ...process.env, DOCKET_AUTHOR: "opencode" },
+        })
+        if (ledger.trim()) output.system.push(ledger)
+      } catch {
+        return
+      }
+    },
+  }
+}
+```
+
+A plugin is a named export. It is an async function that returns the hooks.
+The hook adds the ledger to the system prompt before each model call.
+
+The `Plugin.define` interface belongs to the OpenCode v2 API. That API is not
+released.
+
+Copy `skills/docket/SKILL.md` to `.opencode/skills/docket/SKILL.md`.
+OpenCode also finds skills in `.agents/skills/`.
+
+## Gemini CLI
+
+Put this in `~/.gemini/settings.json`, or in `.gemini/settings.json` for one
+project:
 
 ```json
 {
   "hooks": {
     "SessionStart": [
       {
+        "name": "docket",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 /path/to/docket/bin/docket context"
+            "command": "/path/to/docket/bin/docket context --for gemini",
+            "timeout": 5000
           }
         ]
       }
@@ -64,78 +170,15 @@ To wire it up by hand instead, put this in `~/.codex/hooks.json` or
 }
 ```
 
-A `SessionStart` hook's stdout becomes extra developer context. Plain text works.
+The entry has no `matcher`. A lifecycle matcher is an exact string, so a regular
+expression matches no event.
 
-For instructions, Codex reads `AGENTS.md` from `~/.codex/AGENTS.md` and from the
-repository, with files closer to the working directory winning. Copy the body of
-`skills/docket/SKILL.md` into `AGENTS.md`, or install the plugin and let it use
-the bundled skill.
+The timeout is in milliseconds.
 
-Codex sets neither `AI_AGENT` nor a `USER` that survives to the sandbox, so
-author detection fails silently otherwise. Export `DOCKET_AUTHOR=codex` (or a
-more specific name) wherever the hook runs.
+Gemini identifies a hook by its name and its command. It asks you to trust the
+hook again after the command changes.
 
-## OpenCode
-
-Add the plugin to `opencode.json` in the project or in
-`~/.config/opencode/`:
-
-```json
-{
-  "$schema": "https://opencode.ai/config.json",
-  "plugin": ["./.opencode/plugins/docket.mjs"]
-}
-```
-
-Then create `.opencode/plugins/docket.mjs`:
-
-```js
-import { execFileSync } from 'child_process';
-
-const DOCKET = '/path/to/docket/bin/docket';
-
-export const docket = async () => ({
-  'before_agent_start': async (_input, output) => {
-    let ledger = '';
-    try {
-      ledger = execFileSync('python3', [DOCKET, 'context'], { encoding: 'utf8' });
-    } catch (e) {
-      return;
-    }
-    if (ledger.trim()) output.systemPrompt.push(ledger);
-  },
-});
-```
-
-OpenCode has no separate skill format. The instruction document rides along in
-the system prompt or in the project's context file.
-
-OpenCode is not detected automatically. Set `DOCKET_AUTHOR=opencode` in the
-plugin's environment, or in `.opencode/plugins/docket.mjs` itself before it
-shells out.
-
-## Gemini CLI
-
-Create `gemini-extension.json` at the extension root:
-
-```json
-{
-  "name": "docket",
-  "version": "0.5.0",
-  "contextFileName": "AGENTS.md"
-}
-```
-
-`contextFileName` defaults to `GEMINI.md`. Repointing it at `AGENTS.md` lets one
-instruction file serve Gemini and Codex.
-
-Gemini CLI supports hooks in `hooks/hooks.json` inside the extension, with
-`${extensionPath}` substitution. Check the current event names in Gemini's hook
-reference before writing one. This document does not state a session-start event
-name for Gemini, because that name was not verified against a primary source.
-
-Gemini is not detected automatically. Set `DOCKET_AUTHOR=gemini` in the hook's
-environment.
+Copy `skills/docket/SKILL.md` to `.gemini/skills/docket/SKILL.md`.
 
 ## GitHub Copilot CLI
 
@@ -149,7 +192,8 @@ Put this in `.github/hooks/sessionStart.json` for a repository, or
     "sessionStart": [
       {
         "type": "command",
-        "bash": "python3 /path/to/docket/bin/docket context | python3 -c 'import json,sys; print(json.dumps({\"additionalContext\": sys.stdin.read()}))'",
+        "bash": "DOCKET_AUTHOR=copilot /path/to/docket/bin/docket context --for copilot",
+        "powershell": "$env:DOCKET_AUTHOR=\"copilot\"; & \"C:\\Path\\To\\python.exe\" \"C:\\path\\to\\docket\\bin\\docket\" context --for copilot",
         "timeoutSec": 5
       }
     ]
@@ -157,54 +201,58 @@ Put this in `.github/hooks/sessionStart.json` for a repository, or
 }
 ```
 
-Copilot parses the hook's stdout as JSON and injects `additionalContext`.
+Copilot parses the hook output as JSON. It adds `additionalContext` to the model
+context.
+
+Copilot runs the `bash` field on Linux and macOS. It runs the `powershell` field
+on Windows. PowerShell requires the call operator `&` before a quoted command
+path.
 
 For instructions, Copilot reads `.github/copilot-instructions.md`. Copy the body
 of `skills/docket/SKILL.md` into it.
 
-Copilot is not detected automatically. Add `"DOCKET_AUTHOR=copilot"` to the
-hook's `bash` invocation, or export it in the environment the hook runs in.
-
 ## Cursor
 
-Cursor supports both pieces but has no packaging format, so this is a two-file
-manual install.
+Use two files to install Docket for Cursor.
 
 Hook, in `.cursor/hooks.json` for the project or `~/.cursor/hooks.json` for
 yourself:
 
 ```json
 {
+  "version": 1,
   "hooks": {
     "sessionStart": [
       {
-        "command": "python3 /path/to/docket/bin/docket context | python3 -c 'import json,sys; print(json.dumps({\"additional_context\": sys.stdin.read()}))'"
+        "command": "/path/to/docket/bin/docket context --for cursor"
       }
     ]
   }
 }
 ```
 
-Cursor's field is `additional_context`, with an underscore, unlike Copilot's
-`additionalContext`.
+Cursor calls its output field `additional_context`.
 
-Instructions go in `.cursor/rules/docket.mdc`, which Cursor includes in every
-session.
+Instructions go in `.cursor/rules/docket.mdc`. The file requires this
+frontmatter, or Cursor does not load it in every session:
 
-Cursor is not detected automatically. Set `DOCKET_AUTHOR=cursor` in the hook's
-environment.
+```text
+---
+alwaysApply: true
+---
+```
 
 ## A harness with no hooks
 
-Without a session-start hook there is no way to run a fresh command per session.
-Put a snapshot of the ledger into whatever file that harness always loads:
+Without a session-start hook, the harness cannot run a command for each session.
+Write a current ledger snapshot to the instruction file:
 
 ```sh
-docket context >> AGENTS.md
+docket context > DOCKET_CONTEXT.md
 ```
 
-This goes stale as soon as a decision is recorded, so regenerate it. A hook is
-better wherever one exists.
+Configure the harness to load `DOCKET_CONTEXT.md`. Regenerate the file after each
+decision.
 
 ## Which instruction file each harness reads
 
@@ -216,11 +264,30 @@ better wherever one exists.
 | Copilot CLI | `.github/copilot-instructions.md` | no |
 | Cursor | `.cursor/rules/*.mdc` | no |
 
-`AGENTS.md` is a real cross-harness convention in 2026, and its coverage is
-uneven. Only Codex reads it without configuration.
+Only Codex reads `AGENTS.md` without configuration.
+
+## Integration references
+
+- [OpenCode plugins](https://opencode.ai/v2/docs/build/plugins/)
+- [OpenCode agent skills](https://opencode.ai/docs/skills)
+- [Gemini CLI hooks](https://geminicli.com/docs/hooks/reference/)
+- [Gemini CLI extensions](https://geminicli.com/docs/extensions/reference/)
+- [GitHub Copilot CLI hooks](https://docs.github.com/en/copilot/reference/hooks-reference)
+- [Cursor hooks](https://prod.cursor.com/docs/hooks)
+- [OpenAI Codex plugins](https://help.openai.com/en/articles/20001256/)
 
 ## Verification limits
 
-The Claude Code path is tested. The Codex, OpenCode, Gemini, Copilot, and Cursor
-configurations here follow each harness's documented format and have not been
-run against a live install. Report anything that fails.
+The Claude Code path has a live test.
+
+The installer runs the Codex commands and they succeed. The commands match the
+CLI help available on 11 September 2026.
+
+The OpenCode plugin shape matches the v1 plugin interface in the OpenCode
+repository on that date.
+
+The other examples match their official formats on that date. This repository
+does not have live integration tests for them.
+
+The installer runs on Linux and macOS in the same code path. Its Windows path
+plans the correct files under test, but no test applies them on Windows.
