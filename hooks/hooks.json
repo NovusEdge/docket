@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/docket\" context 2>/dev/null || exit 0",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/docket\" context",
             "timeout": 5,
             "statusMessage": "Loading docket..."
           }

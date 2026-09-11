@@ -25,6 +25,24 @@ def global_root() -> Path:
     return Path.home() / ".claude" / "docket"
 
 
+def version() -> str:
+    """The release, from the VERSION file beside the checkout.
+
+    Read only when --version asks for it. The SessionStart hook runs `context`
+    on every session and must not pay for a file read it never uses.
+    """
+    try:
+        return (Path(__file__).resolve().parent.parent / "VERSION").read_text().strip()
+    except OSError:
+        return "unknown"
+
+
+class VersionAction(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        print(f"docket {version()}")
+        parser.exit()
+
+
 def session_id() -> str:
     """Claude Code exposes this under more than one name across versions."""
     for var in ("CLAUDE_SESSION_ID", "CLAUDE_CODE_BRIDGE_SESSION_ID", "SESSION_ID"):
@@ -292,15 +310,39 @@ def cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_context(args: argparse.Namespace) -> int:
-    """Print the ledger for injection at session start.
+def run_prefix(os_name: str, python: str, me: str) -> str:
+    """The command an agent should run, quoted for the interpreter it needs.
 
-    Prints nothing when the ledger is empty, so a project without one costs no
+    A no-extension, shebangless file runs verbatim on POSIX but not on
+    Windows, so cmd.exe/PowerShell needs the interpreter spelled out.
+    """
+    if os_name == "nt":
+        return f'"{python}" "{me}"'
+    return me
+
+
+# Harnesses that want context as their own hook envelope instead of plain
+# text, keyed by the --for value. docs/installation.md is the source for
+# these shapes; codex is absent because no local hooks.json on this machine
+# shows what it expects, and guessing would ship a shape nobody verified.
+CONTEXT_ENVELOPES = {
+    "gemini": lambda text: {
+        "hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text},
+    },
+    "copilot": lambda text: {"additionalContext": text},
+    "cursor": lambda text: {"additional_context": text},
+}
+
+
+def build_context() -> str:
+    """The ledger text `context` injects at session start.
+
+    Empty string for an empty ledger, so a project without one costs no
     context.
     """
     entries = read(ledger_path())
     if not entries:
-        return 0
+        return ""
 
     retired = retired_by(entries)
     entries = [e for e in entries if e.get("id") not in retired]
@@ -309,28 +351,42 @@ def cmd_context(args: argparse.Namespace) -> int:
     ruled = [e for e in entries if e.get("state") == "ruled-out"]
     still_open = [e for e in entries if e.get("state") == "open"]
 
-    me = Path(__file__).resolve()
-    print("# docket: decisions already made in this project")
-    print()
-    print("Treat these as binding. To contradict one, say so explicitly and")
-    print("record the reversal. Record decisions by running:")
-    print()
-    print(f"    {me} add \"question\" --answer \"...\"")
-    print()
+    me = run_prefix(os.name, sys.executable, str(Path(__file__).resolve()))
+    lines = [
+        "# docket: decisions already made in this project",
+        "",
+        "Treat these as binding. To contradict one, say so explicitly and",
+        "record the reversal. Record decisions by running:",
+        "",
+        f"    {me} add \"question\" --answer \"...\"",
+        "",
+    ]
     for label, group in (("Settled", settled), ("Ruled out", ruled), ("Open", still_open)):
         if not group:
             continue
-        print(f"## {label}")
+        lines.append(f"## {label}")
         for e in group:
-            print(f"- [{e['id']}] {e['question']} -> {e['answer']}")
+            lines.append(f"- [{e['id']}] {e['question']} -> {e['answer']}")
             if e.get("cost_if_wrong"):
-                print(f"  cost if wrong: {e['cost_if_wrong']}")
-        print()
+                lines.append(f"  cost if wrong: {e['cost_if_wrong']}")
+        lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def cmd_context(args: argparse.Namespace) -> int:
+    text = build_context()
+    if not text:
+        return 0
+    if args.for_harness:
+        print(json.dumps(CONTEXT_ENVELOPES[args.for_harness](text)))
+    else:
+        print(text, end="")
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="docket", description=__doc__)
+    p.add_argument("--version", action=VersionAction, nargs=0, help="print the release and exit")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     a = sub.add_parser("add", help="record a decision")
@@ -361,6 +417,10 @@ def main(argv: list[str] | None = None) -> int:
     sh.set_defaults(func=cmd_show)
 
     ctx = sub.add_parser("context", help="print the ledger for session injection")
+    ctx.add_argument(
+        "--for", dest="for_harness", choices=sorted(CONTEXT_ENVELOPES),
+        help="wrap the ledger text in this harness's own hook envelope",
+    )
     ctx.set_defaults(func=cmd_context)
 
     wh = sub.add_parser("where", help="print which ledger file is in use")

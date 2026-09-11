@@ -1,0 +1,21 @@
+{
+  "name": "NovusEdge",
+  "interface": {
+    "displayName": "Plugins by NovusEdge"
+  },
+  "plugins": [
+    {
+      "name": "docket",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity",
+      "description": "Records decisions as settled, ruled out, or open, and loads them at session start so later work cannot silently contradict them."
+    }
+  ]
+}

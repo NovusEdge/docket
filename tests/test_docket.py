@@ -1,13 +1,22 @@
 """Run with: python3 tests/test_docket.py"""
 
+import importlib.util
 import json
 import os
 import subprocess
 import sys
 import tempfile
+from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
 DOCKET = str(Path(__file__).resolve().parent.parent / "bin" / "docket")
+
+# bin/docket has no .py extension, so it needs an explicit loader instead of
+# a normal import.
+_loader = SourceFileLoader("docket_cli", DOCKET)
+_spec = importlib.util.spec_from_loader("docket_cli", _loader)
+docket_cli = importlib.util.module_from_spec(_spec)
+_loader.exec_module(docket_cli)
 
 
 def run(cwd, *args, home=None):
@@ -27,6 +36,10 @@ def main() -> int:
         r = run(d, "context")
         assert r.returncode == 0, r.stderr
         assert r.stdout == "", f"empty project must cost no context, got {r.stdout!r}"
+
+        r = run(d, "context", "--for", "gemini")
+        assert r.returncode == 0, r.stderr
+        assert r.stdout == "", "an empty ledger must print nothing even wrapped for a harness"
 
         # This block exercises the project-local ledger, so opt into one.
         (d / ".git").mkdir()
@@ -58,6 +71,22 @@ def main() -> int:
         r = run(d, "context")
         assert "Settled" in r.stdout and "Ruled out" in r.stdout
         assert "migration" in r.stdout, "cost_if_wrong belongs in injected context"
+        assert r.stdout.startswith("# docket:"), "plain context output must not change"
+        assert not r.stdout.lstrip().startswith("{"), "plain context output must not be JSON"
+
+        r = run(d, "context", "--for", "gemini")
+        envelope = json.loads(r.stdout)
+        ledger_text = envelope["hookSpecificOutput"]["additionalContext"]
+        assert envelope["hookSpecificOutput"]["hookEventName"] == "SessionStart"
+        assert "Which database?" in ledger_text
+
+        r = run(d, "context", "--for", "copilot")
+        envelope = json.loads(r.stdout)
+        assert "Which database?" in envelope["additionalContext"]
+
+        r = run(d, "context", "--for", "cursor")
+        envelope = json.loads(r.stdout)
+        assert "Which database?" in envelope["additional_context"]
 
         r = run(d, "show", "d3")
         entry = json.loads(r.stdout)
@@ -262,6 +291,23 @@ def main() -> int:
         assert r.returncode == 0, r.stderr
         assert "dbad" in r.stderr
         assert "Unrelated" in r.stdout, "one bad entry must not hide the rest"
+
+    # The Codex manifest sat at 0.6.0 while the Claude one reached 0.6.3,
+    # because nothing compared them.
+    root = Path(DOCKET).parent.parent
+    release = (root / "VERSION").read_text().strip()
+    for manifest in (".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
+        declared = json.loads((root / manifest).read_text())["version"]
+        assert declared == release, f"{manifest} says {declared}, VERSION says {release}"
+
+    r = subprocess.run([sys.executable, DOCKET, "--version"], capture_output=True, text=True)
+    assert r.stdout.strip() == f"docket {release}", r.stdout
+
+    # Windows has no shebang, so the printed command must name the interpreter.
+    assert docket_cli.run_prefix("posix", "/usr/bin/python3", DOCKET) == DOCKET
+    assert docket_cli.run_prefix("nt", "C:\\Python\\python.exe", "C:\\docket\\bin\\docket") == (
+        '"C:\\Python\\python.exe" "C:\\docket\\bin\\docket"'
+    )
 
     print("ok")
     return 0
