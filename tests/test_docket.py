@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -308,6 +309,122 @@ def main() -> int:
     assert docket_cli.run_prefix("nt", "C:\\Python\\python.exe", "C:\\docket\\bin\\docket") == (
         '"C:\\Python\\python.exe" "C:\\docket\\bin\\docket"'
     )
+
+    # graph
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        (d / ".git").mkdir()
+        run(d, "init")
+
+        run(d, "add", "Root", "--answer", "a")                                    # d1
+        run(d, "add", "Ruled out", "--state", "ruled-out", "--answer", "b")        # d2
+        run(d, "add", "Conjunctive child", "--answer", "c", "--because", "d1,d2")  # d3, extra support d2
+        run(d, "add", "Retire the ruled-out one", "--answer", "d", "--supersedes", "d2")  # d4
+
+        for style in ("forest", "rail", "compact"):
+            r = run(d, "graph", "--style", style)
+            assert r.returncode == 0, r.stderr
+            for eid, question in (("d1", "Root"), ("d3", "Conjunctive child"), ("d4", "Retire")):
+                assert eid in r.stdout and question[:4] in r.stdout, (style, r.stdout)
+
+        # graph includes a retired entry; list still hides it.
+        r = run(d, "graph")
+        assert "Ruled out" in r.stdout, "graph must show retired entries"
+        assert "retired by d4" in r.stdout
+        r = run(d, "list")
+        assert "Ruled out" not in r.stdout, "list must still hide retired entries"
+
+        # d3 has two supports (d1 primary, d2 extra) and appears exactly once.
+        r = run(d, "graph")
+        assert r.stdout.count("d3 ") == 1 or r.stdout.count("d3   ") == 1, r.stdout
+        assert "also <- d2" in r.stdout
+
+        # --state and --find filter the graph like they filter list.
+        r = run(d, "graph", "--state", "settled")
+        assert "Ruled out" not in r.stdout
+        assert "Root" in r.stdout
+        r = run(d, "graph", "--find", "conjunctive")
+        assert "Conjunctive child" in r.stdout
+        assert "Retire the ruled-out one" not in r.stdout
+
+        # A synthetic entry with two alternative sets prints the d1,d2 | d5
+        # formula line, exercising the OR path the real ledger never takes.
+        ledger = d / ".docket" / "ledger.jsonl"
+        alt = json.dumps({
+            "id": "d5", "ts": "2020-01-01T00:00:00+00:00", "state": "settled",
+            "question": "Alt supports", "answer": "e", "because": [["d1", "d2"], ["d4"]],
+            "cost_if_wrong": "", "session": "", "author": "x", "branch": "",
+        })
+        with ledger.open("a") as f:
+            f.write(alt + "\n")
+        r = run(d, "graph")
+        assert r.returncode == 0, r.stderr
+        assert "d1,d2 | d4" in r.stdout
+
+        # A node glyph marks a node's own row. The rail drew it again on every
+        # wrapped continuation row, which claimed one entry was several.
+        r = run(d, "graph", "--style", "rail")
+        for line in r.stdout.splitlines():
+            if any(g in line for g in ("●", "○", "*", "o")):
+                assert re.search(r"\bd\d+\s", line), f"glyph on a continuation row: {line!r}"
+
+        # Several lanes waiting on one id must visibly merge back into it.
+        # Without the join row the lanes vanished and the picture claimed those
+        # dependents led nowhere.
+        for n in range(6):
+            run(d, "add", f"Fan child {n}", "--answer", "f", "--because", "d1")
+        r = run(d, "graph", "--style", "rail")
+        assert any(g in r.stdout for g in ("╯", "'")), r.stdout
+        assert any(g in r.stdout for g in ("┴", "+")), r.stdout
+
+        # context is untouched by any of this.
+        r = run(d, "context")
+        assert r.stdout.startswith("# docket:")
+        assert not r.stdout.lstrip().startswith("{")
+
+    # d22's fan: one root with 8 direct children peaks the rail at 9 columns.
+    with tempfile.TemporaryDirectory() as tmp:
+        d = Path(tmp)
+        (d / ".git").mkdir()
+        run(d, "init")
+        run(d, "add", "Root", "--answer", "a")
+        for _ in range(8):
+            run(d, "add", "Child", "--answer", "a", "--because", "d1")
+
+        entries = docket_cli.read(d / ".docket" / "ledger.jsonl")
+        retired = docket_cli.retired_by(entries)
+        nodes = {e["id"]: docket_cli._node_info(e, retired) for e in entries}
+        desc = sorted(entries, key=lambda e: docket_cli._id_num(e["id"]), reverse=True)
+        rows = []
+        columns = []
+        for e in desc:
+            eid = e["id"]
+            c = docket_cli._find_or_alloc(columns, eid)
+            for i in range(len(columns)):
+                if i != c and columns[i] == eid:
+                    columns[i] = None
+            rows.append(len(columns))
+            supports = nodes[eid]["supports"]
+            if not supports:
+                columns[c] = None
+            else:
+                columns[c] = supports[0]
+                for extra in supports[1:]:
+                    docket_cli._find_or_alloc(columns, extra)
+        # 8 children each open their own column before the root collapses
+        # them all back into one; nothing else is running concurrently in
+        # this synthetic ledger to add a 9th, unlike the real one.
+        assert max(rows) == 8, rows
+
+    # Glyph fallback degrades on an encoding that cannot carry the box-drawing set.
+    class _FakeStdout:
+        encoding = "ascii"
+    real_stdout = docket_cli.sys.stdout
+    docket_cli.sys.stdout = _FakeStdout()
+    try:
+        assert docket_cli._use_glyphs() is False
+    finally:
+        docket_cli.sys.stdout = real_stdout
 
     print("ok")
     return 0
