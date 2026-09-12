@@ -181,7 +181,7 @@ def validate_record(record: Any, *, previous: list[dict[str, Any]] | None = None
     if any(not isinstance(key, str) for key in record):
         raise _error("record", "field names must be strings")
     if record.get("schema") in (None, 1):
-        raise _error("schema", "legacy format is unsupported; migrate with scripts/migrate_ledger.py to schema 2")
+        raise _error("schema", "legacy format is unsupported; run 'docket migrate' to convert it to schema 2")
     unknown_fields = sorted(set(record) - ALLOWED_FIELDS)
     if unknown_fields:
         raise _error("record", f"unknown field(s): {', '.join(unknown_fields)}")
@@ -540,6 +540,10 @@ def _ledger_lock(path: Path, exclusive: bool = True) -> Iterator[None]:
                 yield
             finally:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+
+# The migration replaces the whole file and needs the lock an append takes.
+ledger_lock = _ledger_lock
 
 
 def append(path: Path | str, record: dict[str, Any]) -> dict[str, Any]:

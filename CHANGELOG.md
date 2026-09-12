@@ -19,12 +19,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docket init` writes `.docket/.gitignore` with `*.lock`, so a team that
   commits `.docket/` does not commit the append lock. An existing file is left
   alone.
+- `docket migrate` converts a pre-0.8 ledger to schema 2. It derives the record
+  kinds from the old state field, keeps the original at `ledger.jsonl.schema1`,
+  and accepts a hand-edited classification map through `--emit-map` and `--map`.
+  It rewrites a `supersedes` edge into a question as an `answers` edge, and
+  drops a support edge into a question, warning about both on stderr.
 
 ### Fixed
 
 - Reads hold a shared lock on the ledger, so a reader no longer sees a
   half-written line and fails on invalid JSON. Writers already held an exclusive
   lock.
+- Every command that meets a legacy ledger now names `docket migrate` instead
+  of a script path that an installed Docket does not ship.
 
 ## [0.9.0] - 2026-09-12
 
