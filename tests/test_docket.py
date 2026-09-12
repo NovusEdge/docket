@@ -304,6 +304,18 @@ class AutoScopeTests(unittest.TestCase):
         self.assertEqual(rejected.returncode, 2)
         self.assertIn("at least 2000", rejected.stderr)
 
+    def test_auto_scope_falls_back_to_the_last_commit_on_a_clean_tree(self):
+        with tempfile.TemporaryDirectory() as home:
+            self._repo(home)
+            cwd = os.getcwd()
+            os.chdir(home)
+            try:
+                paths = docket_cli.auto_scope_files()
+            finally:
+                os.chdir(cwd)
+        # The tree is clean; tracked.py is what the last commit touched.
+        self.assertEqual(paths, ("tracked.py",))
+
     def test_auto_scope_is_empty_outside_a_repository(self):
         with tempfile.TemporaryDirectory() as plain:
             cwd = os.getcwd()
@@ -341,6 +353,49 @@ class AutoScopeTests(unittest.TestCase):
             out = run(home, "context", "--auto-scope", "--file", "lib/given.py").stdout
             self.assertIn("lib/given.py", out)
             self.assertIn("tracked.py", out)
+
+
+class ShowAtTests(unittest.TestCase):
+    def test_show_at_hides_a_later_supersession(self):
+        with tempfile.TemporaryDirectory() as home:
+            run(home, "claim", "The cache is reliable", "--state", "accepted")
+            run(home, "claim", "Replace the premise", "--state", "accepted",
+                "--supersedes", "c1")
+            early = run(home, "show", "c1", "--at", "c1", "--json")
+            now = run(home, "show", "c1", "--json")
+        # Assert the exit code first. Before the flag exists argparse rejects
+        # it, stdout is empty, and a bare assertNotIn would pass.
+        self.assertEqual(early.returncode, 0)
+        # The projection always emits retired_by, so assert the value.
+        self.assertIn('"retired_by": ""', early.stdout)
+        self.assertIn('"retired_by": "c2"', now.stdout)
+
+    def test_show_at_rejects_an_unknown_baseline(self):
+        with tempfile.TemporaryDirectory() as home:
+            run(home, "claim", "A premise", "--state", "accepted")
+            result = run(home, "show", "c1", "--at", "c99", "--json")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("unknown record", result.stderr)
+
+
+class ContextDeltaTests(unittest.TestCase):
+    def test_since_prints_only_what_followed_the_baseline(self):
+        with tempfile.TemporaryDirectory() as home:
+            run(home, "claim", "The first premise", "--state", "accepted")
+            run(home, "claim", "The second premise", "--state", "accepted")
+            result = run(home, "context", "--since", "c1")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("since: c1", result.stdout)
+        self.assertIn("### c2 ", result.stdout)
+        self.assertNotIn("### c1 ", result.stdout)
+
+    def test_an_unknown_baseline_falls_back_to_a_full_briefing(self):
+        with tempfile.TemporaryDirectory() as home:
+            run(home, "claim", "The first premise", "--state", "accepted")
+            result = run(home, "context", "--since", "c99")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("unknown or stale", result.stderr)
+        self.assertIn("### c1 ", result.stdout)
 
 
 class InitTests(unittest.TestCase):

@@ -19,6 +19,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docket init` writes `.docket/.gitignore` with `*.lock`, so a team that
   commits `.docket/` does not commit the append lock. An existing file is left
   alone.
+- `docket context` explains a blocked decision. Each chain of prerequisites
+  prints as one `blocked:` line that names every step and the reason the last
+  one is unavailable. `blocked_by` flattens a chain into one list, so it could
+  not tell a two-step chain from two direct prerequisites. A record on such a
+  chain joins the full-text tier directly after the decision it blocks.
+- `docket context` closes with a coverage line. It reports whether the task
+  matches and their prerequisites all reached the full-text tier, or how many
+  stayed in the index.
+- `docket context --since RECORD_ID` reports what changed after a baseline
+  record: the records added since, and the records that lost availability since.
+  The header now prints `latest: ID@DIGEST`, and `--since` accepts that pair.
+  `docket rebase` renumbers a tail, so the digest catches a baseline ID that now
+  names a different record. An unknown or stale baseline falls back to a full
+  briefing.
+- `docket show ID --at RECORD_ID` prints the record as history stood at that
+  record. A supersession or an answer recorded later does not appear.
+- `experiments/context-format/` and `experiments/context-scale/` measure what a
+  briefing costs, by format and by ledger size.
+
+### Changed
+
+- `docket context` caps the index at `index.max_lines` records, 40 by default,
+  and closes it with a count and `docket list`. A thousand-record ledger listed
+  a thousand identifiers, which no agent can act on.
+- An explicit `--query` now outranks a glob or directory file scope. An exact
+  path scope still wins. A query states the task, and a scope derived from the
+  working tree guesses at it.
+- `docket context` scopes from the last commit when the working tree is clean.
+  The first briefing of a session followed a commit, so it carried no file scope
+  at the moment an agent was about to continue that work. A repository with no
+  commits stays unscoped.
+- A file scope too long for the header prints as a count and a digest, so a
+  briefing scoped by more than about six paths stays reproducible from its own
+  header.
+- Briefing scoring counts inbound relations in one pass over the history. The
+  per-record scan made scoring quadratic in the ledger size.
 
 ### Fixed
 

@@ -415,6 +415,60 @@ def _render_record(
     return "\n".join(lines)
 
 
+def build_delta(
+    entries: Iterable[Mapping[str, Any]],
+    *,
+    since: str,
+    baseline: Iterable[Mapping[str, Any]],
+    max_chars: int | None = None,
+    ledger: str = "",
+    settings: Mapping[str, Any] | None = None,
+) -> str | None:
+    """What changed after a baseline record, or None when it is unknown.
+
+    The ID sequence is monotonic, so a record ID fixes a point in history
+    without a stored snapshot. The revision digest cannot serve here: it hashes
+    the whole history, so recovery of a baseline would mean a hash of every
+    prefix of the file until one matched.
+
+    ``baseline`` is the projection as it stood at ``since``. Availability now is
+    not enough to report a change: a claim recorded as disputed long before the
+    baseline is unavailable and always was.
+    """
+
+    history = list(entries)
+    by_id = {_id(item): item for item in history}
+    since, _, expected = since.partition("@")
+    if since not in by_id:
+        return None
+    cutoff = int(since[1:])
+    prefix = [item for item in history if int(_id(item)[1:]) <= cutoff]
+    if expected and _revision(prefix) != expected:
+        # A rebase renumbers the tail, so this ID now covers different history.
+        return None
+    was_available = {_id(item) for item in baseline if _available(item)}
+    cfg = settings if settings is not None else _SETTINGS_DEFAULTS
+    limit = max_chars if max_chars is not None else cfg["budget"]["target"]
+    added = [item for item in history if int(_id(item)[1:]) > cutoff]
+    changed = [item for item in history
+               if int(_id(item)[1:]) <= cutoff
+               and _id(item) in was_available and not _available(item)]
+    latest = max(by_id, key=lambda ident: int(ident[1:]), default="")
+    revision = _revision(history)
+    head = "\n".join([
+        f"# docket: {_clip_metadata(ledger or 'ledger', 180)} | revision: {revision}"
+        f" | latest: {latest}@{revision} | since: {since}",
+        f"# changed: {len(added)} added, {len(changed)} no longer available.",
+    ]) + "\n\n"
+    blocks: list[str] = []
+    for item in added + changed:
+        block = _render_record(item, "changed", "", by_id)
+        if len(head) + len("\n\n".join(blocks + [block])) > limit:
+            block = _index_line(item, cfg["index"]["detail_min"])
+        blocks.append(block)
+    return head + "\n\n".join(blocks) + "\n"
+
+
 def build_context(
     entries: Iterable[Mapping[str, Any]],
     *,
@@ -512,6 +566,11 @@ def build_context(
     retired_count = sum(_is_retired(item) for item in history)
     revision = _revision(history)
     latest = max(by_id, key=lambda ident: int(ident[1:]), default="")
+    if latest:
+        # The digest covers the history up to and including that record, which
+        # here is the whole history. A rebase renumbers the tail, so an agent
+        # that passes the pair back to --since learns its baseline is stale.
+        latest = f"{latest}@{revision}"
     prefix = "\n".join(
         _header(ledger, revision, query, tuple(file_list), all_records, latest, settings_id)
     ) + "\n\n"
@@ -695,4 +754,4 @@ def build_context(
     return result
 
 
-__all__ = ["build_context"]
+__all__ = ["build_context", "build_delta"]
