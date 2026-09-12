@@ -97,8 +97,18 @@ def _scope_strength(entry: Mapping[str, Any], files: tuple[str, ...],
     return best
 
 
-def _degree(ident: str, history: list[Mapping[str, Any]]) -> int:
-    return sum(ident in _relation_ids(item) for item in history)
+def _degree_map(history: list[Mapping[str, Any]]) -> dict[str, int]:
+    """Inbound relation count per record, in one pass.
+
+    The per-record form scanned the whole history for every record, which made
+    scoring quadratic in the ledger size.
+    """
+
+    degrees: dict[str, int] = {}
+    for item in history:
+        for target in _relation_ids(item):
+            degrees[target] = degrees.get(target, 0) + 1
+    return degrees
 
 
 def _score(
@@ -311,7 +321,14 @@ def _header(
     if query.strip():
         lines.append(f"# query: {_clip_metadata(query, 140)}")
     if files:
-        lines.append(f"# files: {_clip_metadata(', '.join(files), 180)}")
+        joined = ", ".join(files)
+        if len(joined) <= 180:
+            lines.append(f"# files: {joined}")
+        else:
+            # Clipping alone loses the inputs, and the briefing must be
+            # reproducible from its own header.
+            digest = hashlib.sha256("\0".join(files).encode("utf-8")).hexdigest()[:8]
+            lines.append(f"# files: {len(files)} paths, {digest}: {_clip_metadata(joined, 150)}")
     if all_records:
         lines.append("# selection: all current records")
     elif query.strip() or files:
@@ -448,6 +465,7 @@ def build_context(
     reasons: dict[str, str] = {}
     task_matched: set[str] = set()
     term_weights = _term_weights(current, query)
+    degrees = _degree_map(history)
 
     matched = []
     for item in current:
@@ -457,7 +475,7 @@ def build_context(
             item,
             files=file_list,
             text_points=text_points,
-            degree=_degree(ident, history),
+            degree=degrees.get(ident, 0),
             rank=rank_of.get(ident, 0),
             total=total_ranks,
             weights=weights,
@@ -513,7 +531,7 @@ def build_context(
             f"# full text: {len(included)}; index: {shown}; retired: {retired_count}.",
         ]
         if shown < len(deferred):
-            lines.append(f"# Not listed: {len(deferred) - shown}; the budget could not name them.")
+            lines.append(f"# Not listed: {len(deferred) - shown}; reach them with docket list.")
         if related_omitted:
             lines.append(f"# Related records in index only: {len(related_omitted)}; formulas remain complete.")
         # The measured set is the caller's own task matches plus their
@@ -559,19 +577,23 @@ def build_context(
         )
         pool = current_ids if index_ids is None else index_ids
         deferred = [i for i in pool if i not in candidate_set]
+        # Score order, so the cap keeps the records closest to the task.
+        shown = deferred[:cfg["index"]["max_lines"]]
         parts = [prefix.rstrip("\n"), ""]
         if full:
             parts += [full, ""]
-        if deferred:
+        if shown:
             if names_only:
-                parts.append("# index: " + ", ".join(deferred))
+                parts.append("# index: " + ", ".join(shown))
             else:
-                parts.append(f"# index: {len(deferred)} more current records")
+                parts.append(f"# index: {len(shown)} more current records")
                 parts.append("\n".join(
                     _index_line(by_id[i], detail_of(i) if detail is None else detail)
-                    for i in deferred
+                    for i in shown
                 ))
-        return "\n".join(parts).rstrip("\n") + footer(candidate_set, len(deferred))
+            if len(deferred) > len(shown):
+                parts.append(f"# and {len(deferred) - len(shown)} more; docket list")
+        return "\n".join(parts).rstrip("\n") + footer(candidate_set, len(shown))
 
     def admit(ident, label, mandatory=False):
         if ident in included:

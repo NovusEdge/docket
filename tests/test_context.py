@@ -77,11 +77,14 @@ class ContextTests(unittest.TestCase):
             entry("d3", "decision", "Choose Postgres for production", choice="Postgres", scope=("app/db",)),
             entry("c4", "claim", "The database backup is encrypted", scope=("ops/backup",)),
         ]
-        rendered = build_context(projected(records), query="database", files=("app/db/models.py",), ledger="repo")
+        # File scope with no query: an explicit query outranks a scope, and
+        # test_an_explicit_query_outranks_a_file_scope covers that case.
+        rendered = build_context(projected(records), files=("app/db/models.py",), ledger="repo")
         self.assertLess(rendered.index("### d3 "), rendered.index("### d2 "))
-        self.assertLess(rendered.index("### d3 "), rendered.index("### c4 "))
         self.assertNotIn("### c1 ", rendered)
+        self.assertNotIn("### c4 ", rendered)
         self.assertIn("c1 claim", rendered)
+        self.assertIn("c4 claim", rendered)
         self.assertIn("Choose Postgres for production", rendered)
 
     def test_related_records_keep_complete_formulas_and_warn_on_premises(self):
@@ -371,6 +374,80 @@ class ContextTests(unittest.TestCase):
                                          ledger="repo").count("### "), 20)
         self.assertGreater(build_context(history, files=("area1/x.py",),
                                          ledger="repo").count("### "), 20)
+
+    def test_a_long_file_scope_is_identified_by_digest(self):
+        records = [entry("c1", "claim", "A premise", state="accepted")]
+        many = tuple(f"src/module_{n}/file.py" for n in range(20))
+        rendered = build_context(projected(records), files=many, ledger="repo")
+        self.assertRegex(rendered, r"# files: 20 paths, [0-9a-f]{8}: ")
+        same = build_context(projected(records), files=many, ledger="repo")
+        other = build_context(projected(records), files=many[:-1], ledger="repo")
+        self.assertEqual(rendered, same)
+        self.assertNotEqual(rendered, other)
+
+    def test_an_explicit_query_outranks_a_file_scope(self):
+        records = [
+            entry("d1", "decision", "Unrelated renderer decision", choice="x",
+                  scope=("lib/**",)),
+            entry("d2", "decision", "Supersession semantics", choice="y",
+                  scope=("docs/**",)),
+        ]
+        rendered = build_context(projected(records), query="supersession",
+                                 files=("lib/render.py",), ledger="repo")
+        self.assertLess(rendered.index("### d2 "), rendered.index("### d1 "))
+
+    def test_an_exact_file_scope_outranks_an_incidental_query_word(self):
+        records = [
+            entry("d1", "decision", "Renderer budget rule", choice="x",
+                  scope=("lib/render.py",)),
+            entry("c2", "claim", "The installer mentions the cache in passing",
+                  state="accepted", scope=("installer/**",)),
+        ]
+        rendered = build_context(projected(records), query="cache",
+                                 files=("lib/render.py",), ledger="repo")
+        # The query beats a glob scope. It must not beat the record scoped to
+        # the file in hand, even with the full recency bonus added.
+        self.assertLess(rendered.index("### d1 "), rendered.index("### c2 "))
+
+    def test_degree_map_counts_every_inbound_relation_once(self):
+        from lib.docket_context import _degree_map
+        records = [
+            entry("c1", "claim", "A premise", state="accepted"),
+            entry("c2", "claim", "Another premise", state="accepted"),
+            entry("d3", "decision", "Uses both", choice="x",
+                  supports=(("c1", "c2"),), depends_on=("c1",)),
+            entry("d4", "decision", "Uses one", choice="y", supports=(("c1",),)),
+        ]
+        degrees = _degree_map(projected(records))
+        # d3 names c1 through supports and depends_on; _relation_ids
+        # de-duplicates, so it counts once.
+        self.assertEqual(degrees["c1"], 2)
+        self.assertEqual(degrees["c2"], 1)
+        self.assertEqual(degrees.get("d4", 0), 0)
+
+    def test_index_caps_and_counts_the_remainder(self):
+        from lib.docket_config import merge
+        records = [entry(f"c{n}", "claim", f"Premise {n}", state="accepted")
+                   for n in range(1, 101)]
+        settings = merge({"index": {"max_lines": 10}})
+        rendered = build_context(projected(records), ledger="repo", settings=settings)
+        listed = [l for l in rendered.splitlines() if re.match(r"^c\d+ claim ", l)]
+        self.assertEqual(len(listed), 10)
+        self.assertIn("more; docket list", rendered)
+
+    def test_the_capped_index_keeps_the_highest_scoring_records(self):
+        from lib.docket_config import merge
+        records = [entry(f"c{n}", "claim", f"Premise {n}", state="accepted")
+                   for n in range(1, 101)]
+        settings = merge({"index": {"max_lines": 5}})
+        rendered = build_context(projected(records), ledger="repo", settings=settings)
+        listed = [int(n) for n in re.findall(r"^c(\d+) claim ", rendered, re.M)]
+        full = [int(n) for n in re.findall(r"^### c(\d+) ", rendered, re.M)]
+        # Recency is the only live component here, so the index holds the newest
+        # records the full-text tier could not fit.
+        self.assertEqual(len(listed), 5)
+        self.assertLess(max(listed), min(full))
+        self.assertNotIn("c1 claim", rendered)
 
     def test_every_record_is_accounted_for_in_the_footer(self):
         records = [
