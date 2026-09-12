@@ -1,7 +1,7 @@
 import unittest
 import re
 
-from lib.docket_context import build_context, _term_weights
+from lib.docket_context import build_context, _term_weights, _blocking_paths
 from lib.docket_ledger import make_record, project
 
 
@@ -407,6 +407,39 @@ class ContextTests(unittest.TestCase):
         ]
         rendered = build_context(projected(records), query="Current", ledger="repo")
         self.assertNotIn("Old premise", rendered)
+
+    def test_blocking_path_names_the_chain_and_the_reason(self):
+        records = [
+            entry("c1", "claim", "The premise is unproven", state="disputed"),
+            entry("d2", "decision", "Trust it", choice="trust", depends_on=("c1",)),
+            entry("d3", "decision", "Serve from it", choice="serve",
+                  scope=("lib/**",), depends_on=("d2",)),
+        ]
+        rendered = build_context(projected(records), files=("lib/cache.py",), ledger="repo")
+        self.assertIn("blocked: d2 -> c1 disputed", rendered)
+
+    def test_blocking_path_names_retirement_rather_than_recorded_state(self):
+        records = [
+            entry("c1", "claim", "Superseded premise", state="accepted"),
+            entry("c2", "claim", "Replacement", state="accepted", supersedes=("c1",)),
+            entry("d3", "decision", "Depends on the old premise", choice="x",
+                  scope=("lib/**",), depends_on=("c1",)),
+        ]
+        rendered = build_context(projected(records), files=("lib/cache.py",), ledger="repo")
+        # c1's effective state is still "accepted"; the reason it cannot be used
+        # is that c2 retired it.
+        self.assertIn("blocked: c1 retired", rendered)
+
+    def test_blocking_path_stops_on_a_cycle(self):
+        records = [
+            entry("c1", "claim", "Premise", state="disputed"),
+            entry("d2", "decision", "First", choice="a", depends_on=("c1",)),
+        ]
+        by_id = {r["id"]: dict(r) for r in projected(records)}
+        # Validation forbids a cycle, so no real ledger contains one. Build it
+        # by hand to prove the walk terminates anyway.
+        by_id["d2"]["depends_on"] = ["c1", "d2"]
+        self.assertEqual(_blocking_paths("d2", by_id), [["c1"]])
 
 
 if __name__ == "__main__":

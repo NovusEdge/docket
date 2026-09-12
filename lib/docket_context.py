@@ -206,6 +206,71 @@ def _relation_ids(entry: Mapping[str, Any]) -> list[str]:
     return result
 
 
+def _available(entry: Mapping[str, Any]) -> bool:
+    """True when a record can serve as current support."""
+
+    if _is_retired(entry):
+        return False
+    kind = _text(entry.get("kind")).casefold()
+    state = _effective_state(entry).casefold()
+    if kind == "claim":
+        return state == "accepted"
+    if kind == "decision":
+        return state == "adopted" and entry.get("applicable") is not False
+    return False
+
+
+def _unavailable_reason(entry: Mapping[str, Any]) -> str:
+    """Why a record cannot serve as current support.
+
+    The effective state does not say this. A retired claim still reads
+    "accepted", and a blocked decision still reads "adopted", so printing the
+    state on a blocking path would name the chain and then contradict it.
+    """
+
+    if _is_retired(entry):
+        return "retired"
+    if _text(entry.get("kind")).casefold() == "decision" and entry.get("applicable") is False:
+        return "blocked"
+    return _effective_state(entry)
+
+
+def _blocking_paths(
+    ident: str,
+    by_id: Mapping[str, Mapping[str, Any]],
+    depth: int = 8,
+) -> list[list[str]]:
+    """Each path of prerequisites from a decision to an unavailable record.
+
+    The projection flattens prerequisites: `_decision_applicability` collects
+    `[dependency, *reasons]` into one list, so `blocked_by` cannot tell a
+    two-step chain from two direct prerequisites.
+    """
+
+    paths: list[list[str]] = []
+
+    def walk(current: str, trail: tuple[str, ...]) -> None:
+        if len(trail) > depth:
+            return
+        entry = by_id.get(current)
+        if entry is None:
+            return
+        for target in _list(entry.get("depends_on")):
+            target_id = _text(target)
+            if not target_id or target_id in trail or target_id not in by_id:
+                continue
+            if _available(by_id[target_id]):
+                continue
+            step = trail + (target_id,)
+            before = len(paths)
+            walk(target_id, step)
+            if len(paths) == before:
+                paths.append(list(step[1:]))
+
+    walk(ident, (ident,))
+    return paths
+
+
 def _clip_metadata(value: str, limit: int) -> str:
     value = value.replace("\n", " ").strip()
     if len(value) <= limit:
@@ -258,7 +323,12 @@ def _header(
     return lines
 
 
-def _render_record(entry: Mapping[str, Any], relation: str, reason: str = "") -> str:
+def _render_record(
+    entry: Mapping[str, Any],
+    relation: str,
+    reason: str = "",
+    by_id: Mapping[str, Mapping[str, Any]] | None = None,
+) -> str:
     kind = _text(entry.get("kind") or "record").casefold()
     state = _effective_state(entry)
     recorded_state = _recorded_state(entry)
@@ -285,6 +355,10 @@ def _render_record(entry: Mapping[str, Any], relation: str, reason: str = "") ->
             lines.append(f"applicable: {str(bool(entry.get('applicable'))).lower()}")
         if _list(entry.get("blocked_by")):
             lines.append(f"blocked_by: {_json(_list(entry.get('blocked_by')))}")
+        if by_id:
+            for path in _blocking_paths(_id(entry), by_id):
+                terminal = by_id.get(path[-1], {})
+                lines.append(f"blocked: {' -> '.join(path)} {_unavailable_reason(terminal)}")
         if _text(entry.get("decided_by")):
             lines.append(f"decided by: {_text(entry.get('decided_by'))}")
     for field in ("scope", "supports", "depends_on", "answers", "supersedes"):
@@ -463,7 +537,8 @@ def build_context(
 
     def render(candidate_order, candidate_set, index_ids=None, detail=None, names_only=False):
         full = "\n\n".join(
-            _render_record(by_id[i], labels[i], reasons.get(i, "")) for i in candidate_order
+            _render_record(by_id[i], labels[i], reasons.get(i, ""), by_id)
+            for i in candidate_order
         )
         pool = current_ids if index_ids is None else index_ids
         deferred = [i for i in pool if i not in candidate_set]
