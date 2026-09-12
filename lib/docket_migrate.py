@@ -1,0 +1,369 @@
+#!/usr/bin/env python3
+"""Explicitly migrate a schema-1 Docket JSONL ledger to schema 2.
+
+The classification map is a JSON object keyed by every source ID.  Each map
+value must contain ``kind``, ``state``, and ``text`` and may contain any typed
+record metadata plus relation overrides.  Relation override values use source
+IDs, so the tool can audit exactly what was reinterpreted:
+
+    {
+      "d17": {
+        "kind": "decision", "state": "adopted", "text": "...",
+        "choice": "...", "supports": [["d10"]], "answers": ["d15"],
+        "supersedes": []
+      }
+    }
+
+Omitted ``supports`` translates the old ``because`` field.  Omitted
+``supersedes`` translates the old field.  Supplying an override, including an
+empty list, is an explicit treatment and is retained in ``legacy`` audit
+metadata.  IDs default to the kind prefix plus the numeric suffix of the old
+ID (``d17`` becomes ``c17``, ``d17``, or ``q17``).
+
+This module deliberately has no prose classifier.  It validates all source
+references and all mapped records before opening the destination with
+exclusive-create semantics.  The repository's ``lib.docket_ledger``
+``validate_entries`` function is authoritative.
+"""
+
+from __future__ import annotations
+
+import argparse
+import importlib
+import json
+import re
+import sys
+from pathlib import Path
+from typing import Any, Callable
+
+
+OLD_ID = re.compile(r"^d[1-9][0-9]*$")
+NEW_ID = re.compile(r"^[cdq][1-9][0-9]*$")
+KINDS = {"claim", "decision", "question"}
+STATES = {
+    "claim": {"unassessed", "accepted", "disputed", "rejected"},
+    "decision": {"adopted", "revoked"},
+    "question": {"open", "resolved"},
+}
+PREFIX = {"claim": "c", "decision": "d", "question": "q"}
+RELATION_FIELDS = ("supports", "answers", "supersedes")
+OPTIONAL_FIELDS = {
+    "kind", "state", "text",
+    "scope", "rationale", "depends_on", "evidence", "revisit",
+    "cost_if_wrong", "cost", "pinned", "choice", "alternatives",
+    "id", "ts", "author", "session", "branch", "decided_by", *RELATION_FIELDS,
+}
+
+
+class MigrationError(ValueError):
+    """An input, map, relation, or destination contract error."""
+
+
+def _json_object(path: Path, label: str) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise MigrationError(f"cannot read {label} {path}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise MigrationError(f"malformed {label} JSON: line {exc.lineno}: {exc.msg}") from exc
+
+
+def read_source(path: Path) -> list[dict[str, Any]]:
+    """Read and structurally validate every non-empty JSONL source line."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise MigrationError(f"cannot read source {path}: {exc}") from exc
+    records: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for lineno, line in enumerate(lines, 1):
+        if not line.strip():
+            continue
+        try:
+            raw = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise MigrationError(f"malformed input at line {lineno}: {exc.msg}") from exc
+        if not isinstance(raw, dict):
+            raise MigrationError(f"malformed input at line {lineno}: record must be an object")
+        if raw.get("schema") == 2:
+            raise MigrationError(f"malformed input at line {lineno}: source is already schema 2")
+        old_id = raw.get("id")
+        if not isinstance(old_id, str) or not OLD_ID.fullmatch(old_id):
+            raise MigrationError(f"malformed input at line {lineno}: invalid old id {old_id!r}")
+        if old_id in seen:
+            raise MigrationError(f"malformed input at line {lineno}: duplicate id {old_id}")
+        seen.add(old_id)
+        _source_relations(raw, old_id)
+        records.append(raw)
+    return records
+
+
+def read_mapping(path: Path, source_ids: set[str]) -> dict[str, dict[str, Any]]:
+    value = _json_object(path, "mapping")
+    if not isinstance(value, dict):
+        raise MigrationError("malformed mapping: top-level value must be an object keyed by old IDs")
+    missing = sorted(source_ids - set(value))
+    if missing:
+        raise MigrationError(f"missing mapping for old id(s): {', '.join(missing)}")
+    extra = sorted(set(value) - source_ids)
+    if extra:
+        raise MigrationError(f"mapping contains unknown old id(s): {', '.join(extra)}")
+    result: dict[str, dict[str, Any]] = {}
+    for old_id in sorted(source_ids, key=_old_sort_key):
+        entry = value[old_id]
+        if not isinstance(entry, dict):
+            raise MigrationError(f"malformed mapping for {old_id}: value must be an object")
+        missing_fields = [field for field in ("kind", "state", "text") if field not in entry]
+        if missing_fields:
+            raise MigrationError(f"mapping for {old_id} is missing {', '.join(missing_fields)}")
+        unknown = sorted(set(entry) - OPTIONAL_FIELDS)
+        if unknown:
+            raise MigrationError(f"mapping for {old_id} has unknown field(s): {', '.join(unknown)}")
+        kind = entry["kind"]
+        state = entry["state"]
+        text = entry["text"]
+        if not isinstance(kind, str) or kind not in KINDS:
+            raise MigrationError(f"mapping for {old_id} has invalid kind {kind!r}")
+        if not isinstance(state, str) or state not in STATES[kind]:
+            raise MigrationError(f"mapping for {old_id} has invalid state {state!r} for {kind}")
+        if not isinstance(text, str) or not text:
+            raise MigrationError(f"mapping for {old_id} must have non-empty text")
+        result[old_id] = entry
+    return result
+
+
+def _old_sort_key(value: str) -> int:
+    return int(value[1:])
+
+
+def _source_relations(raw: dict[str, Any], old_id: str) -> tuple[list[list[str]], list[str]]:
+    supports = _support_sets(raw.get("because", []), f"{old_id}.because")
+    supersedes = _id_list(raw.get("supersedes", []), f"{old_id}.supersedes")
+    return supports, supersedes
+
+
+def _support_sets(value: Any, label: str) -> list[list[str]]:
+    if value is None or value == []:
+        return []
+    if not isinstance(value, list):
+        raise MigrationError(f"malformed input relation {label}: expected a list")
+    if all(isinstance(item, str) for item in value):
+        return [list(value)]
+    if all(isinstance(group, list) and group and all(isinstance(item, str) for item in group)
+           for group in value):
+        return [list(group) for group in value]
+    raise MigrationError(f"malformed input relation {label}: expected IDs or ID lists")
+
+
+def _id_list(value: Any, label: str) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
+        raise MigrationError(f"malformed input relation {label}: expected a list of IDs")
+    return list(value)
+
+
+def _check_refs(groups: list[list[str]], known: set[str], label: str) -> None:
+    for group in groups:
+        for ref in group:
+            if ref not in known:
+                raise MigrationError(f"unknown reference {ref} in {label}")
+
+
+def _mapped_id(old_id: str, entry: dict[str, Any]) -> str:
+    candidate = entry.get("id", f"{PREFIX[entry['kind']]}{old_id[1:]}")
+    if not isinstance(candidate, str) or not NEW_ID.fullmatch(candidate):
+        raise MigrationError(f"mapping for {old_id} has invalid typed id {candidate!r}")
+    if candidate[0] != PREFIX[entry["kind"]]:
+        raise MigrationError(f"mapping for {old_id}: id prefix does not match kind {entry['kind']}")
+    return candidate
+
+
+def _map_supports(value: Any, old_id: str, known: set[str]) -> list[list[str]]:
+    groups = _support_sets(value, f"mapping for {old_id}.supports")
+    _check_refs(groups, known, f"mapping for {old_id}.supports")
+    return groups
+
+
+def _map_ids(value: Any, old_id: str, field: str, known: set[str]) -> list[str]:
+    ids = _id_list(value, f"mapping for {old_id}.{field}")
+    _check_refs([ids], known, f"mapping for {old_id}.{field}")
+    return ids
+
+
+def _metadata(raw: dict[str, Any], entry: dict[str, Any], field: str, default: Any) -> Any:
+    value = entry.get(field, raw.get(field, default))
+    if field in {"ts", "author", "session", "branch", "decided_by", "rationale", "revisit", "cost_if_wrong"}:
+        if not isinstance(value, str):
+            raise MigrationError(f"metadata {field} for {raw['id']} must be a string")
+    if field == "scope":
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            raise MigrationError(f"metadata scope for {raw['id']} must be a list of strings")
+    if field == "depends_on":
+        value = _id_list(value, f"mapping for {raw['id']}.depends_on")
+    if field == "evidence":
+        if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
+            raise MigrationError(f"metadata evidence for {raw['id']} must be a list of objects")
+    if field == "pinned" and not isinstance(value, bool):
+        raise MigrationError(f"metadata pinned for {raw['id']} must be boolean")
+    return value
+
+
+def build_records(source: list[dict[str, Any]], mapping: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    known = {raw["id"] for raw in source}
+    ids = {old_id: _mapped_id(old_id, mapping[old_id]) for old_id in known}
+    if len(set(ids.values())) != len(ids):
+        raise MigrationError("mapping produces duplicate typed IDs")
+    output: list[dict[str, Any]] = []
+    for raw in source:
+        old_id = raw["id"]
+        entry = mapping[old_id]
+        source_supports, source_supersedes = _source_relations(raw, old_id)
+        if "supports" in entry:
+            supports_old = _map_supports(entry["supports"], old_id, known)
+        else:
+            _check_refs(source_supports, known, f"{old_id}.because")
+            supports_old = source_supports
+            for ref in (ref for group in supports_old for ref in group):
+                if mapping[ref]["kind"] not in {"claim", "decision"}:
+                    raise MigrationError(
+                        f"support reference {old_id}->{ref} crosses into a question; "
+                        "provide an explicit supports override"
+                    )
+        if "answers" in entry:
+            answers_old = _map_ids(entry["answers"], old_id, "answers", known)
+        else:
+            answers_old = []
+        if "supersedes" in entry:
+            supersedes_old = _map_ids(entry["supersedes"], old_id, "supersedes", known)
+        else:
+            supersedes_old = source_supersedes
+            _check_refs([supersedes_old], known, f"{old_id}.supersedes")
+        for target in source_supersedes:
+            if mapping[target]["kind"] != entry["kind"]:
+                # A cross-kind supersession cannot be translated implicitly.
+                # It may be explicitly retired, remapped to a same-kind
+                # target, or (when the target is a question) represented as
+                # an answer relation.  Core validation checks answer targets.
+                if "supersedes" not in entry:
+                    raise MigrationError(
+                        f"cross-kind supersession {old_id}->{target} requires an explicit "
+                        "supersedes override"
+                    )
+        supports = [[ids[ref] for ref in group] for group in supports_old]
+        depends_on_old = (
+            _map_ids(entry["depends_on"], old_id, "depends_on", known)
+            if "depends_on" in entry else []
+        )
+        depends_on = [ids[ref] for ref in depends_on_old]
+        answers = [ids[ref] for ref in answers_old]
+        supersedes = [ids[ref] for ref in supersedes_old]
+        answer = raw.get("answer", "")
+        if not isinstance(answer, str):
+            raise MigrationError(f"malformed input: answer for {old_id} must be a string")
+        rationale = _metadata(raw, entry, "rationale", answer)
+        record: dict[str, Any] = {
+            "schema": 2,
+            "kind": entry["kind"],
+            "id": ids[old_id],
+            "text": entry["text"],
+            "state": entry["state"],
+            "ts": _metadata(raw, entry, "ts", ""),
+            "author": _metadata(raw, entry, "author", ""),
+            "session": _metadata(raw, entry, "session", ""),
+            "branch": _metadata(raw, entry, "branch", ""),
+            "scope": _metadata(raw, entry, "scope", []),
+            "rationale": rationale,
+            "supports": supports,
+            "depends_on": depends_on,
+            "answers": answers,
+            "supersedes": supersedes,
+            "evidence": _metadata(raw, entry, "evidence", []),
+            "revisit": _metadata(raw, entry, "revisit", ""),
+            "cost_if_wrong": entry.get("cost_if_wrong", entry.get("cost", raw.get("cost_if_wrong", ""))),
+            "pinned": _metadata(raw, entry, "pinned", False),
+        }
+        if not isinstance(record["cost_if_wrong"], str):
+            raise MigrationError(f"metadata cost_if_wrong for {old_id} must be a string")
+        if entry["kind"] == "decision":
+            choice = entry.get("choice", answer)
+            if not isinstance(choice, str) or not choice:
+                raise MigrationError(f"decision mapping for {old_id} requires non-empty choice")
+            alternatives = entry.get("alternatives", [choice])
+            if not isinstance(alternatives, list) or not all(isinstance(item, str) and item for item in alternatives):
+                raise MigrationError(f"decision mapping for {old_id} alternatives must be a list of strings")
+            record["choice"] = choice
+            record["alternatives"] = list(dict.fromkeys([*alternatives, choice]))
+            record["decided_by"] = _metadata(raw, entry, "decided_by", "")
+        elif "decided_by" in entry:
+            raise MigrationError(f"decided_by is decision-only for {old_id}")
+        relation_map = {
+            "source_because": raw.get("because", []),
+            "source_depends_on": raw.get("depends_on", []),
+            "source_answers": raw.get("answers", []),
+            "source_supersedes": raw.get("supersedes", []),
+            "mapped_supports": supports,
+            "mapped_depends_on": depends_on,
+            "mapped_answers": answers,
+            "mapped_supersedes": supersedes,
+            "overrides": sorted(field for field in (*RELATION_FIELDS, "depends_on") if field in entry),
+        }
+        record["legacy"] = {"source_id": old_id, "raw": raw, "relation_map": relation_map}
+        output.append(record)
+    return output
+
+
+def core_validator() -> Callable[[list[dict[str, Any]]], Any]:
+    root = Path(__file__).resolve().parent.parent
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    try:
+        core = importlib.import_module("lib.docket_ledger")
+    except (ImportError, ModuleNotFoundError) as exc:
+        raise MigrationError("cannot import lib.docket_ledger.validate_entries") from exc
+    candidate = getattr(core, "validate_entries", None)
+    if not callable(candidate):
+        raise MigrationError("lib.docket_ledger.validate_entries is unavailable")
+    return candidate
+
+
+def migrate(source_path: Path | str, mapping_path: Path | str, output_path: Path | str,
+            validator: Callable[[list[dict[str, Any]]], Any] | None = None) -> None:
+    source_path, mapping_path, output_path = map(Path, (source_path, mapping_path, output_path))
+    if output_path.exists():
+        raise MigrationError(f"output already exists: {output_path}")
+    source = read_source(source_path)
+    mapping = read_mapping(mapping_path, {raw["id"] for raw in source})
+    records = build_records(source, mapping)
+    validated = (validator or core_validator())(records)
+    if isinstance(validated, list):
+        records = validated
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with output_path.open("x", encoding="utf-8") as handle:
+            for record in records:
+                handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+    except FileExistsError as exc:
+        raise MigrationError(f"output already exists: {output_path}") from exc
+    except OSError as exc:
+        raise MigrationError(f"cannot create output {output_path}: {exc}") from exc
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
+    parser.add_argument("source", type=Path, help="schema-1 JSONL source ledger")
+    parser.add_argument("--map", dest="mapping", required=True, type=Path,
+                        help="explicit JSON classification map")
+    parser.add_argument("--output", required=True, type=Path,
+                        help="new schema-2 JSONL destination; must not exist")
+    args = parser.parse_args(argv)
+    try:
+        migrate(args.source, args.mapping, args.output)
+    except (MigrationError, ValueError) as exc:
+        print(f"migrate_ledger: {exc}", file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

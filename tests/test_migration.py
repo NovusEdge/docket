@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-import importlib.util
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from lib import docket_migrate
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -14,12 +19,7 @@ SCRIPT = ROOT / "scripts" / "migrate_ledger.py"
 
 
 def load_migrator():
-    spec = importlib.util.spec_from_file_location("migrate_ledger", SCRIPT)
-    if spec is None or spec.loader is None:
-        raise AssertionError(f"could not load {SCRIPT}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return docket_migrate
 
 
 def write_jsonl(path: Path, records: list[dict]) -> None:
@@ -241,6 +241,21 @@ class MigrationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "core rejected"):
                 migrator.migrate(source, map_path, output, validator=reject)
             self.assertFalse(output.exists())
+
+    def test_the_script_shim_runs_the_library(self):
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            source = work / "old.jsonl"
+            write_jsonl(source, self.source_records())
+            mapping = work / "map.json"
+            mapping.write_text(json.dumps(self.mapping()))
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), str(source),
+                 "--map", str(mapping), "--output", str(work / "new.jsonl")],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue((work / "new.jsonl").exists())
 
 
 if __name__ == "__main__":
