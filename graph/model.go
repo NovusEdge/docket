@@ -269,7 +269,7 @@ func (m *model) refreshDetail() {
 		m.detailID = id
 	}
 	width := max(12, m.detail.Width())
-	m.detail.SetContent(ansi.Wordwrap(m.detailText(id), width, " \t"))
+	m.detail.SetContent(wrapDetail(m.detailText(id), width))
 }
 
 func (m model) detailText(id string) string {
@@ -283,128 +283,210 @@ func (m model) detailText(id string) string {
 	if kind == "" {
 		kind = "record"
 	}
-	fmt.Fprintf(&b, "%s  %s  %s\n", sanitize(e.ID), sanitize(kindLabel(kind)), sanitize(stateLabel(effective)))
+	headingStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#D7A86E"))
+	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA5B1"))
+	idStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F4D7A1"))
+	kindStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#D7A86E"))
+
+	fmt.Fprintf(&b, "%s  %s", m.paint(idStyle, sanitize(e.ID)), m.paint(kindStyle, sanitize(kindLabel(kind))))
+	if effective != "" {
+		styleState := effective
+		if condition := decisionCondition(e); condition == "blocked" {
+			styleState = condition
+		}
+		fmt.Fprintf(&b, "  %s", m.paint(m.stateStyle(styleState), sanitize(stateLabel(effective))))
+		if decisionCondition(e) == "blocked" {
+			fmt.Fprintf(&b, "  %s", m.paint(m.stateStyle("blocked"), "blocked"))
+		}
+	}
+
+	section := func(name string) {
+		if b.Len() > 0 {
+			if !strings.HasSuffix(b.String(), "\n") {
+				b.WriteByte('\n')
+			}
+			b.WriteByte('\n')
+		}
+		b.WriteString(m.paint(headingStyle, name))
+		b.WriteByte('\n')
+	}
+	block := func(name, value string) {
+		if value == "" {
+			return
+		}
+		section(name)
+		b.WriteString("  ")
+		b.WriteString(sanitize(value))
+		b.WriteByte('\n')
+	}
+	line := func(name, value string) {
+		if value == "" {
+			return
+		}
+		fmt.Fprintf(&b, "  %s %s\n", m.paint(labelStyle, sanitize(name)+":"), sanitize(value))
+	}
+
 	recorded := e.RecordedState
 	if recorded == "" {
 		recorded = e.State
 	}
-	if recorded != "" {
-		fmt.Fprintf(&b, "Recorded state\n%s\n", sanitize(stateLabel(recorded)))
-	}
-	if e.Question != "" {
-		fmt.Fprintf(&b, "Text\n%s\n", sanitize(e.Question))
-	}
+	block("Text", e.Question)
 	if strings.EqualFold(e.Kind, "decision") {
 		choice := e.Choice
 		if choice == "" {
 			choice = e.Answer
 		}
-		if choice != "" {
-			fmt.Fprintf(&b, "Choice\n%s\n", sanitize(choice))
-		}
-		if e.Rationale != "" {
-			fmt.Fprintf(&b, "Rationale\n%s\n", sanitize(e.Rationale))
-		}
+		block("Choice", choice)
+		block("Rationale", e.Rationale)
 	} else if e.Rationale != "" || e.Answer != "" {
 		rationale := e.Rationale
 		if rationale == "" {
 			rationale = e.Answer
 		}
-		fmt.Fprintf(&b, "Rationale\n%s\n", sanitize(rationale))
+		block("Rationale", rationale)
 	}
-	if e.Cost != "" {
-		fmt.Fprintf(&b, "Cost\n%s\n", sanitize(e.Cost))
-	}
-	if len(e.Scope) > 0 {
-		fmt.Fprintf(&b, "Scope\n%s\n", strings.Join(sanitizeList(e.Scope), ", "))
-	}
-	if len(e.Alternatives) > 0 {
-		fmt.Fprintf(&b, "Alternatives\n%s\n", strings.Join(sanitizeList(e.Alternatives), ", "))
-	}
-	if strings.EqualFold(e.Kind, "decision") {
-		fmt.Fprintf(&b, "Applicable\n%t\n", e.Applicable)
-		if strings.EqualFold(overviewState(e), "adopted") {
-			condition := "blocked"
-			if e.Applicable {
-				condition = "applicable"
-			}
-			fmt.Fprintf(&b, "Condition\n%s\n", condition)
-		}
-		if len(e.BlockedBy) > 0 {
-			fmt.Fprintf(&b, "Blocked by\n%s\n", strings.Join(sanitizeList(e.BlockedBy), ", "))
-		}
-		if e.DecidedBy != "" {
-			fmt.Fprintf(&b, "Decided by\n%s\n", sanitize(e.DecidedBy))
-		}
-	}
-	b.WriteString("Tree: first-support tree projection\n")
+	block("Cost", e.Cost)
+	block("Revisit", e.Revisit)
+
+	section("Relationships")
 	if len(e.Sets) == 0 && len(e.Supports) == 0 {
-		b.WriteString("Supports: none\n")
+		line("Supports", "none")
 	} else if len(e.Sets) > 0 {
-		b.WriteString("Supports (AND within, OR between)\n")
-		for i, set := range e.Sets {
-			if len(set) == 0 {
-				fmt.Fprintf(&b, "  Set %d: (root)\n", i+1)
-				continue
-			}
-			ids := make([]string, 0, len(set))
-			for _, support := range set {
-				ids = append(ids, sanitize(support))
-			}
-			fmt.Fprintf(&b, "  Set %d: %s\n", i+1, strings.Join(ids, " AND "))
+		line("Supports", supportFormula(e.Sets))
+		if len(e.Supports) > 0 && !sameSupportIDs(e.Sets, e.Supports) {
+			line("Supports union", strings.Join(sanitizeList(e.Supports), ", "))
 		}
 	} else {
-		fmt.Fprintf(&b, "Supports\n%s\n", strings.Join(sanitizeList(e.Supports), ", "))
+		line("Supports", strings.Join(sanitizeList(e.Supports), ", "))
 	}
-	if len(e.Supports) > 0 && len(e.Sets) > 0 {
-		fmt.Fprintf(&b, "Supports union\n%s\n", strings.Join(sanitizeList(e.Supports), ", "))
-	}
-	if len(e.DependsOn) > 0 {
-		fmt.Fprintf(&b, "Depends on\n%s\n", strings.Join(sanitizeList(e.DependsOn), ", "))
-	}
-	if len(e.Answers) > 0 {
-		fmt.Fprintf(&b, "Answers\n%s\n", strings.Join(sanitizeList(e.Answers), ", "))
-	}
-	if len(e.ResolvedBy) > 0 {
-		fmt.Fprintf(&b, "Resolved by\n%s\n", strings.Join(sanitizeList(e.ResolvedBy), ", "))
-	}
-	if len(e.Supersedes) > 0 {
-		fmt.Fprintf(&b, "Supersedes\n%s\n", strings.Join(sanitizeList(e.Supersedes), ", "))
-	}
+	line("Depends on", strings.Join(sanitizeList(e.DependsOn), ", "))
+	line("Answers", strings.Join(sanitizeList(e.Answers), ", "))
+	line("Resolved by", strings.Join(sanitizeList(e.ResolvedBy), ", "))
+	line("Supersedes", strings.Join(sanitizeList(e.Supersedes), ", "))
+	line("Blocked by", strings.Join(sanitizeList(e.BlockedBy), ", "))
 	if e.RetiredBy != "" {
-		fmt.Fprintf(&b, "retired by %s\n", sanitize(e.RetiredBy))
+		line("Retired by", e.RetiredBy)
+	}
+
+	section("Metadata")
+	if recorded != "" && !strings.EqualFold(recorded, effective) {
+		line("Recorded", stateLabel(recorded))
+	}
+	if strings.EqualFold(e.Kind, "decision") {
+		line("Applicable", fmt.Sprintf("%t", e.Applicable))
+		if e.DecidedBy != "" {
+			line("Decided by", e.DecidedBy)
+		}
+	}
+	if len(e.Scope) > 0 {
+		line("Scope", strings.Join(sanitizeList(e.Scope), ", "))
+	}
+	if alternatives := alternativesWithoutChoice(e.Alternatives, e.Choice, e.Answer); len(alternatives) > 0 {
+		line("Alternatives", strings.Join(sanitizeList(alternatives), ", "))
+	}
+	if e.Author != "" {
+		line("Author", e.Author)
+	}
+	if e.TS != "" {
+		line("Timestamp", e.TS)
+	}
+	if e.Branch != "" {
+		line("Branch", e.Branch)
+	}
+	if e.Session != "" {
+		line("Session", e.Session)
+	}
+	if e.Pinned {
+		line("Pinned", "true")
 	}
 	if len(e.Evidence) > 0 {
-		b.WriteString("Evidence\n")
+		section("Evidence")
 		for _, evidence := range e.Evidence {
-			fmt.Fprintf(&b, "  %s\n", sanitize(evidence.Ref))
+			line("Ref", evidence.Ref)
 			if evidence.CheckedAt != "" {
-				fmt.Fprintf(&b, "    Checked at: %s\n", sanitize(evidence.CheckedAt))
+				line("Checked at", evidence.CheckedAt)
 			}
 			if evidence.Commit != "" {
-				fmt.Fprintf(&b, "    Commit: %s\n", sanitize(evidence.Commit))
+				line("Commit", evidence.Commit)
 			}
 		}
 	}
-	if e.Revisit != "" {
-		fmt.Fprintf(&b, "Revisit\n%s\n", sanitize(e.Revisit))
-	}
-	if e.Author != "" {
-		fmt.Fprintf(&b, "Author\n%s\n", sanitize(e.Author))
-	}
-	if e.TS != "" {
-		fmt.Fprintf(&b, "Timestamp\n%s\n", sanitize(e.TS))
-	}
-	if e.Branch != "" {
-		fmt.Fprintf(&b, "Branch\n%s\n", sanitize(e.Branch))
-	}
-	if e.Session != "" {
-		fmt.Fprintf(&b, "Session\n%s\n", sanitize(e.Session))
-	}
-	if e.Pinned {
-		b.WriteString("Pinned\ntrue\n")
-	}
+	b.WriteString("\n")
+	b.WriteString(m.paint(labelStyle, "Tree: first-support tree projection"))
 	return strings.TrimSpace(b.String())
+}
+
+func supportFormula(sets [][]string) string {
+	parts := make([]string, 0, len(sets))
+	for _, set := range sets {
+		if len(set) == 0 {
+			parts = append(parts, "(root)")
+			continue
+		}
+		ids := make([]string, 0, len(set))
+		for _, support := range set {
+			ids = append(ids, sanitize(support))
+		}
+		parts = append(parts, "("+strings.Join(ids, " AND ")+")")
+	}
+	return strings.Join(parts, " OR ")
+}
+
+func sameSupportIDs(sets [][]string, supports []string) bool {
+	fromSets := make(map[string]bool)
+	for _, set := range sets {
+		for _, id := range set {
+			fromSets[sanitize(id)] = true
+		}
+	}
+	fromSupports := make(map[string]bool)
+	for _, id := range supports {
+		fromSupports[sanitize(id)] = true
+	}
+	if len(fromSets) != len(fromSupports) {
+		return false
+	}
+	for id := range fromSets {
+		if !fromSupports[id] {
+			return false
+		}
+	}
+	return true
+}
+
+func alternativesWithoutChoice(alternatives []string, choice, answer string) []string {
+	selected := choice
+	if selected == "" {
+		selected = answer
+	}
+	result := make([]string, 0, len(alternatives))
+	for _, alternative := range alternatives {
+		if selected != "" && alternative == selected {
+			continue
+		}
+		result = append(result, alternative)
+	}
+	return result
+}
+
+func wrapDetail(value string, width int) string {
+	width = max(1, width)
+	lines := make([]string, 0)
+	for _, line := range strings.Split(value, "\n") {
+		prefixWidth := len(line) - len(strings.TrimLeft(line, " "))
+		prefix := line[:prefixWidth]
+		content := line[prefixWidth:]
+		available := max(1, width-ansi.StringWidth(prefix))
+		parts := strings.Split(ansi.Wordwrap(content, available, " \t"), "\n")
+		for _, part := range parts {
+			if part == "" && prefix == "" {
+				lines = append(lines, "")
+				continue
+			}
+			lines = append(lines, prefix+part)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m model) Init() tea.Cmd { return nil }
@@ -551,6 +633,10 @@ func (m model) View() tea.View {
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#D7A86E"))
 	selectedStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F4D7A1")).Background(lipgloss.Color("#3A2F26"))
 	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#7F8C98"))
+	idStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F4D7A1"))
+	kindStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#B9A58C"))
+	recordTitleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#E2D5C4"))
+	idWidth := overviewIDWidth(rows, leftWidth)
 	leftLines := []string{m.paint(titleStyle, fitLine("LEDGER GRAPH", leftWidth))}
 	if m.searching {
 		searchView := m.searchInput.View()
@@ -598,8 +684,14 @@ func (m model) View() tea.View {
 				prefix += "├─ "
 			}
 		}
-		label := prefix + mark + " " + sanitize(row.id)
 		selectedRow := i == m.selected && !m.detailFocus
+		id := ansi.Truncate(sanitize(row.id), idWidth, "…")
+		idCell := lipgloss.NewStyle().Width(idWidth).Render(id)
+		if !selectedRow {
+			idCell = m.paint(idStyle, idCell)
+			prefix = m.paint(mutedStyle, prefix)
+		}
+		label := prefix + mark + " " + idCell
 		if e.Kind != "" || overviewState(e) != "" {
 			displayState := overviewState(e)
 			condition := decisionCondition(e)
@@ -608,22 +700,39 @@ func (m model) View() tea.View {
 				styleState = "blocked"
 			}
 			state := sanitize(stateLabel(displayState))
-			if !selectedRow {
-				state = m.paint(m.stateStyle(styleState), state)
-			}
 			kind := sanitize(kindLabel(e.Kind))
 			if kind != "" {
-				label += "  [" + kind + "] [" + state
-				if condition != "" {
-					label += ", " + condition
+				if !selectedRow {
+					kind = m.paint(kindStyle, kind)
 				}
-				label += "]"
+				label += "  " + kind
 			} else {
-				label += "  [" + state + "]"
+				label += "  "
+			}
+			if state != "" {
+				if !selectedRow {
+					state = m.paint(m.stateStyle(styleState), state)
+				}
+				label += "  " + state
+			}
+			if condition == "blocked" {
+				blocked := "blocked"
+				if !selectedRow {
+					blocked = m.paint(m.stateStyle("blocked"), blocked)
+				}
+				label += "  " + blocked
 			}
 		}
 		if e.Question != "" {
-			label += "  " + sanitize(e.Question)
+			title := sanitize(e.Question)
+			if !selectedRow {
+				if e.RetiredBy != "" {
+					title = m.paint(mutedStyle, title)
+				} else {
+					title = m.paint(recordTitleStyle, title)
+				}
+			}
+			label += "  " + title
 		}
 		line := fitLine(label, leftWidth)
 		if selectedRow {
@@ -702,6 +811,14 @@ func (m model) View() tea.View {
 
 func bodyHeightFor(height int) int { return max(1, height-3) }
 
+func overviewIDWidth(rows []graphRow, available int) int {
+	width := 2
+	for _, row := range rows {
+		width = max(width, lipgloss.Width(sanitize(row.id)))
+	}
+	return min(16, min(width, max(2, available/3)))
+}
+
 func (m model) hasChildren(id string) bool {
 	return m.projectedChildren[id]
 }
@@ -752,7 +869,7 @@ func (m model) stateStyle(state string) lipgloss.Style {
 	case "open", "pending", "unassessed":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("#D7A86E"))
 	case "blocked":
-		return lipgloss.NewStyle().Foreground(lipgloss.Color("#7F8C98"))
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#D97858"))
 	case "ruled-out", "ruled_out", "rejected", "disputed", "revoked", "retired":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("#B56B6B"))
 	default:

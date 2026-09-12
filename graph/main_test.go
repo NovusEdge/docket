@@ -33,8 +33,8 @@ func TestBuildTreeShowsEveryEntryOnceAndKeepsGroups(t *testing.T) {
 		}
 		seen[row.id] = true
 	}
-	detail := m.detailText(m.rows[2].id)
-	for _, want := range []string{"AND", "OR", "d1", "d2", "d4", "retired by d5", "first-support tree"} {
+	detail := ansi.Strip(m.detailText(m.rows[2].id))
+	for _, want := range []string{"AND", "OR", "d1", "d2", "d4", "Retired by: d5", "first-support tree"} {
 		if !strings.Contains(detail, want) {
 			t.Errorf("detail missing %q: %s", want, detail)
 		}
@@ -198,10 +198,11 @@ func TestProjectedConnectorsAndLeafCollapse(t *testing.T) {
 func TestRetiredEntryIsMarkedRetiredInOverview(t *testing.T) {
 	m := NewModel(GraphData{Version: 2, Entries: []Entry{{ID: "d15", Kind: "question", State: "open", RecordedState: "open", Question: "historical", RetiredBy: "d16"}}})
 	view := ansi.Strip(m.View().Content)
-	if !strings.Contains(view, "[retired]") || strings.Contains(view, "[open]") {
+	if !strings.Contains(view, "d15  question  retired") || strings.Contains(view, "[open]") {
 		t.Fatalf("retired overview state was ambiguous: %q", view)
 	}
-	if !strings.Contains(m.detailText("d15"), "open") || !strings.Contains(m.detailText("d15"), "retired by d16") {
+	detail := ansi.Strip(m.detailText("d15"))
+	if !strings.Contains(detail, "open") || !strings.Contains(detail, "Retired by: d16") {
 		t.Fatal("detail lost original state or retirement relationship")
 	}
 }
@@ -266,7 +267,8 @@ func TestReadDataDecodesTypedWireFields(t *testing.T) {
 		t.Fatalf("typed evidence decoded incorrectly: %+v", e.Evidence)
 	}
 	detail := NewModel(data).detailText("d1")
-	if strings.Count(detail, "\nChoice\n") != 1 || strings.Contains(detail, "\nAnswer\n") || strings.Count(detail, "\nRationale\n") != 1 {
+	plain := ansi.Strip(detail)
+	if strings.Count(plain, "\nChoice\n") != 1 || strings.Contains(plain, "\nAnswer\n") || strings.Count(plain, "\nRationale\n") != 1 {
 		t.Fatalf("decision detail duplicated or mislabeled mapped fields: %s", detail)
 	}
 }
@@ -283,7 +285,8 @@ func TestMappedClaimAndQuestionAnswerRendersRationaleOnce(t *testing.T) {
 	}
 	for _, id := range []string{"c1", "q1"} {
 		detail := NewModel(data).detailText(id)
-		if strings.Count(detail, "\nRationale\n") != 1 || strings.Contains(detail, "\nAnswer\n") {
+		plain := ansi.Strip(detail)
+		if strings.Count(plain, "\nRationale\n") != 1 || strings.Contains(plain, "\nAnswer\n") {
 			t.Errorf("%s detail duplicated or mislabeled mapped fields: %s", id, detail)
 		}
 	}
@@ -300,19 +303,56 @@ func TestTypedDetailShowsKindStateAndRelationshipMetadata(t *testing.T) {
 		Revisit: "after beta", Author: "alice", TS: "2026-09-12T00:00:00Z", Branch: "feature/x", Session: "s1", Pinned: true,
 	}}})
 	detail := m.detailText("d7")
-	if strings.Count(detail, "\nChoice\n") != 1 || strings.Contains(detail, "\nAnswer\n") || strings.Count(detail, "\nRationale\n") != 1 {
+	plain := ansi.Strip(detail)
+	if strings.Count(plain, "\nChoice\n") != 1 || strings.Contains(plain, "\nAnswer\n") || strings.Count(plain, "\nRationale\n") != 1 {
 		t.Fatalf("decision detail duplicated or mislabeled mapped fields: %s", detail)
 	}
 	for _, want := range []string{
-		"decision", "adopted", "Recorded state", "revoked", "Text", "blue", "restart",
+		"decision", "adopted", "Recorded: revoked", "Text", "blue", "restart",
 		"Supports", "Depends on", "Answers", "Resolved by", "Supersedes", "Applicable", "blocked", "Blocked by", "d4", "Decided by", "bob", "Scope",
 		"Rationale", "Alternatives", "docs/a.md", "Checked at", "Commit", "Revisit",
 		"Author", "Timestamp", "Branch", "Session", "Pinned",
 	} {
-		if !strings.Contains(detail, want) {
-			t.Errorf("typed detail missing %q: %s", want, detail)
+		if !strings.Contains(plain, want) {
+			t.Errorf("typed detail missing %q: %s", want, plain)
 		}
 	}
+}
+
+func TestDetailUsesReadableSectionsAndCompactOverviewIdentity(t *testing.T) {
+	m := newModel(GraphData{Version: 2, Entries: []Entry{
+		{ID: "d7", Kind: "decision", State: "adopted", RecordedState: "revoked", Choice: "blue", Question: "Choose a path", Answer: "blue", Cost: "restart", Sets: [][]string{{"c1", "d2"}, {"q3"}}, Supports: []string{"c1", "d2", "q3"}, Applicable: false, BlockedBy: []string{"d4"}, Alternatives: []string{"blue", "green"}, Rationale: "safer", Revisit: "after beta", Author: "alice", Branch: "feature/x", Session: "s1", Pinned: true},
+	}}, false)
+	detail := m.detailText("d7")
+	for _, want := range []string{"Text\n", "Choice\n", "Rationale\n", "Cost\n", "Revisit\n", "Relationships\n", "Metadata\n", "Recorded: revoked", "Applicable: false", "Blocked by: d4", "Supports: (c1 AND d2) OR (q3)", "Alternatives: green", "Author: alice", "Branch: feature/x", "Session: s1", "Pinned: true", "Tree: first-support tree projection"} {
+		if !strings.Contains(detail, want) {
+			t.Errorf("detail missing %q: %s", want, ansi.Strip(detail))
+		}
+	}
+	if strings.Contains(detail, "Supports union") || strings.Contains(detail, "Alternatives: blue") {
+		t.Fatalf("detail retained redundant relationship data: %s", ansi.Strip(detail))
+	}
+
+	view := ansi.Strip(m.View().Content)
+	if strings.Contains(view, "[decision]") || !strings.Contains(view, "d7") || !strings.Contains(view, "adopted  blocked") {
+		t.Fatalf("overview identity was not compacted: %q", view)
+	}
+}
+
+func TestDetailWrapKeepsBodyGutter(t *testing.T) {
+	m := newModel(GraphData{Version: 2, Entries: []Entry{{ID: "d1", Question: "one two three four five six seven"}}}, false)
+	m.detail.SetWidth(12)
+	m.refreshDetail()
+	lines := strings.Split(m.detail.View(), "\n")
+	for i, line := range lines {
+		if strings.Contains(line, "three") {
+			if i == 0 || !strings.HasPrefix(line, "  ") {
+				t.Fatalf("wrapped body lost its gutter: lines=%q", lines)
+			}
+			return
+		}
+	}
+	t.Fatalf("wrapped body did not contain continuation line: %q", lines)
 }
 
 func TestPlainOverviewShowsKindAndEffectiveState(t *testing.T) {
