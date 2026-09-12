@@ -1,6 +1,6 @@
 {
   "name": "docket",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "description": "A typed ledger of claims, decisions, and questions with scoped context for agents.",
   "author": {
     "name": "Aliasgar Khimani",
@@ -9,7 +9,12 @@
   "homepage": "https://github.com/NovusEdge/docket",
   "repository": "https://github.com/NovusEdge/docket",
   "license": "MIT",
-  "keywords": ["decisions", "memory", "agents", "provenance"],
+  "keywords": [
+    "decisions",
+    "memory",
+    "agents",
+    "provenance"
+  ],
   "skills": "./skills/",
   "hooks": "./hooks/hooks.json"
 }
