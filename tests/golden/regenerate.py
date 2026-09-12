@@ -38,8 +38,11 @@ def snapshots():
     for count in (5, 60, 400, 1500):
         projected_records = projected(list(ledger(count)))
         for query, files in (("", ()), ("module 3", ()), ("", ("lib/mod3/cache.py",))):
-            for budget in (900, 8000):
-                key = f"n{count}_q{query or 'none'}_f{'yes' if files else 'no'}_b{budget}"
+            # None exercises the default budget, where the soft target and the
+            # hard ceiling differ. Every fixed budget makes them equal, which
+            # hid the index allowance and the trim ladder from these snapshots.
+            for budget in (900, 8000, None):
+                key = f"n{count}_q{query or 'none'}_f{'yes' if files else 'no'}_b{budget or 'default'}"
                 cases[key] = build_context(projected_records, query=query, files=files,
                                            ledger="repo", max_chars=budget)
     return cases

@@ -30,6 +30,7 @@ from docket_ledger import (  # noqa: E402
     read as ledger_read,
     retired_by,
     validate_record,
+    _Prefix,
 )
 
 LEDGER = Path(".docket/ledger.jsonl")
@@ -914,6 +915,10 @@ def cmd_check(args: argparse.Namespace) -> int:
 
     faults: list[str] = []
     good: list[dict] = []
+    # One index threaded through the loop. Rebuilding it per record made doctor
+    # quadratic in ledger size, which is the cost read() and validate_entries
+    # already shed.
+    prefix = _Prefix([])
     seen: dict[str, int] = {}
     highest = 0
     count = 0
@@ -945,9 +950,12 @@ def cmd_check(args: argparse.Namespace) -> int:
         # exists and has the right kind. validate_record is what catches a
         # dangling or wrong-kind reference.
         try:
-            good.append(validate_record(record, previous=good))
+            checked = validate_record(record, prefix=prefix)
         except LedgerError as exc:
             faults.append(f"line {number}: {str(exc).removeprefix('docket: ')}")
+        else:
+            good.append(checked)
+            prefix.add(checked)
 
     if not faults:
         print(f"docket: {path} reads cleanly, {count} record{'s' if count != 1 else ''}")

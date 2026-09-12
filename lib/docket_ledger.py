@@ -269,6 +269,8 @@ def validate_record(record: Any, *, previous: list[dict[str, Any]] | None = None
     if kind != "decision" and record["depends_on"]:
         raise _error(record_id, "only decisions may have depends_on")
 
+    if prefix is not None and previous is not None:
+        raise _error(record_id, "pass previous or prefix, not both")
     if prefix is None and previous is not None:
         prefix = _Prefix(previous)
     if prefix is not None:
@@ -408,9 +410,21 @@ def _decision_applicability(
     applicable: dict[str, bool] = {}
     blocked: dict[str, list[str]] = {}
 
-    # No cycle guard: validation refuses a reference to a later id, so the
-    # prerequisite graph is acyclic by construction.
+    # Validation refuses a reference to a later id, so a validated ledger is
+    # acyclic. project(validated=True) skips that check, and a cycle there would
+    # otherwise recurse until the stack ends. One shared set costs nothing.
+    visiting: set[str] = set()
+
     def check(entry_id: str) -> tuple[bool, list[str]]:
+        if entry_id in visiting:
+            raise _error(entry_id, "depends_on forms a cycle")
+        visiting.add(entry_id)
+        try:
+            return _check(entry_id)
+        finally:
+            visiting.discard(entry_id)
+
+    def _check(entry_id: str) -> tuple[bool, list[str]]:
         if entry_id in applicable:
             return applicable[entry_id], blocked[entry_id]
         entry = by_id[entry_id]
@@ -456,8 +470,10 @@ def project(entries: list[dict[str, Any]], *, validated: bool = False) -> list[d
     applicability, blocked = _decision_applicability(entries, retired)
     result = []
     for entry in entries:
-        # validate_entries already returned copies, and that list is local to
-        # this call, so sharing the nested values with it harms no caller.
+        # Shallow by design. Only top-level keys are added below, and the two
+        # list fields are rebuilt with list(). On the validated=True path the
+        # nested values stay shared with the caller's records, so a caller that
+        # mutates them after projecting sees the change in both.
         projected = dict(entry)
         projected["recorded_state"] = entry["state"]
         if entry["kind"] == "question" and answers[entry["id"]]:

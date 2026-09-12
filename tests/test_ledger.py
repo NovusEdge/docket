@@ -173,18 +173,47 @@ class ValidationScalingTests(unittest.TestCase):
             made.append(record)
         return made
 
-    def elapsed(self, count):
-        entries = self.entries(count)
-        start = time.perf_counter()
-        ledger.validate_entries(entries)
-        return time.perf_counter() - start
+    def prefix_builds(self, entries):
+        """How many times validation derives its index from a whole prefix."""
 
-    def test_validation_cost_grows_close_to_linearly(self):
+        original = ledger._Prefix
+        builds = []
+
+        class Counted(original):
+            def __init__(self, records):
+                builds.append(len(records))
+                super().__init__(records)
+
+        ledger._Prefix = Counted
+        try:
+            ledger.validate_entries(entries)
+        finally:
+            ledger._Prefix = original
+        return builds
+
+    def test_validation_builds_one_index_for_the_whole_ledger(self):
         # validate_record once rebuilt the id map, the sequence maximum, and the
         # retirement map from the whole prefix, so reading n records cost n^2.
-        small = self.elapsed(250)
-        large = self.elapsed(1000)
-        self.assertLess(large, small * 10)
+        self.assertEqual(self.prefix_builds(self.entries(400)), [0])
+
+    def test_validation_tracks_retirement_across_a_supersede_chain(self):
+        # _Prefix maintains the retirement map incrementally. A chain is the
+        # case that map exists for, and the timing test never built one.
+        made = []
+        for number in range(1, 41):
+            record = ledger.make_record("claim", f"premise {number}", state="accepted",
+                                        author="test",
+                                        supersedes=[f"c{number - 1}"] if number > 1 else [])
+            record["id"] = f"c{number}"
+            made.append(record)
+        self.assertEqual(self.prefix_builds(made), [0])
+        entries = ledger.validate_entries(made)
+        self.assertEqual(ledger.retired_by(entries)["c39"], "c40")
+        again = ledger.make_record("claim", "late", state="accepted", author="test",
+                                   supersedes=["c39"])
+        again["id"] = "c41"
+        with self.assertRaisesRegex(ledger.LedgerError, "already retired"):
+            ledger.validate_entries(made + [again])
 
 
 if __name__ == "__main__":

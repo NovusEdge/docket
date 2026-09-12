@@ -7,7 +7,6 @@ module, which keeps selection and rendering easy to exercise independently.
 
 from __future__ import annotations
 
-import bisect
 import fnmatch
 import hashlib
 import heapq
@@ -23,6 +22,11 @@ try:
     from docket_config import DEFAULTS as _SETTINGS_DEFAULTS
 except ImportError:
     from .docket_config import DEFAULTS as _SETTINGS_DEFAULTS
+
+
+# The admission gate computes the length it once measured by rendering. Tests
+# set this to check the arithmetic against the renderer on every candidate.
+_VERIFY_TRIAL = False
 
 
 def _list(value: Any) -> list[Any]:
@@ -253,6 +257,9 @@ def _blocking_paths(
     share it across the budget trial that renders a record many times.
     """
 
+    # The cache key omits depth, so a caller that changes it must not share one.
+    if cache is not None and depth != 8:
+        raise ValueError("_blocking_paths cache assumes the default depth")
     if cache is not None and ident in cache:
         return cache[ident]
 
@@ -445,7 +452,6 @@ def build_context(
             raise ValueError(
                 f"max_chars must be an integer of at least {cfg['budget']['minimum']}")
         soft_limit = hard_limit = max_chars
-    allowance = hard_limit * allowance_percent // 100
     history = list(entries)
     if not history:
         return ""
@@ -673,10 +679,23 @@ def build_context(
             length, shown = names_length - len(ident), names_shown - 1
         else:
             length, shown = names_length, names_shown
+        if _VERIFY_TRIAL:
+            measured = len(render(order + [ident], included | {ident}, names_only=True))
+            computed = _trial_length(ident)
+            if measured != computed:
+                raise AssertionError(
+                    f"trial length for {ident}: computed {computed}, rendered {measured}")
         index_cost = index_head + length + 2 * (shown - 1) if shown else 0
+        # The allowance follows the limit in play. Deriving it from hard_limit
+        # while charging against soft_limit made the setting mean its stated
+        # percent of the ceiling, which is three times that share of the target.
+        allowance = limit * allowance_percent // 100
         charged = _trial_length(ident) - max(0, index_cost - allowance)
         if charged > limit:
             del labels[ident]
+            # A refused candidate never reaches the output, so its rendered text
+            # is dead. Keeping every one cost 35 MB at 40000 records.
+            record_cache.pop((ident, label), None)
             return False
         included.add(ident)
         order.append(ident)
@@ -726,7 +745,14 @@ def build_context(
             index = index_head + sums[keep] + 2 * (keep - 1)
             tail = footer_text(len(chosen_set), keep, len(deferred_ids),
                                len(related), missing)
-            return base + index + len(tail)
+            computed = base + index + len(tail)
+            if _VERIFY_TRIAL:
+                measured = len(render(chosen_order, chosen_set, deferred_ids[:keep],
+                                      names_only=True))
+                if measured != computed:
+                    raise AssertionError(
+                        f"trim length at keep={keep}: computed {computed}, rendered {measured}")
+            return computed
 
         # Naming every record drops the "Not listed" line, so length falls at
         # the top of the range. Test the whole set first, then bisect the rest,
