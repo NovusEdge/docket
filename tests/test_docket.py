@@ -343,6 +343,23 @@ class AutoScopeTests(unittest.TestCase):
             self.assertIn("tracked.py", out)
 
 
+class InitTests(unittest.TestCase):
+    def test_init_ignores_the_lock_file(self):
+        with tempfile.TemporaryDirectory() as home:
+            run(home, "init")
+            ignore = Path(home) / ".docket" / ".gitignore"
+            self.assertTrue(ignore.is_file())
+            self.assertIn("*.lock", ignore.read_text(encoding="utf-8"))
+
+    def test_init_leaves_an_existing_ignore_file_alone(self):
+        with tempfile.TemporaryDirectory() as home:
+            ignore = Path(home) / ".docket" / ".gitignore"
+            ignore.parent.mkdir(parents=True, exist_ok=True)
+            ignore.write_text("# mine\n", encoding="utf-8")
+            run(home, "init")
+            self.assertEqual(ignore.read_text(encoding="utf-8"), "# mine\n")
+
+
 class CheckTests(unittest.TestCase):
     def test_check_passes_on_a_good_ledger(self):
         with tempfile.TemporaryDirectory() as home:

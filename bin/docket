@@ -965,12 +965,17 @@ def cmd_init(args: argparse.Namespace) -> int:
     """Move this project's ledger into the repository so it can be committed."""
     root = project_root()
     target = root / LEDGER
+    target.parent.mkdir(parents=True, exist_ok=True)
+    ignore = target.parent / ".gitignore"
+    if not ignore.exists():
+        # The append lock is local state. A team that commits .docket/ would
+        # otherwise commit it.
+        ignore.write_text("*.lock\n", encoding="utf-8")
     if target.exists():
         print(f"docket: already project-local at {target}")
         return 0
 
     existing = read(global_root() / slug(root) / "ledger.jsonl")
-    target.parent.mkdir(parents=True, exist_ok=True)
     with target.open("w") as f:
         for e in existing:
             f.write(json.dumps(e) + "\n")
