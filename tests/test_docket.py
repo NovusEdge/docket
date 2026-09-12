@@ -343,5 +343,36 @@ class AutoScopeTests(unittest.TestCase):
             self.assertIn("tracked.py", out)
 
 
+class CheckTests(unittest.TestCase):
+    def test_check_passes_on_a_good_ledger(self):
+        with tempfile.TemporaryDirectory() as home:
+            run(home, "claim", "A premise", "--state", "accepted")
+            result = run(home, "check")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("1 record", result.stdout)
+
+    def test_check_reports_every_duplicate_and_ordering_fault(self):
+        with tempfile.TemporaryDirectory() as home:
+            ledger = Path(home) / ".docket" / "ledger.jsonl"
+            ledger.parent.mkdir(parents=True, exist_ok=True)
+            rows = [
+                docket_cli.make_record("claim", "First", state="accepted",
+                                       author="t", record_id="c1"),
+                docket_cli.make_record("claim", "Branch A", state="accepted",
+                                       author="t", record_id="c2"),
+                docket_cli.make_record("claim", "Branch B", state="accepted",
+                                       author="t", record_id="c2"),
+                docket_cli.make_record("claim", "Older", state="accepted",
+                                       author="t", record_id="c1"),
+            ]
+            ledger.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
+            result = run(home, "check")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("duplicate id c2", result.stdout)
+        self.assertIn("line 3", result.stdout)
+        self.assertIn("line 4", result.stdout)
+        self.assertIn("docket rebase", result.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
