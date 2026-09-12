@@ -1,0 +1,590 @@
+{
+  "d1": {
+    "kind": "claim",
+    "state": "accepted",
+    "text": "The realization relation alone does not determine intent classification.",
+    "rationale": "No. Identical chains and realized outcomes can be classified differently under different intent relations. Intent must be supplied or derived from additional structure.",
+    "scope": [
+      "docs/definitions.md",
+      "docs/outcome-formalism.md",
+      "experiments/**"
+    ]
+  },
+  "d2": {
+    "kind": "decision",
+    "state": "adopted",
+    "text": "What is an outcome?",
+    "rationale": "A change that persists after the chain ends. Two kinds: world changes (file written, row inserted, branch pushed) which are observable by diffing, and epistemic changes (question settled, option ruled out) which the ledger already records.",
+    "scope": [
+      "docs/definitions.md",
+      "docs/outcome-formalism.md",
+      "experiments/**"
+    ],
+    "choice": "A change that persists after the chain ends. Two kinds: world changes (file written, row inserted, branch pushed) which are observable by diffing, and epistemic changes (question settled, option ruled out) which the ledger already records.",
+    "alternatives": [
+      "A change that persists after the chain ends. Two kinds: world changes (file written, row inserted, branch pushed) which are observable by diffing, and epistemic changes (question settled, option ruled out) which the ledger already records."
+    ]
+  },
+  "d3": {
+    "kind": "claim",
+    "state": "accepted",
+    "text": "An agent's self-report is insufficient evidence for world outcomes.",
+    "rationale": "No. World outcomes get computed from tool-call logs and the filesystem. Asking inherits the faithfulness problem.",
+    "scope": [
+      "docs/definitions.md",
+      "docs/outcome-formalism.md",
+      "experiments/**"
+    ]
+  },
+  "d4": {
+    "kind": "claim",
+    "state": "accepted",
+    "text": "The justification recorded for the original d3 was incorrect: it follows from the outcome definition in original d2.",
+    "rationale": "d3 cites d1 in error. It follows from d2, the outcome definition, not from the intent-derivability result. The ledger is append-only, so this entry stands as the correction.",
+    "scope": [
+      "docs/definitions.md",
+      "docs/outcome-formalism.md",
+      "experiments/**"
+    ]
+  },
+  "d5": {
+    "kind": "claim",
+    "state": "accepted",
+    "text": "For an exhaustive, disjoint binary partition of realized outcomes, fixing realization and intent uniquely determines the intended and unintended classes; this does not infer intent.",
+    "rationale": "Yes, for any exhaustive and disjoint binary partition of realized outcomes. Choosing the intended class as ι reconstructs intended = R ∩ ι and unintended = R \\ ι; once R and ι are fixed, the classification is unique. This is a representation result, not a way to infer ι.",
+    "scope": [
+      "docs/definitions.md",
+      "docs/outcome-formalism.md",
+      "experiments/**"
+    ]
+  },
+  "d6": {
+    "kind": "claim",
+    "state": "accepted",
+    "text": "Generic closure laws alone do not determine a meaningful direct-versus-indirect outcome distinction.",
+    "rationale": "No. Counterexample: for any chosen set D, define Cl_D(X) = X ∪ D when X is nonempty and Cl_D(∅) = ∅. This operator is extensive, monotone, idempotent, and preserves ∅, yet for any nonempty R(c) disjoint from D it induces exactly D as the indirect outcomes. Cl must instead be fixed independently by causal, logical, or transition semantics, with a consequence-path witness for every indirect outcome.",
+    "scope": [
+      "docs/definitions.md",
+      "docs/outcome-formalism.md",
+      "experiments/**"
+    ]
+  },
+  "d7": {
+    "kind": "claim",
+    "state": "accepted",
+    "text": "A strict dependency order without crossing edges does not establish parallel validity unless it accounts for semantic interference.",
+    "rationale": "No. Counterexample: declare no dependency between two sections; one sets state to 1 and the other doubles it. The dependency relation is a strict partial order and no edge crosses the boundary, but set-then-double returns 2 while double-then-set returns 1. The dependency relation must be complete for semantic interference.",
+    "scope": [
+      "docs/definitions.md",
+      "docs/outcome-formalism.md",
+      "experiments/**"
+    ]
+  },
+  "d8": {
+    "kind": "claim",
+    "state": "accepted",
+    "text": "Commuting state transformations make the two sequential section schedules equal; a dependency graph certifies parallel validity only if every noncommuting pair is represented.",
+    "rationale": "Cross-section state transformations must commute: applying section A then B must equal applying B then A for every initial state. Under this condition the two sequential schedules are equal. A dependency graph can certify parallel validity only when every noncommuting pair is represented by a dependency edge.",
+    "scope": [
+      "docs/definitions.md",
+      "docs/outcome-formalism.md",
+      "experiments/**"
+    ]
+  },
+  "d9": {
+    "kind": "claim",
+    "state": "accepted",
+    "text": "Transitive retraction is sound and minimal for conjunctive justification: every member of the support set must be required jointly.",
+    "rationale": "Yes, if every member of j(γ) is required jointly. Defining removal as the least set containing the retracted premise and closed under reverse support edges makes survivors closed under j, and the removed set is contained in every other set satisfying those rules.",
+    "scope": [
+      "docs/definitions.md",
+      "docs/outcome-formalism.md",
+      "experiments/**"
+    ]
+  },
+  "d10": {
+    "kind": "claim",
+    "state": "accepted",
+    "text": "Flat conjunctive support sets cannot represent independent alternative justifications without over-retraction.",
+    "rationale": "No. Counterexample: Q has independent supports A and B. Retracting A removes Q by the transitive-dependent rule even though B survives and still supports Q. Phase 4 must either define j(γ) conjunctively or represent alternatives as a set of justification sets and retain γ while any complete justification survives.",
+    "scope": [
+      "docs/definitions.md",
+      "docs/outcome-formalism.md",
+      "experiments/**"
+    ]
+  },
+  "d11": {
+    "kind": "claim",
+    "state": "accepted",
+    "text": "Pairwise commutativity of sub-question state transformations is sufficient for order-invariant evaluation; for two transformations it is also necessary.",
+    "rationale": "When the state transformations produced by the sub-question answers commute. Pairwise commutativity is sufficient for evaluation to be invariant under every permutation; for two questions it is also necessary. Logical independence matters only if it guarantees this operational noninterference. Counterexample: set-state-to-1 and double-state are reorderings of the same two updates but yield 2 versus 1.",
+    "scope": [
+      "docs/definitions.md",
+      "docs/outcome-formalism.md",
+      "experiments/**"
+    ]
+  },
+  "d12": {
+    "kind": "decision",
+    "state": "adopted",
+    "text": "Where does the ledger live by default?",
+    "rationale": "~/.claude/docket keyed by git root. A project .docket wins when present, and docket init creates one. DOCKET_HOME and CLAUDE_CONFIG_DIR relocate the store.",
+    "scope": [
+      "lib/**",
+      "bin/docket"
+    ],
+    "choice": "~/.claude/docket keyed by git root. A project .docket wins when present, and docket init creates one. DOCKET_HOME and CLAUDE_CONFIG_DIR relocate the store.",
+    "alternatives": [
+      "~/.claude/docket keyed by git root. A project .docket wins when present, and docket init creates one. DOCKET_HOME and CLAUDE_CONFIG_DIR relocate the store."
+    ]
+  },
+  "d13": {
+    "kind": "decision",
+    "state": "adopted",
+    "text": "Capture provenance fields before anything consumes them?",
+    "rationale": "Yes. session, author, and branch are written from the start. The log is append-only, so an entry can never gain them later. Nothing filters on branch yet.",
+    "scope": [
+      "lib/**",
+      "bin/docket"
+    ],
+    "choice": "Yes. session, author, and branch are written from the start. The log is append-only, so an entry can never gain them later. Nothing filters on branch yet.",
+    "alternatives": [
+      "Yes. session, author, and branch are written from the start. The log is append-only, so an entry can never gain them later. Nothing filters on branch yet."
+    ]
+  },
+  "d14": {
+    "kind": "decision",
+    "state": "adopted",
+    "text": "Ship config for every harness?",
+    "rationale": "No. Codex ships as .codex-plugin/plugin.json because it is in use. OpenCode, Gemini, Copilot, and Cursor are documented in docs/installation.md with copyable config. Only the Claude Code path is tested.",
+    "scope": [
+      "lib/**",
+      "bin/docket"
+    ],
+    "choice": "No. Codex ships as .codex-plugin/plugin.json because it is in use. OpenCode, Gemini, Copilot, and Cursor are documented in docs/installation.md with copyable config. Only the Claude Code path is tested.",
+    "alternatives": [
+      "No. Codex ships as .codex-plugin/plugin.json because it is in use. OpenCode, Gemini, Copilot, and Cursor are documented in docs/installation.md with copyable config. Only the Claude Code path is tested."
+    ]
+  },
+  "d15": {
+    "kind": "question",
+    "state": "open",
+    "text": "How should justification represent alternative support sets?",
+    "rationale": "d10 shows a flat j: G -> 2^G over-retracts when a claim has alternative supports. definitions.md still states the flat form. It should be a set of justification sets, retaining a claim while any complete justification survives. Doc not yet updated.",
+    "scope": [
+      "lib/**",
+      "bin/docket"
+    ]
+  },
+  "d16": {
+    "kind": "decision",
+    "state": "adopted",
+    "text": "Track open defects where?",
+    "rationale": "GitHub issues on NovusEdge/docket. The ledger records decisions, issues track work. d15 is issue #1 and the blank-author problem is issue #2.",
+    "scope": [
+      "lib/**",
+      "bin/docket"
+    ],
+    "choice": "GitHub issues on NovusEdge/docket. The ledger records decisions, issues track work. d15 is issue #1 and the blank-author problem is issue #2.",
+    "alternatives": [
+      "GitHub issues on NovusEdge/docket. The ledger records decisions, issues track work. d15 is issue #1 and the blank-author problem is issue #2."
+    ]
+  },
+  "d17": {
+    "kind": "decision",
+    "state": "adopted",
+    "text": "Resolve d15, the justification type",
+    "rationale": "Done in PR #3. because is now a list of alternative conjunctive sets, j maps to a set of justification sets, and a claim is retained while any complete set survives. Legacy flat entries read as one set. Migration explicitly converts the old link to the question into an answers relation and cites the counterexample as support.",
+    "scope": [
+      "docs/definitions.md",
+      "docs/outcome-formalism.md",
+      "experiments/**"
+    ],
+    "choice": "Represent justification as alternative conjunctive support sets.",
+    "alternatives": [
+      "Represent justification as alternative conjunctive support sets."
+    ],
+    "supports": [
+      [
+        "d10"
+      ]
+    ],
+    "answers": [
+      "d15"
+    ]
+  },
+  "d18": {
+    "kind": "question",
+    "state": "open",
+    "text": "What bounds label growth under alternative justifications?",
+    "rationale": "Nothing yet. d17 gave because the shape of an ATMS label, a set of environments. de Kleer 1986 shows that set grows exponentially in the number of assumptions, which is what killed the ATMS line. docs/decision-chains.md now records the risk.",
+    "scope": [
+      "docs/definitions.md",
+      "docs/outcome-formalism.md",
+      "experiments/**"
+    ]
+  },
+  "d19": {
+    "kind": "claim",
+    "state": "accepted",
+    "text": "StressTests.lean proves that pairwise commutativity of steps across two sections lifts to commutativity of the section effects.",
+    "rationale": "It is now. d8 previously rested on a theorem that restated the definition of Commute. StressTests.lean proves the lift instead: model a section as a list of steps, and if every step of one section commutes with every step of the other, the two section effects commute. Proof is by induction on both lists.",
+    "scope": [
+      "docs/definitions.md",
+      "docs/outcome-formalism.md",
+      "experiments/**"
+    ]
+  },
+  "d20": {
+    "kind": "claim",
+    "state": "accepted",
+    "text": "The earlier ledger reported a retired question as open until supersession filtering was added.",
+    "rationale": "It did, and that was the defect. d15 keeps its own open state because the log is append-only, so list --state open and the injected context both misreported it. add --supersedes now records the retirement and hides the retired entry; list --superseded shows it again. Migration explicitly converts the old question supersession into an answers relation.",
+    "scope": [
+      "lib/**",
+      "bin/docket"
+    ],
+    "supersedes": [],
+    "answers": [
+      "d15"
+    ]
+  },
+  "d21": {
+    "kind": "decision",
+    "state": "adopted",
+    "text": "What writing standard must Docket documentation follow?",
+    "rationale": "Apply de-slopify and ASD-STE100 Issue 9 principles. Keep the public README free of internal implementation details, plans, and status.",
+    "scope": [
+      "docs/**",
+      "README.md"
+    ],
+    "choice": "Apply de-slopify and ASD-STE100 Issue 9 principles. Keep the public README free of internal implementation details, plans, and status.",
+    "alternatives": [
+      "Apply de-slopify and ASD-STE100 Issue 9 principles. Keep the public README free of internal implementation details, plans, and status."
+    ],
+    "pinned": true
+  },
+  "d22": {
+    "kind": "decision",
+    "state": "adopted",
+    "text": "How do users install docket?",
+    "rationale": "A stdlib-only install.py at the repo root. One script serves both 'curl | python3 -' and 'python3 install.py' from a checkout: it detects which by whether __file__ resolves next to bin/docket.",
+    "scope": [
+      "installer/**",
+      "docs/installation.md"
+    ],
+    "choice": "A stdlib-only install.py at the repo root. One script serves both 'curl | python3 -' and 'python3 install.py' from a checkout: it detects which by whether __file__ resolves next to bin/docket.",
+    "alternatives": [
+      "A stdlib-only install.py at the repo root. One script serves both 'curl | python3 -' and 'python3 install.py' from a checkout: it detects which by whether __file__ resolves next to bin/docket."
+    ]
+  },
+  "d23": {
+    "kind": "decision",
+    "state": "adopted",
+    "text": "How does the installer wire Claude Code?",
+    "rationale": "It merges a SessionStart hook into ~/.claude/settings.json and installs the skill, rather than printing the two /plugin slash commands. It skips the hook when the marketplace plugin is already present under ~/.claude/plugins/, because both would inject the ledger twice.",
+    "scope": [
+      "installer/**",
+      "docs/installation.md"
+    ],
+    "choice": "It merges a SessionStart hook into ~/.claude/settings.json and installs the skill, rather than printing the two /plugin slash commands. It skips the hook when the marketplace plugin is already present under ~/.claude/plugins/, because both would inject the ledger twice.",
+    "alternatives": [
+      "It merges a SessionStart hook into ~/.claude/settings.json and installs the skill, rather than printing the two /plugin slash commands. It skips the hook when the marketplace plugin is already present under ~/.claude/plugins/, because both would inject the ledger twice."
+    ]
+  },
+  "d24": {
+    "kind": "decision",
+    "state": "adopted",
+    "text": "Where does the installer write harness config?",
+    "rationale": "User-global by default, so one install covers every repo. --project writes into the current repository instead. This matches the ledger, which is already global and keyed by git root.",
+    "scope": [
+      "installer/**",
+      "docs/installation.md"
+    ],
+    "choice": "User-global by default, so one install covers every repo. --project writes into the current repository instead. This matches the ledger, which is already global and keyed by git root.",
+    "alternatives": [
+      "User-global by default, so one install covers every repo. --project writes into the current repository instead. This matches the ledger, which is already global and keyed by git root."
+    ]
+  },
+  "d25": {
+    "kind": "decision",
+    "state": "adopted",
+    "text": "How do users update docket?",
+    "rationale": "They re-run the installer. It is idempotent, and in bootstrap mode it runs git pull --ff-only on an existing checkout. No docket update subcommand and no network version check on the session-start path.",
+    "scope": [
+      "installer/**",
+      "docs/installation.md"
+    ],
+    "choice": "They re-run the installer. It is idempotent, and in bootstrap mode it runs git pull --ff-only on an existing checkout. No docket update subcommand and no network version check on the session-start path.",
+    "alternatives": [
+      "They re-run the installer. It is idempotent, and in bootstrap mode it runs git pull --ff-only on an existing checkout. No docket update subcommand and no network version check on the session-start path."
+    ]
+  },
+  "d26": {
+    "kind": "decision",
+    "state": "adopted",
+    "text": "How is install.py structured so it can be tested and dry-run?",
+    "rationale": "Planning is pure: every step returns Action records (WriteJSON, WriteText, AppendLine, Link, Shim, Remove) carrying target path and final content. A single apply() is the only code that writes. --dry-run skips apply; tests assert on planned actions against a synthetic HOME, so the Windows and POSIX branches are both testable from either platform.",
+    "scope": [
+      "installer/**",
+      "docs/installation.md"
+    ],
+    "choice": "Planning is pure: every step returns Action records (WriteJSON, WriteText, AppendLine, Link, Shim, Remove) carrying target path and final content. A single apply() is the only code that writes. --dry-run skips apply; tests assert on planned actions against a synthetic HOME, so the Windows and POSIX branches are both testable from either platform.",
+    "alternatives": [
+      "Planning is pure: every step returns Action records (WriteJSON, WriteText, AppendLine, Link, Shim, Remove) carrying target path and final content. A single apply() is the only code that writes. --dry-run skips apply; tests assert on planned actions against a synthetic HOME, so the Windows and POSIX branches are both testable from either platform."
+    ]
+  },
+  "d27": {
+    "kind": "decision",
+    "state": "adopted",
+    "text": "How does the command get onto PATH on Windows?",
+    "rationale": "A docket.cmd and docket.ps1 shim that invoke a resolved absolute interpreter path, not a symlink. Symlinks need Developer Mode or elevation, bin/docket has no .py extension, and python3 is not the interpreter name on Windows. PATH is edited through PowerShell's [Environment]::SetEnvironmentVariable(...,'User'), never setx, which truncates PATH at 1024 characters.",
+    "scope": [
+      "installer/**",
+      "docs/installation.md"
+    ],
+    "choice": "A docket.cmd and docket.ps1 shim that invoke a resolved absolute interpreter path, not a symlink. Symlinks need Developer Mode or elevation, bin/docket has no .py extension, and python3 is not the interpreter name on Windows. PATH is edited through PowerShell's [Environment]::SetEnvironmentVariable(...,'User'), never setx, which truncates PATH at 1024 characters.",
+    "alternatives": [
+      "A docket.cmd and docket.ps1 shim that invoke a resolved absolute interpreter path, not a symlink. Symlinks need Developer Mode or elevation, bin/docket has no .py extension, and python3 is not the interpreter name on Windows. PATH is edited through PowerShell's [Environment]::SetEnvironmentVariable(...,'User'), never setx, which truncates PATH at 1024 characters."
+    ]
+  },
+  "d28": {
+    "kind": "decision",
+    "state": "adopted",
+    "text": "How does the installer wire Claude Code?",
+    "rationale": "It links the checkout into ~/.claude/skills/docket. Claude Code loads any folder there that carries .claude-plugin/plugin.json as a plugin, with no marketplace and no install step, and it brings the bundled hooks and skill with it. The installer skips when installed_plugins.json already lists docket. No settings.json merge, no backup file, no marker key.",
+    "scope": [
+      "installer/**",
+      "docs/installation.md"
+    ],
+    "choice": "It links the checkout into ~/.claude/skills/docket. Claude Code loads any folder there that carries .claude-plugin/plugin.json as a plugin, with no marketplace and no install step, and it brings the bundled hooks and skill with it. The installer skips when installed_plugins.json already lists docket. No settings.json merge, no backup file, no marker key.",
+    "alternatives": [
+      "It links the checkout into ~/.claude/skills/docket. Claude Code loads any folder there that carries .claude-plugin/plugin.json as a plugin, with no marketplace and no install step, and it brings the bundled hooks and skill with it. The installer skips when installed_plugins.json already lists docket. No settings.json merge, no backup file, no marker key."
+    ]
+  },
+  "d29": {
+    "kind": "decision",
+    "state": "adopted",
+    "text": "How does the installer edit PATH on Windows?",
+    "rationale": "Through stdlib winreg on HKCU\\Environment\\Path, preserving the existing value type, then broadcasting WM_SETTINGCHANGE by ctypes. [Environment]::SetEnvironmentVariable expands every %VAR% already in PATH and rewrites it as REG_SZ, which corrupts it the same way setx does. The command shim is docket.cmd only; a .ps1 on PATH fails under the default Restricted execution policy.",
+    "scope": [
+      "installer/**",
+      "docs/installation.md"
+    ],
+    "choice": "Through stdlib winreg on HKCU\\Environment\\Path, preserving the existing value type, then broadcasting WM_SETTINGCHANGE by ctypes. [Environment]::SetEnvironmentVariable expands every %VAR% already in PATH and rewrites it as REG_SZ, which corrupts it the same way setx does. The command shim is docket.cmd only; a .ps1 on PATH fails under the default Restricted execution policy.",
+    "alternatives": [
+      "Through stdlib winreg on HKCU\\Environment\\Path, preserving the existing value type, then broadcasting WM_SETTINGCHANGE by ctypes. [Environment]::SetEnvironmentVariable expands every %VAR% already in PATH and rewrites it as REG_SZ, which corrupts it the same way setx does. The command shim is docket.cmd only; a .ps1 on PATH fails under the default Restricted execution policy."
+    ]
+  },
+  "d30": {
+    "kind": "decision",
+    "state": "adopted",
+    "text": "How does the installer configure Codex?",
+    "rationale": "It shells out to 'codex plugin marketplace add <checkout>' and 'codex plugin add docket@NovusEdge', and the repo ships .agents/plugins/marketplace.json named NovusEdge so that ref resolves. Codex enablement lives in ~/.codex/config.toml and tomllib is read-only, so the CLI has to own those writes. Verified end to end: codex plugin list reports docket@NovusEdge installed at 0.6.4, and codex plugin remove reverses it.",
+    "scope": [
+      "installer/**",
+      "docs/installation.md"
+    ],
+    "choice": "It shells out to 'codex plugin marketplace add <checkout>' and 'codex plugin add docket@NovusEdge', and the repo ships .agents/plugins/marketplace.json named NovusEdge so that ref resolves. Codex enablement lives in ~/.codex/config.toml and tomllib is read-only, so the CLI has to own those writes. Verified end to end: codex plugin list reports docket@NovusEdge installed at 0.6.4, and codex plugin remove reverses it.",
+    "alternatives": [
+      "It shells out to 'codex plugin marketplace add <checkout>' and 'codex plugin add docket@NovusEdge', and the repo ships .agents/plugins/marketplace.json named NovusEdge so that ref resolves. Codex enablement lives in ~/.codex/config.toml and tomllib is read-only, so the CLI has to own those writes. Verified end to end: codex plugin list reports docket@NovusEdge installed at 0.6.4, and codex plugin remove reverses it."
+    ]
+  },
+  "d31": {
+    "kind": "claim",
+    "state": "accepted",
+    "text": "The installation snippets reviewed on 2026-09-11 contained incorrect OpenCode, Gemini, and Copilot/Cursor examples.",
+    "rationale": "Three. OpenCode showed Plugin.define, the unreleased v2 API; v1 is a named export returning experimental.chat.system.transform. Gemini used a regex matcher, but a lifecycle matcher is an exact string, so it matched no event. Copilot and Cursor piped through 'python3 -c', which needs sh; 'docket context --for X' replaces the pipe.",
+    "scope": [
+      "installer/**",
+      "docs/installation.md"
+    ]
+  },
+  "d32": {
+    "kind": "claim",
+    "state": "accepted",
+    "text": "An agent's self-report is insufficient evidence for world outcomes.",
+    "rationale": "No. World outcomes get computed from tool-call logs and the filesystem. Asking inherits the faithfulness problem.",
+    "scope": [
+      "installer/**",
+      "docs/installation.md"
+    ]
+  },
+  "d33": {
+    "kind": "decision",
+    "state": "adopted",
+    "text": "How is a wrong justification corrected?",
+    "rationale": "By superseding the entry with a restatement carrying the right support. A dedicated 'amend' event that folds field-level corrections over the log waits for stage 3 retraction: nothing walks because edges yet, so a wrong edge today is a wrong picture, not a wrong retraction. Stage 3 must define j over some view of the log anyway, so the fold gets designed once.",
+    "scope": [
+      "installer/**",
+      "docs/installation.md"
+    ],
+    "choice": "By superseding the entry with a restatement carrying the right support. A dedicated 'amend' event that folds field-level corrections over the log waits for stage 3 retraction: nothing walks because edges yet, so a wrong edge today is a wrong picture, not a wrong retraction. Stage 3 must define j over some view of the log anyway, so the fold gets designed once.",
+    "alternatives": [
+      "By superseding the entry with a restatement carrying the right support. A dedicated 'amend' event that folds field-level corrections over the log waits for stage 3 retraction: nothing walks because edges yet, so a wrong edge today is a wrong picture, not a wrong retraction. Stage 3 must define j over some view of the log anyway, so the fold gets designed once."
+    ]
+  },
+  "d34": {
+    "kind": "decision",
+    "state": "adopted",
+    "text": "Where should the native installer implementation live?",
+    "rationale": "Port the whole installer engine and inline UI to Go under installer/, including its own Go module, tests, and release tooling. Use Bubble Tea v2, Bubbles, and Lip Gloss with Stoat at ~/vms/stoat as the interaction reference. Keep the Docket ledger CLI in Python and retain install.py only as a compatibility launcher.",
+    "scope": [
+      "installer/**",
+      "docs/installation.md"
+    ],
+    "choice": "Port the whole installer engine and inline UI to Go under installer/, including its own Go module, tests, and release tooling. Use Bubble Tea v2, Bubbles, and Lip Gloss with Stoat at ~/vms/stoat as the interaction reference. Keep the Docket ledger CLI in Python and retain install.py only as a compatibility launcher.",
+    "alternatives": [
+      "Port the whole installer engine and inline UI to Go under installer/, including its own Go module, tests, and release tooling. Use Bubble Tea v2, Bubbles, and Lip Gloss with Stoat at ~/vms/stoat as the interaction reference. Keep the Docket ledger CLI in Python and retain install.py only as a compatibility launcher."
+    ],
+    "pinned": true,
+    "decided_by": "user"
+  },
+  "d35": {
+    "kind": "decision",
+    "state": "adopted",
+    "text": "How does the native installer edit PATH on Windows?",
+    "rationale": "Use Go golang.org/x/sys/windows/registry for HKCU Environment Path, preserve REG_SZ or REG_EXPAND_SZ without expanding percent variables, then broadcast WM_SETTINGCHANGE. Continue using docket.cmd rather than a PowerShell shim. This replaces the Python winreg and ctypes implementation in d29 while preserving its registry semantics.",
+    "scope": [
+      "installer/**",
+      "docs/installation.md"
+    ],
+    "choice": "Use Go golang.org/x/sys/windows/registry for HKCU Environment Path, preserve REG_SZ or REG_EXPAND_SZ without expanding percent variables, then broadcast WM_SETTINGCHANGE. Continue using docket.cmd rather than a PowerShell shim. This replaces the Python winreg and ctypes implementation in d29 while preserving its registry semantics.",
+    "alternatives": [
+      "Use Go golang.org/x/sys/windows/registry for HKCU Environment Path, preserve REG_SZ or REG_EXPAND_SZ without expanding percent variables, then broadcast WM_SETTINGCHANGE. Continue using docket.cmd rather than a PowerShell shim. This replaces the Python winreg and ctypes implementation in d29 while preserving its registry semantics."
+    ]
+  },
+  "d36": {
+    "kind": "decision",
+    "state": "adopted",
+    "text": "How should people browse the decision graph by default?",
+    "rationale": "Use a native Bubble Tea and Bubbles graph viewer by default when docket graph has terminal input and output. Show compact selectable and collapsible decision rows with a separate detail pane and search. Preserve static output for pipes and explicit static flags. Keep ledger reading and filtering in the Python CLI, put viewer code in graph/, and let the installer deliver its native binary without requiring Go for normal users.",
+    "scope": [
+      "graph/**",
+      "bin/docket"
+    ],
+    "choice": "Use a native Bubble Tea and Bubbles graph viewer by default when docket graph has terminal input and output. Show compact selectable and collapsible decision rows with a separate detail pane and search. Preserve static output for pipes and explicit static flags. Keep ledger reading and filtering in the Python CLI, put viewer code in graph/, and let the installer deliver its native binary without requiring Go for normal users.",
+    "alternatives": [
+      "Use a native Bubble Tea and Bubbles graph viewer by default when docket graph has terminal input and output. Show compact selectable and collapsible decision rows with a separate detail pane and search. Preserve static output for pipes and explicit static flags. Keep ledger reading and filtering in the Python CLI, put viewer code in graph/, and let the installer deliver its native binary without requiring Go for normal users."
+    ],
+    "pinned": true,
+    "decided_by": "user"
+  },
+  "d37": {
+    "kind": "decision",
+    "state": "adopted",
+    "text": "Which harness integrations does Docket ship?",
+    "rationale": "Docket ships installer integrations for Claude Code, Codex, Gemini CLI, Cursor, GitHub Copilot CLI, and OpenCode. The installer detects available harnesses and configures the selected set.",
+    "scope": [
+      "installer/**",
+      "docs/installation.md"
+    ],
+    "choice": "Docket ships installer integrations for Claude Code, Codex, Gemini CLI, Cursor, GitHub Copilot CLI, and OpenCode. The installer detects available harnesses and configures the selected set.",
+    "alternatives": [
+      "Docket ships installer integrations for Claude Code, Codex, Gemini CLI, Cursor, GitHub Copilot CLI, and OpenCode. The installer detects available harnesses and configures the selected set."
+    ]
+  },
+  "d38": {
+    "kind": "decision",
+    "state": "adopted",
+    "text": "What is Docket's installation entry point?",
+    "rationale": "Keep installer/install.py as the stable user entry point. Outside a source checkout, it verifies and runs the platform-specific released Go installer. Inside a source checkout, it builds and runs the Go installer under installer/ and requires Go. The installed ledger CLI remains Python 3.10+.",
+    "scope": [
+      "installer/**",
+      "docs/installation.md"
+    ],
+    "choice": "Keep installer/install.py as the stable user entry point. Outside a source checkout, it verifies and runs the platform-specific released Go installer. Inside a source checkout, it builds and runs the Go installer under installer/ and requires Go. The installed ledger CLI remains Python 3.10+.",
+    "alternatives": [
+      "Keep installer/install.py as the stable user entry point. Outside a source checkout, it verifies and runs the platform-specific released Go installer. Inside a source checkout, it builds and runs the Go installer under installer/ and requires Go. The installed ledger CLI remains Python 3.10+."
+    ],
+    "pinned": true
+  },
+  "d39": {
+    "kind": "decision",
+    "state": "adopted",
+    "text": "Where does the installer write harness configuration?",
+    "rationale": "Harness integration is user-global by default. --project places the Claude skill and Cursor rule in the current repository; hook configuration remains user-global.",
+    "scope": [
+      "installer/**",
+      "docs/installation.md"
+    ],
+    "choice": "Harness integration is user-global by default. --project places the Claude skill and Cursor rule in the current repository; hook configuration remains user-global.",
+    "alternatives": [
+      "Harness integration is user-global by default. --project places the Claude skill and Cursor rule in the current repository; hook configuration remains user-global."
+    ]
+  },
+  "d40": {
+    "kind": "decision",
+    "state": "adopted",
+    "text": "How do users update Docket?",
+    "rationale": "Use the installer --update option to refresh an existing installation while preserving harness and PATH configuration. A downloaded or native installer updates its managed checkout with fetch and a fast-forward merge, then refreshes the graph viewer. From a source checkout, just update or installer/install.py --update rebuilds the current source without Git changes; update that checkout separately. There is no docket update subcommand or session-start network check.",
+    "scope": [
+      "installer/**",
+      "docs/installation.md"
+    ],
+    "choice": "Use the installer --update option to refresh an existing installation while preserving harness and PATH configuration. A downloaded or native installer updates its managed checkout with fetch and a fast-forward merge, then refreshes the graph viewer. From a source checkout, just update or installer/install.py --update rebuilds the current source without Git changes; update that checkout separately. There is no docket update subcommand or session-start network check.",
+    "alternatives": [
+      "Use the installer --update option to refresh an existing installation while preserving harness and PATH configuration. A downloaded or native installer updates its managed checkout with fetch and a fast-forward merge, then refreshes the graph viewer. From a source checkout, just update or installer/install.py --update rebuilds the current source without Git changes; update that checkout separately. There is no docket update subcommand or session-start network check."
+    ],
+    "pinned": true
+  },
+  "d41": {
+    "kind": "decision",
+    "state": "adopted",
+    "text": "How is the native installer structured for testing and dry runs?",
+    "rationale": "The Python installer is only a bootstrap launcher. The Go installer separates BuildPlan and PreparePlan from ExecutePlan, represents persistent operations as Action values, and skips ExecutePlan for --dry-run. Tests inject an Environment or use temporary homes so platform-specific planning can be checked without modifying the user's installation.",
+    "scope": [
+      "installer/**",
+      "docs/installation.md"
+    ],
+    "choice": "The Python installer is only a bootstrap launcher. The Go installer separates BuildPlan and PreparePlan from ExecutePlan, represents persistent operations as Action values, and skips ExecutePlan for --dry-run. Tests inject an Environment or use temporary homes so platform-specific planning can be checked without modifying the user's installation.",
+    "alternatives": [
+      "The Python installer is only a bootstrap launcher. The Go installer separates BuildPlan and PreparePlan from ExecutePlan, represents persistent operations as Action values, and skips ExecutePlan for --dry-run. Tests inject an Environment or use temporary homes so platform-specific planning can be checked without modifying the user's installation."
+    ]
+  },
+  "d42": {
+    "kind": "decision",
+    "state": "adopted",
+    "text": "How does the native installer configure Codex?",
+    "rationale": "Let the Codex CLI own plugin registration: run codex plugin marketplace add <checkout>, then codex plugin add docket@NovusEdge. Keep the repository marketplace named NovusEdge. Do not hand-edit Codex configuration. The end-to-end Codex installation evidence in d30 concerns the former 0.6.4 installer; it does not establish live native-installer integration coverage. Native planning is tested, but its real Codex registration still needs separate qualification.",
+    "scope": [
+      "installer/**",
+      "docs/installation.md"
+    ],
+    "choice": "Let the Codex CLI own plugin registration: run codex plugin marketplace add <checkout>, then codex plugin add docket@NovusEdge. Keep the repository marketplace named NovusEdge. Do not hand-edit Codex configuration. The end-to-end Codex installation evidence in d30 concerns the former 0.6.4 installer; it does not establish live native-installer integration coverage. Native planning is tested, but its real Codex registration still needs separate qualification.",
+    "alternatives": [
+      "Let the Codex CLI own plugin registration: run codex plugin marketplace add <checkout>, then codex plugin add docket@NovusEdge. Keep the repository marketplace named NovusEdge. Do not hand-edit Codex configuration. The end-to-end Codex installation evidence in d30 concerns the former 0.6.4 installer; it does not establish live native-installer integration coverage. Native planning is tested, but its real Codex registration still needs separate qualification."
+    ]
+  },
+  "d43": {
+    "kind": "decision",
+    "state": "adopted",
+    "text": "When should richer decision metadata and agent context delivery be implemented?",
+    "rationale": "Merge PR #5 and reconcile the project ledger first, then explore richer metadata and efficient context delivery. Implement the selected design later on a separate branch. Dependency semantics and the context architecture are not selected yet; preserve the existing alternative conjunctive because sets during this design work.",
+    "scope": [
+      "lib/**",
+      "bin/docket"
+    ],
+    "choice": "Merge PR #5 and reconcile the project ledger first, then explore richer metadata and efficient context delivery. Implement the selected design later on a separate branch. Dependency semantics and the context architecture are not selected yet; preserve the existing alternative conjunctive because sets during this design work.",
+    "alternatives": [
+      "Merge PR #5 and reconcile the project ledger first, then explore richer metadata and efficient context delivery. Implement the selected design later on a separate branch. Dependency semantics and the context architecture are not selected yet; preserve the existing alternative conjunctive because sets during this design work."
+    ],
+    "decided_by": "user"
+  },
+  "d44": {
+    "kind": "decision",
+    "state": "adopted",
+    "text": "Must the typed ledger redesign preserve compatibility with the current format?",
+    "rationale": "No. The user explicitly permits breaking changes because Docket is still new. Design claim, decision, and question records and their IDs without legacy-format compatibility requirements. This does not authorize discarding the existing project history; decide how to migrate our ledger explicitly when implementing the redesign.",
+    "scope": [
+      "lib/**",
+      "bin/docket"
+    ],
+    "choice": "No. The user explicitly permits breaking changes because Docket is still new. Design claim, decision, and question records and their IDs without legacy-format compatibility requirements. This does not authorize discarding the existing project history; decide how to migrate our ledger explicitly when implementing the redesign.",
+    "alternatives": [
+      "No. The user explicitly permits breaking changes because Docket is still new. Design claim, decision, and question records and their IDs without legacy-format compatibility requirements. This does not authorize discarding the existing project history; decide how to migrate our ledger explicitly when implementing the redesign."
+    ],
+    "pinned": true,
+    "decided_by": "user"
+  }
+}
