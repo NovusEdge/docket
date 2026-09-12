@@ -24,6 +24,10 @@ minimum = 512
 # record.
 detail_min = 40
 detail_max = 140
+# Percent of the budget the bare-name index may claim while records compete for
+# admission. The rest is reserved for record content. Raise it to name more
+# records on a large ledger; lower it to admit more full records.
+allowance_percent = 25
 
 [weights]
 # Scope match strength, strongest first.

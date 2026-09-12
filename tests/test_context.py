@@ -482,6 +482,29 @@ class ContextTests(unittest.TestCase):
         self.assertIn("# Coverage: partial, 1 in the index only", rendered)
 
 
+class IndexAllowanceTests(unittest.TestCase):
+    def ledger(self, count):
+        records = []
+        for number in range(1, count + 1):
+            records.append(entry(f"d{number}", "decision", f"Question {number} about caching?",
+                                 choice="Cache it", scope=("lib/**",)))
+        return projected(records)
+
+    def test_a_large_ledger_still_renders_record_content(self):
+        # The gate charged one bare name per current record before admitting any
+        # content, so past about 1100 records the names consumed the whole
+        # budget and the briefing carried no records at all.
+        rendered = build_context(self.ledger(2000), files=("lib/cache.py",),
+                                 ledger="repo", max_chars=8000)
+        full_text = int(re.search(r"# full text: (\d+)", rendered).group(1))
+        self.assertGreater(full_text, 0)
+
+    def test_the_budget_still_binds_on_a_large_ledger(self):
+        rendered = build_context(self.ledger(2000), files=("lib/cache.py",),
+                                 ledger="repo", max_chars=8000)
+        self.assertLessEqual(len(rendered), 8000)
+
+
 class DegreeTests(unittest.TestCase):
     def test_degree_counts_every_relation_field(self):
         records = [

@@ -423,6 +423,7 @@ def build_context(
     expansion = cfg["expansion"]
     detail_min = cfg["index"]["detail_min"]
     detail_max = cfg["index"]["detail_max"]
+    allowance_percent = cfg["index"]["allowance_percent"]
     if max_chars is None:
         soft_limit = cfg["budget"]["target"]
         hard_limit = soft_limit * cfg["budget"]["outer_multiple"]
@@ -431,6 +432,7 @@ def build_context(
             raise ValueError(
                 f"max_chars must be an integer of at least {cfg['budget']['minimum']}")
         soft_limit = hard_limit = max_chars
+    allowance = hard_limit * allowance_percent // 100
     history = list(entries)
     if not history:
         return ""
@@ -578,6 +580,14 @@ def build_context(
                 ))
         return "\n".join(parts).rstrip("\n") + footer(candidate_set, len(deferred))
 
+    def _names_cost(candidate_set):
+        """Length of the bare-name index for everything outside candidate_set."""
+
+        names = [i for i in current_ids if i not in candidate_set]
+        if not names:
+            return 0
+        return len("# index: ") + sum(len(i) for i in names) + 2 * (len(names) - 1)
+
     def admit(ident, label, mandatory=False):
         if ident in included:
             return True
@@ -592,7 +602,12 @@ def build_context(
         # was refused while the ladder then discarded the very index the gate
         # had charged for.
         trial = render(order + [ident], included | {ident}, names_only=True)
-        if len(trial) > limit:
+        # Cap that charge. One bare name per record still outgrows the whole
+        # limit past about 1100 records, which refused every record in turn and
+        # left the briefing with no content. The ladder trims the index to fit,
+        # so the gate charges it no more than its allowance.
+        charged = len(trial) - max(0, _names_cost(included | {ident}) - allowance)
+        if charged > limit:
             del labels[ident]
             return False
         included.add(ident)

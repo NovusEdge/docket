@@ -29,6 +29,11 @@ DEFAULTS: dict[str, dict[str, int]] = {
     "index": {
         "detail_min": 40,
         "detail_max": 140,
+        # Percent of the limit the bare-name index may claim while the gate
+        # decides what to admit. Charging the whole index starved the full-text
+        # tier: past about 1100 records the names alone exceeded the target, so
+        # every record was refused and the briefing carried no content.
+        "allowance_percent": 25,
     },
     "weights": {
         "scope_exact": 1000,
@@ -91,6 +96,8 @@ def merge(overrides: Mapping[str, Any] | None) -> dict[str, dict[str, int]]:
         raise ConfigError("budget.outer_multiple must be at least 1")
     if settings["index"]["detail_min"] > settings["index"]["detail_max"]:
         raise ConfigError("index.detail_min must not exceed index.detail_max")
+    if not 0 <= settings["index"]["allowance_percent"] <= 100:
+        raise ConfigError("index.allowance_percent must be between 0 and 100")
     if settings["expansion"]["decay_denominator"] < 1:
         raise ConfigError("expansion.decay_denominator must be at least 1")
     if settings["auto_scope"]["limit"] < 1:
