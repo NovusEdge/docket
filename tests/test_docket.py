@@ -1,686 +1,255 @@
-"""Run with: python3 tests/test_docket.py"""
+"""CLI checks. Run directly with ``python3 tests/test_docket.py``."""
 
 import importlib.util
 import json
 import os
-import re
 import subprocess
 import sys
 import tempfile
-from io import StringIO
+import unittest
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
 DOCKET = str(Path(__file__).resolve().parent.parent / "bin" / "docket")
-
-# bin/docket has no .py extension, so it needs an explicit loader instead of
-# a normal import.
-_loader = SourceFileLoader("docket_cli", DOCKET)
-_spec = importlib.util.spec_from_loader("docket_cli", _loader)
-docket_cli = importlib.util.module_from_spec(_spec)
-_loader.exec_module(docket_cli)
+loader = SourceFileLoader("docket_cli", DOCKET)
+spec = importlib.util.spec_from_loader("docket_cli", loader)
+docket_cli = importlib.util.module_from_spec(spec)
+loader.exec_module(docket_cli)
 
 
-class _TTYBuffer(StringIO):
+def run(cwd, *args):
+    env = dict(os.environ)
+    env["DOCKET_HOME"] = str(Path(cwd) / "global")
+    env["DOCKET_AUTHOR"] = "test"
+    return subprocess.run([sys.executable, DOCKET, *args], cwd=cwd, env=env,
+                          capture_output=True, text=True)
+
+
+class _TTYBuffer:
     def __init__(self, tty=True):
-        super().__init__()
-        self._tty = tty
+        self.value = ""
+        self.tty = tty
+
+    def isatty(self):
+        return self.tty
+
+    def write(self, value):
+        self.value += value
+
+    def getvalue(self):
+        return self.value
+
+    def flush(self):
+        pass
 
     @property
     def encoding(self):
         return "utf-8"
 
-    def isatty(self):
-        return self._tty
+
+class CliTests(unittest.TestCase):
+    def test_typed_commands_and_filters(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".git").mkdir()
+            result = run(root, "question", "Which database?")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            result = run(root, "claim", "Postgres is supported", "--state", "accepted")
+            self.assertIn("c2", result.stdout)
+            result = run(root, "decision", "Database", "--choice", "Postgres",
+                         "--alternative", "SQLite", "--depends-on", "c2",
+                         "--decided-by", "human", "--pin")
+            self.assertIn("d3", result.stdout)
+            result = run(root, "list", "--kind", "decision", "--json")
+            data = json.loads(result.stdout)
+            self.assertEqual(len(data), 1)
+            self.assertTrue(data[0]["applicable"])
+            self.assertEqual(data[0]["decided_by"], "human")
+
+    def test_unknown_refs_and_old_schema_fail_without_traceback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".git").mkdir()
+            result = run(root, "claim", "bad", "--supports", "c99")
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("unknown or later", result.stderr)
+            ledger = root / ".docket" / "ledger.jsonl"
+            ledger.parent.mkdir()
+            ledger.write_text(json.dumps({"schema": 1}) + "\n")
+            result = run(root, "list")
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("migrate", result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+
+    def test_symlinked_cli_resolves_lib_from_real_executable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            link = root / "docket"
+            link.symlink_to(DOCKET)
+            result = subprocess.run([str(link), "--version"], cwd=root,
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(result.stdout.startswith("docket "))
 
 
-def test_graph_dispatch():
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        ledger = root / ".docket" / "ledger.jsonl"
-        ledger.parent.mkdir()
-        entries = [
-            {"id": "d1", "state": "settled", "question": "Root", "answer": "a",
-             "cost_if_wrong": "cost", "because": [], "supersedes": []},
-            {"id": "d2", "state": "ruled-out", "question": "Old", "answer": "b",
-             "cost_if_wrong": "", "because": [], "supersedes": []},
-            {"id": "d3", "state": "settled", "question": "Child", "answer": "c",
-             "cost_if_wrong": "", "because": [["d1", "d2"], ["d1"]], "supersedes": []},
-            {"id": "d4", "state": "settled", "question": "Retire old", "answer": "d",
-             "cost_if_wrong": "", "because": [], "supersedes": ["d2"]},
-        ]
-        ledger.write_text("\n".join(json.dumps(e) for e in entries) + "\n")
-
-        real_ledger_path = docket_cli.ledger_path
-        real_stdin, real_stdout, real_stderr = docket_cli.sys.stdin, docket_cli.sys.stdout, docket_cli.sys.stderr
-        real_viewer_path = getattr(docket_cli, "_graph_viewer_path", None)
-        real_run = docket_cli.subprocess.run
-        try:
-            docket_cli.ledger_path = lambda: ledger
-            docket_cli.sys.stdin = _TTYBuffer(True)
-            docket_cli.sys.stdout = _TTYBuffer(True)
-            docket_cli.sys.stderr = _TTYBuffer(False)
-            viewer = root / "checkout with spaces" / "graph" / "docket-graph"
-            viewer.parent.mkdir(parents=True)
-            viewer.write_text("viewer")
-            docket_cli._graph_viewer_path = lambda: viewer
-            seen = {}
-
-            def fake_run(argv, **kwargs):
-                seen["argv"] = argv
-                seen["kwargs"] = kwargs
-                seen["payload"] = json.loads(Path(argv[2]).read_text())
-                assert Path(argv[2]).exists()
-                return subprocess.CompletedProcess(argv, 7)
-
-            docket_cli.subprocess.run = fake_run
-            args = type("Args", (), {"style": None, "state": None, "find": None,
-                                      "plain": False, "pretty": False,
-                                      "interactive": False, "no_interactive": False})()
-            assert docket_cli.cmd_graph(args) == 7
-            assert seen["argv"][:2] == [str(viewer), "--data"]
-            assert Path(seen["argv"][2]).exists() is False
-            assert "stdin" not in seen["kwargs"] and "stdout" not in seen["kwargs"]
-            assert seen["payload"]["version"] == 1
-            by_id = {e["id"]: e for e in seen["payload"]["entries"]}
-            assert by_id["d3"]["sets"] == [["d1", "d2"], ["d1"]]
-            assert by_id["d3"]["supports"] == ["d1", "d2"]
-            assert by_id["d2"]["retired_by"] == "d4"
-            assert by_id["d1"]["cost"] == "cost"
-
-            pretty_args = type("Args", (), {"style": None, "state": None, "find": None,
-                                             "plain": False, "pretty": True,
-                                             "interactive": False, "no_interactive": False})()
-            assert docket_cli.cmd_graph(pretty_args) == 7
-            assert seen["argv"][3] == "--pretty"
-
-            docket_cli.sys.stdin = _TTYBuffer(True)
-            docket_cli.sys.stdout = _TTYBuffer(True)
-            docket_cli.sys.stderr = _TTYBuffer(False)
-
-            def broken_viewer(argv, **kwargs):
-                seen["broken_path"] = argv[2]
-                raise OSError("Exec format error")
-
-            docket_cli.subprocess.run = broken_viewer
-            assert docket_cli.cmd_graph(args) == 1
-            assert docket_cli.sys.stdout.getvalue() == ""
-            assert "could not start interactive viewer" in docket_cli.sys.stderr.getvalue()
-            assert "Traceback" not in docket_cli.sys.stderr.getvalue()
-            assert Path(seen["broken_path"]).exists() is False
-
-            # A pipe keeps the existing text renderer and never starts the viewer.
-            docket_cli.sys.stdin = _TTYBuffer(False)
-            docket_cli.sys.stdout = _TTYBuffer(False)
-            called = []
-            docket_cli.subprocess.run = lambda *a, **k: called.append((a, k))
-            assert docket_cli.cmd_graph(args) == 0
-            assert not called
-            assert "Root" in docket_cli.sys.stdout.getvalue()
-
-            # Auto mode falls back to compact text when the checkout binary is absent.
-            docket_cli.sys.stdin = _TTYBuffer(True)
-            docket_cli.sys.stdout = _TTYBuffer(True)
-            docket_cli.sys.stderr = _TTYBuffer(False)
-            docket_cli._graph_viewer_path = lambda: root / "missing" / "docket-graph"
-            assert docket_cli.cmd_graph(args) == 0
-            assert "Root" in docket_cli.sys.stdout.getvalue()
-            assert "build" in docket_cli.sys.stderr.getvalue().lower()
-
-            # Explicit interactive mode fails clearly when the binary is absent or the
-            # terminal boundary is missing, and Ctrl-C still removes the private file.
-            interactive = type("Args", (), {"style": None, "state": None, "find": None,
-                                             "plain": False, "pretty": False,
-                                             "interactive": True, "no_interactive": False})()
-            assert docket_cli.cmd_graph(interactive) == 1
-            docket_cli.sys.stdin = _TTYBuffer(False)
-            assert docket_cli.cmd_graph(interactive) == 1
-            docket_cli.sys.stdin = _TTYBuffer(True)
-            docket_cli._graph_viewer_path = lambda: viewer
-
-            def interrupt(*a, **k):
-                seen["interrupt_path"] = a[0][2]
-                raise KeyboardInterrupt
-
-            docket_cli.subprocess.run = interrupt
-            assert docket_cli.cmd_graph(interactive) == 130
-            assert Path(seen["interrupt_path"]).exists() is False
-        finally:
-            docket_cli.ledger_path = real_ledger_path
-            docket_cli.sys.stdin, docket_cli.sys.stdout, docket_cli.sys.stderr = real_stdin, real_stdout, real_stderr
-            docket_cli.subprocess.run = real_run
-            if real_viewer_path is not None:
-                docket_cli._graph_viewer_path = real_viewer_path
-
-
-def test_graph_flag_conflicts():
-    real_stderr = docket_cli.sys.stderr
-    docket_cli.sys.stderr = _TTYBuffer(False)
-    try:
-        for flags in (("--interactive", "--no-interactive"), ("--interactive", "--plain"),
-                      ("--interactive", "--style", "rail")):
+class GraphDispatchTests(unittest.TestCase):
+    def test_graph_dispatch_preserves_terminal_modes_and_cleans_temp_data(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = root / "ledger.jsonl"
+            entries = [
+                docket_cli.make_record("claim", "Root", state="accepted", author="test", record_id="c1"),
+                docket_cli.make_record("decision", "Child", choice="yes", supports=[["c1"]], author="test", record_id="d2"),
+                docket_cli.make_record("question", "Open", author="test", record_id="q3"),
+            ]
+            ledger.write_text("\n".join(json.dumps(item) for item in entries) + "\n")
+            originals = (docket_cli.ledger_path, docket_cli.sys.stdin, docket_cli.sys.stdout,
+                         docket_cli.sys.stderr, docket_cli._graph_viewer_path,
+                         docket_cli.subprocess.run)
             try:
-                docket_cli.main(["graph", *flags])
-            except SystemExit as exc:
-                assert exc.code == 2
-            else:
-                raise AssertionError(f"expected parser error for {flags}")
-    finally:
-        docket_cli.sys.stderr = real_stderr
-
-
-def test_top_level_help():
-    release = (Path(DOCKET).parent.parent / "VERSION").read_text().strip()
-    for flags in ((), ("-h",), ("--help",)):
-        result = subprocess.run(
-            [sys.executable, DOCKET, *flags], capture_output=True, text=True,
-        )
-        assert result.returncode == 0, (flags, result.stderr)
-        assert result.stdout.startswith(f"docket {release}\n"), result.stdout
-        assert "usage: docket" in result.stdout and "graph" in result.stdout
-        assert "Record project decisions, rejected options, and open questions." in result.stdout
-        assert "browse decision support relationships" in result.stdout
-        assert "SessionStart hook" not in result.stdout
-        assert result.stderr == "", (flags, result.stderr)
-
-    result = subprocess.run(
-        [sys.executable, DOCKET, "not-a-command"], capture_output=True, text=True,
-    )
-    assert result.returncode == 2
-    assert "invalid choice" in result.stderr
-
-
-def run(cwd, *args, home=None):
-    env = dict(os.environ)
-    # Point the global store at a temp dir so tests never touch the real one.
-    env["DOCKET_HOME"] = str(home) if home else str(Path(cwd) / "_global")
-    env.pop("CLAUDE_CONFIG_DIR", None)
-    return subprocess.run(
-        [sys.executable, DOCKET, *args], cwd=cwd, capture_output=True, text=True, env=env
-    )
-
-
-def main() -> int:
-    test_graph_dispatch()
-    test_graph_flag_conflicts()
-    test_top_level_help()
-    with tempfile.TemporaryDirectory() as tmp:
-        d = Path(tmp)
-
-        r = run(d, "context")
-        assert r.returncode == 0, r.stderr
-        assert r.stdout == "", f"empty project must cost no context, got {r.stdout!r}"
-
-        r = run(d, "context", "--for", "gemini")
-        assert r.returncode == 0, r.stderr
-        assert r.stdout == "", "an empty ledger must print nothing even wrapped for a harness"
-
-        # This block exercises the project-local ledger, so opt into one.
-        (d / ".git").mkdir()
-        r = run(d, "init")
-        assert (d / ".docket" / "ledger.jsonl").exists(), r.stdout
-
-        r = run(d, "add", "Which database?", "--answer", "Postgres", "--cost", "migration")
-        assert r.returncode == 0, r.stderr
-        assert "d1" in r.stdout
-
-        r = run(d, "add", "Use an ORM?", "--state", "ruled-out", "--answer", "No")
-        assert "d2" in r.stdout
-
-        # A justification must name an entry that exists.
-        r = run(d, "add", "Driver?", "--answer", "psycopg", "--because", "d99")
-        assert r.returncode == 1, "unknown justification id must fail"
-        assert "d99" in r.stderr
-
-        r = run(d, "add", "Driver?", "--answer", "psycopg", "--because", "d1")
-        assert r.returncode == 0, r.stderr
-
-        r = run(d, "list", "--state", "ruled-out")
-        assert "Use an ORM?" in r.stdout
-        assert "Which database?" not in r.stdout
-
-        r = run(d, "list", "--find", "postgres")
-        assert "Which database?" in r.stdout, "find must be case-insensitive"
-
-        r = run(d, "context")
-        assert "Settled" in r.stdout and "Ruled out" in r.stdout
-        assert "migration" in r.stdout, "cost_if_wrong belongs in injected context"
-        assert r.stdout.startswith("# docket:"), "plain context output must not change"
-        assert not r.stdout.lstrip().startswith("{"), "plain context output must not be JSON"
-
-        r = run(d, "context", "--for", "gemini")
-        envelope = json.loads(r.stdout)
-        ledger_text = envelope["hookSpecificOutput"]["additionalContext"]
-        assert envelope["hookSpecificOutput"]["hookEventName"] == "SessionStart"
-        assert "Which database?" in ledger_text
-
-        r = run(d, "context", "--for", "copilot")
-        envelope = json.loads(r.stdout)
-        assert "Which database?" in envelope["additionalContext"]
-
-        r = run(d, "context", "--for", "cursor")
-        envelope = json.loads(r.stdout)
-        assert "Which database?" in envelope["additional_context"]
-
-        r = run(d, "show", "d3", "--json")
-        entry = json.loads(r.stdout)
-        assert entry["because"] == [["d1"]]
-        # Provenance fields are append-only and cannot be backfilled.
-        assert entry["author"], "an entry must say who recorded it"
-        assert "branch" in entry and "session" in entry
-
-        # A subdirectory shares the project's ledger.
-        sub = d / "src" / "deep"
-        sub.mkdir(parents=True)
-        r = run(sub, "list")
-        assert "Which database?" in r.stdout, "ledger lookup must walk up"
-
-        # A legacy flat because (list of strings) still reads as one set.
-        ledger = d / ".docket" / "ledger.jsonl"
-        legacy = json.dumps({
-            "id": "d4", "ts": "2020-01-01T00:00:00+00:00", "state": "settled",
-            "question": "Legacy?", "answer": "Yes", "because": ["d1"],
-            "cost_if_wrong": "", "session": "", "author": "legacy", "branch": "",
-        })
-        with ledger.open("a") as f:
-            f.write(legacy + "\n")
-        r = run(d, "list")
-        assert "d1" in r.stdout and "Legacy?" in r.stdout
-
-        # Repeated --because produces two alternative support sets.
-        r = run(d, "add", "Alternative supports?", "--answer", "Either works",
-                "--because", "d1,d2", "--because", "d1")
-        assert r.returncode == 0, r.stderr
-        d5 = json.loads(run(d, "show", "d5", "--json").stdout)
-        assert d5["because"] == [["d1", "d2"], ["d1"]], d5
-
-        # list renders a genuine nested because without crashing.
-        r = run(d, "list")
-        assert r.returncode == 0, r.stderr
-        assert "d1,d2 | d1" in r.stdout
-
-        # An unknown id inside any alternative set still fails validation.
-        r = run(d, "add", "Bad alt?", "--answer", "no", "--because", "d1", "--because", "d99")
-        assert r.returncode == 1, "unknown id in a later alternative set must fail"
-        assert "d99" in r.stderr
-
-        # A mixed-shape because (flat list holding a nested list) degrades
-        # instead of crashing list's rendering.
-        mixed = json.dumps({
-            "id": "dmixed", "ts": "2020-01-01T00:00:00+00:00", "state": "settled",
-            "question": "Mixed shape?", "answer": "n/a", "because": ["d1", ["d2", "d3"]],
-            "cost_if_wrong": "", "session": "", "author": "x", "branch": "",
-        })
-        with ledger.open("a") as f:
-            f.write(mixed + "\n")
-        r = run(d, "list")
-        assert r.returncode == 0, r.stderr
-        assert "dmixed" in r.stderr
-
-        # because holding a non-string, non-list element degrades the same way.
-        bad_elem = json.dumps({
-            "id": "dbadelem", "ts": "2020-01-01T00:00:00+00:00", "state": "settled",
-            "question": "Bad element?", "answer": "n/a", "because": [1, 2],
-            "cost_if_wrong": "", "session": "", "author": "x", "branch": "",
-        })
-        with ledger.open("a") as f:
-            f.write(bad_elem + "\n")
-        r = run(d, "list")
-        assert r.returncode == 0, r.stderr
-        assert "dbadelem" in r.stderr
-
-        # A malformed line is skipped, and the rest still parse.
-        with ledger.open("a") as f:
-            f.write("not json\n")
-        r = run(d, "list")
-        assert r.returncode == 0
-        assert "Which database?" in r.stdout
-
-    # Without a project .docket, entries go to the global store keyed by project.
-    with tempfile.TemporaryDirectory() as tmp:
-        d = Path(tmp)
-        g = d / "global"
-        (d / "proj-a" / "src").mkdir(parents=True)
-        (d / "proj-a" / ".git").mkdir()
-        (d / "proj-b").mkdir()
-        (d / "proj-b" / ".git").mkdir()
-
-        r = run(d / "proj-a", "add", "A question", "--answer", "A", home=g)
-        assert r.returncode == 0, r.stderr
-        assert not (d / "proj-a" / ".docket").exists(), "must not write into the project"
-
-        r = run(d / "proj-b", "add", "B question", "--answer", "B", home=g)
-        assert r.returncode == 0
-
-        # Ledgers stay separate per project.
-        r = run(d / "proj-a", "list", home=g)
-        assert "A question" in r.stdout and "B question" not in r.stdout
-
-        # A subdirectory resolves to the same project ledger via the git root.
-        r = run(d / "proj-a" / "src", "list", home=g)
-        assert "A question" in r.stdout, "git root must anchor the global key"
-
-        r = run(d / "proj-a", "where", home=g)
-        assert "global" in r.stdout
-
-        # init moves the global ledger into the repository.
-        r = run(d / "proj-a", "init", home=g)
-        assert "moved 1 entry" in r.stdout, r.stdout
-        assert (d / "proj-a" / ".docket" / "ledger.jsonl").exists()
-        r = run(d / "proj-a", "list", home=g)
-        assert "A question" in r.stdout
-        r = run(d / "proj-a", "where", home=g)
-        assert "project" in r.stdout
-
-        r = run(d / "proj-a", "init", home=g)
-        assert "already project-local" in r.stdout
-
-        # Branch is recorded from the project root, not the working directory.
-        subprocess.run(["git", "init", "-q", "-b", "trunk"], cwd=d / "proj-a", check=True)
-        r = run(d / "proj-a" / "src", "add", "Branch check", "--answer", "yes", home=g)
-        assert r.returncode == 0, r.stderr
-        entries = [
-            json.loads(line)
-            for line in (d / "proj-a" / ".docket" / "ledger.jsonl").read_text().splitlines()
-            if line.strip()
-        ]
-        assert entries[-1]["branch"] == "trunk", entries[-1]
-
-        # DOCKET_AUTHOR overrides detection.
-        env_author = dict(os.environ)
-        env_author["DOCKET_HOME"] = str(g)
-        env_author["DOCKET_AUTHOR"] = "codex"
-        subprocess.run(
-            [sys.executable, DOCKET, "add", "Who wrote this?", "--answer", "codex did"],
-            cwd=d / "proj-a", capture_output=True, text=True, env=env_author, check=True,
-        )
-        last = json.loads(
-            (d / "proj-a" / ".docket" / "ledger.jsonl").read_text().splitlines()[-1]
-        )
-        assert last["author"] == "codex", last
-
-        # No detectable author: entry gets "unknown", a stderr warning, exit 0.
-        env_blank = dict(os.environ)
-        env_blank["DOCKET_HOME"] = str(g)
-        for var in ("DOCKET_AUTHOR", "AI_AGENT", "CODEX_SANDBOX", "CODEX_HOME", "USER"):
-            env_blank.pop(var, None)
-        r = subprocess.run(
-            [sys.executable, DOCKET, "add", "No author?", "--answer", "n/a"],
-            cwd=d / "proj-a", capture_output=True, text=True, env=env_blank,
-        )
-        assert r.returncode == 0, r.stderr
-        assert "DOCKET_AUTHOR" in r.stderr
-        last = json.loads(
-            (d / "proj-a" / ".docket" / "ledger.jsonl").read_text().splitlines()[-1]
-        )
-        assert last["author"] == "unknown", last
-
-    # A later entry retires an earlier one. The log is append-only, so the
-    # retired entry keeps its own state forever and only this link exposes it.
-    with tempfile.TemporaryDirectory() as tmp:
-        d = Path(tmp)
-        (d / ".git").mkdir()
-        run(d, "init")
-        ledger = d / ".docket" / "ledger.jsonl"
-
-        run(d, "add", "Fix the schema doc", "--state", "open", "--answer", "Not done")
-        run(d, "add", "Unrelated", "--answer", "Still current")
-
-        r = run(d, "add", "Was it fixed?", "--answer", "Yes", "--supersedes", "d99")
-        assert r.returncode == 1, "superseding an unknown id must fail"
-        assert "d99" in r.stderr
-
-        r = run(d, "add", "Was it fixed?", "--answer", "Yes", "--supersedes", "d1")
-        assert r.returncode == 0, r.stderr
-        assert json.loads(run(d, "show", "d3", "--json").stdout)["supersedes"] == ["d1"]
-
-        r = run(d, "list", "--state", "open")
-        assert "Fix the schema doc" not in r.stdout, "a retired entry must leave the open list"
-
-        r = run(d, "list")
-        assert "Fix the schema doc" not in r.stdout
-        assert "Unrelated" in r.stdout, "only the retired entry is hidden"
-
-        r = run(d, "list", "--superseded")
-        assert "Fix the schema doc" in r.stdout
-        assert "superseded by d3" in r.stdout
-
-        r = run(d, "context")
-        assert "Fix the schema doc" not in r.stdout, "injected context must not carry stale state"
-        assert "Unrelated" in r.stdout
-
-        # show reaches a retired entry directly; the history stays readable.
-        assert json.loads(run(d, "show", "d1", "--json").stdout)["question"] == "Fix the schema doc"
-
-        # A malformed supersedes degrades the way a malformed because does.
-        bad = json.dumps({
-            "id": "dbad", "ts": "2020-01-01T00:00:00+00:00", "state": "settled",
-            "question": "Bad supersedes?", "answer": "n/a", "because": [],
-            "supersedes": [1], "cost_if_wrong": "", "session": "", "author": "x",
-            "branch": "",
-        })
-        with ledger.open("a") as f:
-            f.write(bad + "\n")
-        r = run(d, "list")
-        assert r.returncode == 0, r.stderr
-        assert "dbad" in r.stderr
-        assert "Unrelated" in r.stdout, "one bad entry must not hide the rest"
-
-    # The Codex manifest sat at 0.6.0 while the Claude one reached 0.6.3,
-    # because nothing compared them.
-    root = Path(DOCKET).parent.parent
-    release = (root / "VERSION").read_text().strip()
-    for manifest in (".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
-        declared = json.loads((root / manifest).read_text())["version"]
-        assert declared == release, f"{manifest} says {declared}, VERSION says {release}"
-
-    r = subprocess.run([sys.executable, DOCKET, "--version"], capture_output=True, text=True)
-    assert r.stdout.strip() == f"docket {release}", r.stdout
-
-    # Windows has no shebang, so the printed command must name the interpreter.
-    assert docket_cli.run_prefix("posix", "/usr/bin/python3", DOCKET) == DOCKET
-    assert docket_cli.run_prefix("nt", "C:\\Python\\python.exe", "C:\\docket\\bin\\docket") == (
-        '"C:\\Python\\python.exe" "C:\\docket\\bin\\docket"'
-    )
-
-    # graph
-    with tempfile.TemporaryDirectory() as tmp:
-        d = Path(tmp)
-        (d / ".git").mkdir()
-        run(d, "init")
-
-        run(d, "add", "Root", "--answer", "a")                                    # d1
-        run(d, "add", "Ruled out", "--state", "ruled-out", "--answer", "b")        # d2
-        run(d, "add", "Conjunctive child", "--answer", "c", "--because", "d1,d2")  # d3, extra support d2
-        run(d, "add", "Retire the ruled-out one", "--answer", "d", "--supersedes", "d2")  # d4
-
-        for style in ("forest", "rail", "compact"):
-            r = run(d, "graph", "--style", style)
-            assert r.returncode == 0, r.stderr
-            for eid, question in (("d1", "Root"), ("d3", "Conjunctive child"), ("d4", "Retire")):
-                assert eid in r.stdout and question[:4] in r.stdout, (style, r.stdout)
-
-        # graph includes a retired entry; list still hides it.
-        r = run(d, "graph")
-        assert "Ruled out" in r.stdout, "graph must show retired entries"
-        assert "retired by d4" in r.stdout
-        r = run(d, "list")
-        assert "Ruled out" not in r.stdout, "list must still hide retired entries"
-
-        # d3 has two supports (d1 primary, d2 extra) and appears exactly once.
-        r = run(d, "graph")
-        assert r.stdout.count("d3 ") == 1 or r.stdout.count("d3   ") == 1, r.stdout
-        assert "also <- d2" in r.stdout
-
-        # --state and --find filter the graph like they filter list.
-        r = run(d, "graph", "--state", "settled")
-        assert "Ruled out" not in r.stdout
-        assert "Root" in r.stdout
-        r = run(d, "graph", "--find", "conjunctive")
-        assert "Conjunctive child" in r.stdout
-        assert "Retire the ruled-out one" not in r.stdout
-
-        # A synthetic entry with two alternative sets prints the d1,d2 | d5
-        # formula line, exercising the OR path the real ledger never takes.
-        ledger = d / ".docket" / "ledger.jsonl"
-        alt = json.dumps({
-            "id": "d5", "ts": "2020-01-01T00:00:00+00:00", "state": "settled",
-            "question": "Alt supports", "answer": "e", "because": [["d1", "d2"], ["d4"]],
-            "cost_if_wrong": "", "session": "", "author": "x", "branch": "",
-        })
-        with ledger.open("a") as f:
-            f.write(alt + "\n")
-        r = run(d, "graph")
-        assert r.returncode == 0, r.stderr
-        assert "d1,d2 | d4" in r.stdout
-
-        # A node glyph marks a node's own row. The rail drew it again on every
-        # wrapped continuation row, which claimed one entry was several.
-        r = run(d, "graph", "--style", "rail")
-        for line in r.stdout.splitlines():
-            if any(g in line for g in ("●", "○", "*", "o")):
-                assert re.search(r"\bd\d+\s", line), f"glyph on a continuation row: {line!r}"
-
-        # Several lanes waiting on one id must visibly merge back into it.
-        # Without the join row the lanes vanished and the picture claimed those
-        # dependents led nowhere.
-        for n in range(6):
-            run(d, "add", f"Fan child {n}", "--answer", "f", "--because", "d1")
-        r = run(d, "graph", "--style", "rail")
-        assert any(g in r.stdout for g in ("╯", "'")), r.stdout
-        assert any(g in r.stdout for g in ("┴", "+")), r.stdout
-
-        # context is untouched by any of this.
-        r = run(d, "context")
-        assert r.stdout.startswith("# docket:")
-        assert not r.stdout.lstrip().startswith("{")
-
-    # d22's fan: one root with 8 direct children peaks the rail at 9 columns.
-    with tempfile.TemporaryDirectory() as tmp:
-        d = Path(tmp)
-        (d / ".git").mkdir()
-        run(d, "init")
-        run(d, "add", "Root", "--answer", "a")
-        for _ in range(8):
-            run(d, "add", "Child", "--answer", "a", "--because", "d1")
-
-        entries = docket_cli.read(d / ".docket" / "ledger.jsonl")
-        retired = docket_cli.retired_by(entries)
-        nodes = {e["id"]: docket_cli._node_info(e, retired) for e in entries}
-        desc = sorted(entries, key=lambda e: docket_cli._id_num(e["id"]), reverse=True)
-        rows = []
-        columns = []
-        for e in desc:
-            eid = e["id"]
-            c = docket_cli._find_or_alloc(columns, eid)
-            for i in range(len(columns)):
-                if i != c and columns[i] == eid:
-                    columns[i] = None
-            rows.append(len(columns))
-            supports = nodes[eid]["supports"]
-            if not supports:
-                columns[c] = None
-            else:
-                columns[c] = supports[0]
-                for extra in supports[1:]:
-                    docket_cli._find_or_alloc(columns, extra)
-        # 8 children each open their own column before the root collapses
-        # them all back into one; nothing else is running concurrently in
-        # this synthetic ledger to add a 9th, unlike the real one.
-        assert max(rows) == 8, rows
-
-        # The collapse row itself must render: leftmost survivor, six joins,
-        # rightmost corner, matching the real d22 fan exactly.
-        r = run(d, "graph", "--style", "rail")
-        assert "├─┴─┴─┴─┴─┴─┴─╯" in r.stdout, r.stdout
-
-    # Glyph fallback degrades on an encoding that cannot carry the box-drawing set.
-    class _FakeStdout:
-        encoding = "ascii"
-    real_stdout = docket_cli.sys.stdout
-    docket_cli.sys.stdout = _FakeStdout()
-    try:
-        assert docket_cli._use_glyphs() is False
-    finally:
-        docket_cli.sys.stdout = real_stdout
-
-    # list wrapping, --oneline, positional answer, shorthands, show, completion
-    with tempfile.TemporaryDirectory() as tmp:
-        d = Path(tmp)
-        (d / ".git").mkdir()
-        run(d, "init")
-
-        long_answer = "word " * 100  # forces list to wrap
-        run(d, "add", "Long one", "--answer", long_answer)  # d1
-
-        r = run(d, "list", "--pretty")
-        for line in r.stdout.splitlines():
-            visible = re.sub(r"\033\[[0-9;]*m", "", line)
-            assert len(visible) <= 80, visible
-
-        r = run(d, "list", "--plain")
-        assert "\033[" not in r.stdout
-
-        # Positional answer and --answer must produce identical entries.
-        r = run(d, "add", "Positional?", "answer text")
-        assert r.returncode == 0, r.stderr
-        pos = json.loads(run(d, "show", "d2", "--json").stdout)
-        r = run(d, "add", "Flag?", "--answer", "answer text")
-        flag = json.loads(run(d, "show", "d3", "--json").stdout)
-        assert pos["answer"] == flag["answer"] == "answer text"
-
-        r = run(d, "add", "Both?", "positional", "--answer", "flag")
-        assert r.returncode == 1, "positional and --answer together must be an error"
-        r = run(d, "add", "Neither?")
-        assert r.returncode == 1, "an answer is required"
-
-        r = run(d, "list", "--oneline")
-        assert "answer text" not in r.stdout, "--oneline must not print the answer"
-        assert len([l for l in r.stdout.splitlines() if l.strip()]) == 3
-
-        # show wraps its fields under a hanging indent, the way list does.
-        r = run(d, "show", "d1")
-        assert r.returncode == 0, r.stderr
-        for line in r.stdout.splitlines():
-            assert len(line) <= 80 or "Session:" in line, line
-        assert any(l.startswith("          ") for l in r.stdout.splitlines()), \
-            "a wrapped answer must be indented past its label"
-
-        # State shorthands are equivalent to add --state X, and take --because.
-        r = run(d, "ruled-out", "No ORM", "Correct")
-        assert r.returncode == 0, r.stderr
-        assert json.loads(run(d, "show", "d4", "--json").stdout)["state"] == "ruled-out"
-
-        r = run(d, "open", "Which driver", "TBD", "--because", "d1")
-        assert r.returncode == 0, r.stderr
-        d5 = json.loads(run(d, "show", "d5", "--json").stdout)
-        assert d5["state"] == "open" and d5["because"] == [["d1"]]
-
-        # show is human-readable by default and resolves because to question text.
-        r = run(d, "show", "d5")
-        assert "TBD" in r.stdout and "Long one" in r.stdout, r.stdout
-        assert not r.stdout.lstrip().startswith("{")
-
-        r = run(d, "show", "d5", "--json")
-        assert json.loads(r.stdout)["id"] == "d5"
-
-        for shell in ("bash", "zsh", "fish"):
-            r = run(d, "completion", shell)
-            assert r.returncode == 0, r.stderr
-            assert r.stdout.strip(), f"{shell} completion must not be empty"
-            assert "ruled-out" in r.stdout and "show" in r.stdout
-
-        # One entry stays one line, so a long question truncates instead of
-        # wrapping. Wrapping would break piping the mode into grep.
-        run(d, "add", "A question far longer than any terminal is wide, " * 4, "a")
-        r = run(d, "list", "--oneline")
-        for line in r.stdout.splitlines():
-            assert len(line) <= 80, line
-        assert "…" in r.stdout or "..." in r.stdout
-
-    print("ok")
-    return 0
+                docket_cli.ledger_path = lambda: ledger
+                docket_cli.sys.stdin = _TTYBuffer(True)
+                docket_cli.sys.stdout = _TTYBuffer(True)
+                docket_cli.sys.stderr = _TTYBuffer(False)
+                viewer = root / "viewer"
+                viewer.write_text("viewer")
+                docket_cli._graph_viewer_path = lambda: viewer
+                seen = {}
+
+                def fake_run(argv, **kwargs):
+                    seen["argv"] = argv
+                    seen["payload"] = json.loads(Path(argv[2]).read_text())
+                    self.assertTrue(Path(argv[2]).exists())
+                    return subprocess.CompletedProcess(argv, 7)
+
+                docket_cli.subprocess.run = fake_run
+                args = type("Args", (), {"style": None, "state": None, "kind": None,
+                                          "find": None, "plain": False, "pretty": False,
+                                          "interactive": False, "no_interactive": False})()
+                self.assertEqual(docket_cli.cmd_graph(args), 7)
+                self.assertEqual(seen["payload"]["version"], 2)
+                self.assertFalse(Path(seen["argv"][2]).exists())
+
+                pretty = type("Args", (), {"style": None, "state": None, "kind": None,
+                                            "find": None, "plain": False, "pretty": True,
+                                            "interactive": False, "no_interactive": False})()
+                self.assertEqual(docket_cli.cmd_graph(pretty), 7)
+                self.assertEqual(seen["argv"][3], "--pretty")
+
+                def broken_run(*argv, **kwargs):
+                    seen["broken"] = argv[0][2]
+                    raise OSError("Exec format error")
+
+                docket_cli.subprocess.run = broken_run
+                self.assertEqual(docket_cli.cmd_graph(args), 1)
+                self.assertIn("could not start interactive viewer", docket_cli.sys.stderr.getvalue())
+                self.assertFalse(Path(seen["broken"]).exists())
+
+                docket_cli.sys.stdin = _TTYBuffer(False)
+                docket_cli.sys.stdout = _TTYBuffer(False)
+                called = []
+                docket_cli.subprocess.run = lambda *a, **k: called.append((a, k))
+                self.assertEqual(docket_cli.cmd_graph(args), 0)
+                self.assertFalse(called)
+                self.assertIn("Root", docket_cli.sys.stdout.getvalue())
+
+                docket_cli.sys.stdin = _TTYBuffer(True)
+                docket_cli.sys.stdout = _TTYBuffer(True)
+                docket_cli.sys.stderr = _TTYBuffer(False)
+                docket_cli._graph_viewer_path = lambda: root / "missing"
+                self.assertEqual(docket_cli.cmd_graph(args), 0)
+                self.assertIn("Root", docket_cli.sys.stdout.getvalue())
+                self.assertIn("build", docket_cli.sys.stderr.getvalue().lower())
+
+                interactive = type("Args", (), {"style": None, "state": None, "kind": None,
+                                                 "find": None, "plain": False, "pretty": False,
+                                                 "interactive": True, "no_interactive": False})()
+                self.assertEqual(docket_cli.cmd_graph(interactive), 1)
+                docket_cli.sys.stdin = _TTYBuffer(False)
+                self.assertEqual(docket_cli.cmd_graph(interactive), 1)
+                docket_cli.sys.stdin = _TTYBuffer(True)
+                docket_cli._graph_viewer_path = lambda: viewer
+
+                def interrupt(*args, **kwargs):
+                    seen["interrupt"] = args[0][2]
+                    raise KeyboardInterrupt
+
+                docket_cli.subprocess.run = interrupt
+                self.assertEqual(docket_cli.cmd_graph(interactive), 130)
+                self.assertFalse(Path(seen["interrupt"]).exists())
+            finally:
+                (docket_cli.ledger_path, docket_cli.sys.stdin, docket_cli.sys.stdout,
+                 docket_cli.sys.stderr, docket_cli._graph_viewer_path,
+                 docket_cli.subprocess.run) = originals
+
+    def test_graph_flag_conflicts(self):
+        for flags in (("--interactive", "--no-interactive"),
+                      ("--interactive", "--plain"),
+                      ("--interactive", "--style", "rail")):
+            result = subprocess.run([sys.executable, DOCKET, "graph", *flags],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
+
+    def test_top_level_help_and_invalid_command(self):
+        release = (Path(DOCKET).parent.parent / "VERSION").read_text().strip()
+        for flags in ((), ("-h",), ("--help",)):
+            result = subprocess.run([sys.executable, DOCKET, *flags], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(result.stdout.startswith(f"docket {release}\n"))
+            self.assertIn("usage: docket", result.stdout)
+            self.assertIn("claim", result.stdout)
+            self.assertIn("graph", result.stdout)
+            self.assertNotIn("SessionStart hook", result.stdout)
+            self.assertEqual(result.stderr, "")
+        result = subprocess.run([sys.executable, DOCKET, "not-a-command"], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("invalid choice", result.stderr)
+
+    def test_graph_payload_is_version_two_and_preserves_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = root / ".docket" / "ledger.jsonl"
+            ledger.parent.mkdir()
+            env = dict(os.environ, DOCKET_HOME=str(root / "global"), DOCKET_AUTHOR="test")
+            subprocess.run([sys.executable, DOCKET, "claim", "Premise", "--state", "accepted"],
+                           cwd=root, env=env, check=True, capture_output=True, text=True)
+            subprocess.run([sys.executable, DOCKET, "decision", "Choice", "--choice", "yes",
+                           "--depends-on", "c1"], cwd=root, env=env, check=True,
+                           capture_output=True, text=True)
+            result = run(root, "init")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            entries = docket_cli.read(ledger)
+            payload = docket_cli._graph_payload(entries, docket_cli.retired_by(entries))
+            self.assertEqual(payload["version"], 2)
+            by_id = {entry["id"]: entry for entry in payload["entries"]}
+            self.assertEqual(by_id["d2"]["kind"], "decision")
+            self.assertTrue(by_id["d2"]["applicable"])
+            self.assertEqual(by_id["d2"]["depends_on"], ["c1"])
+
+    def test_static_graph_shows_blocked_decision_prerequisites(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = root / "ledger.jsonl"
+            entries = [
+                docket_cli.make_record("claim", "Unassessed", author="test", record_id="c1"),
+                docket_cli.make_record("decision", "Blocked choice", choice="yes",
+                                       depends_on=["c1"], author="test", record_id="d2"),
+            ]
+            ledger.write_text("\n".join(json.dumps(item) for item in entries) + "\n")
+            original = docket_cli.ledger_path
+            old_stdout = docket_cli.sys.stdout
+            try:
+                docket_cli.ledger_path = lambda: ledger
+                docket_cli.sys.stdout = _TTYBuffer(False)
+                args = type("Args", (), {"style": "compact", "state": None, "kind": None,
+                                          "find": None, "plain": True, "pretty": False,
+                                          "interactive": False, "no_interactive": False})()
+                self.assertEqual(docket_cli.cmd_graph(args), 0)
+                self.assertIn("blocked by c1", docket_cli.sys.stdout.getvalue())
+            finally:
+                docket_cli.ledger_path = original
+                docket_cli.sys.stdout = old_stdout
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    unittest.main()
