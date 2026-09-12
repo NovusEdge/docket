@@ -1,6 +1,6 @@
 {
   "name": "docket",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "A typed ledger of claims, decisions, and questions with scoped context for agents.",
   "author": {
     "name": "Aliasgar Khimani",
