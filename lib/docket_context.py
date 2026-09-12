@@ -42,6 +42,12 @@ _WEIGHTS = {
     "degree": 50,
     "degree_cap": 10,
     "pinned": 400,
+    # A neighbour inherits half its parent's score per hop. Expansion ends when
+    # the inherited score falls under the floor, so depth follows relevance
+    # instead of a fixed hop count.
+    "decay_numerator": 1,
+    "decay_denominator": 2,
+    "floor": 50,
 }
 
 
@@ -521,27 +527,37 @@ def build_context(
 
     for ident in root_ids:
         admit(ident, "selected", mandatory=ident in task_matched)
-    related_admitted = 0
 
-    def neighbors(ident):
-        nonlocal related_admitted
-        if ident not in included:
-            return
-        for target in adjacency[ident]:
-            # A selected root that did not fit cannot reappear as a neighbor.
-            if target in selected_ids or target in included:
+    def expand(seeds):
+        # Adjacency order is an artefact of insertion, so a flat cap on it
+        # discarded neighbours by accident. Walk by inherited score instead.
+        frontier = [(-scores.get(i, 0), -int(i[1:]), i, scores.get(i, 0))
+                    for i in seeds if i in included]
+        seen = set(included)
+        while frontier:
+            frontier.sort()
+            _, _, ident, parent_score = frontier.pop(0)
+            decayed = (parent_score * _WEIGHTS["decay_numerator"]
+                       // _WEIGHTS["decay_denominator"])
+            if decayed < _WEIGHTS["floor"]:
                 continue
-            if related_admitted >= 64:
-                break
-            if admit(target, "related record"):
-                related_admitted += 1
+            ranked = sorted(
+                (t for t in adjacency[ident] if t not in seen),
+                key=lambda t: (-min(scores.get(t, 0), decayed), -int(t[1:])),
+            )
+            for target in ranked:
+                seen.add(target)
+                effective = min(scores.get(target, 0), decayed) or decayed
+                if effective < _WEIGHTS["floor"]:
+                    continue
+                if admit(target, "related record"):
+                    frontier.append((-effective, -int(target[1:]), target, effective))
 
-    for ident in root_ids:
-        neighbors(ident)
+    expand(root_ids)
     for item in pins:
         ident = _id(item)
         if admit(ident, "fallback pin"):
-            neighbors(ident)
+            expand([ident])
     result = render(order, included)
     if len(result) > hard_limit:
         # Degrade in order: shrink every index line to the minimum detail, then

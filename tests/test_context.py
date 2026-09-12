@@ -306,6 +306,27 @@ class ContextTests(unittest.TestCase):
         ]
         self.assertEqual(_term_weights(projected(records), "decision"), {})
 
+    def test_expansion_admits_neighbours_in_score_order(self):
+        records = [
+            entry("c1", "claim", "Older premise", state="accepted"),
+            entry("c2", "claim", "Newer premise", state="accepted"),
+            entry("d3", "decision", "Renderer budget", choice="y", scope=("lib/**",),
+                  supports=(("c1",), ("c2",))),
+        ]
+        rendered = build_context(projected(records), files=("lib/render.py",), ledger="repo")
+        self.assertLess(rendered.index("### c2 "), rendered.index("### c1 "))
+
+    def test_expansion_stops_below_the_score_floor(self):
+        records = [
+            entry("c1", "claim", "Distant premise", state="accepted"),
+            entry("d2", "decision", "Renderer budget", choice="y", scope=("lib/**",),
+                  supports=(("c1",),)),
+        ]
+        rendered = build_context(projected(records), files=("lib/render.py",),
+                                 ledger="repo", max_chars=1000)
+        self.assertIn("### d2 ", rendered)
+        self.assertLessEqual(len(rendered), 1000)
+
     def test_same_inputs_at_one_revision_are_byte_identical(self):
         records = [
             entry("d1", "decision", "Renderer budget", choice="y", scope=("lib/**",)),
