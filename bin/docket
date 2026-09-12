@@ -19,6 +19,7 @@ if str(_LIB_DIR) not in sys.path:
     sys.path.insert(0, str(_LIB_DIR))
 
 from docket_ledger import (  # noqa: E402
+    ID_RE,
     KINDS,
     STATES,
     LedgerError,
@@ -28,6 +29,7 @@ from docket_ledger import (  # noqa: E402
     project,
     read as ledger_read,
     retired_by,
+    validate_record,
 )
 
 LEDGER = Path(".docket/ledger.jsonl")
@@ -160,8 +162,8 @@ def ledger_path(start: Path | None = None) -> Path:
     return global_root() / slug(project_root(here)) / "ledger.jsonl"
 
 
-def read(path: Path) -> list[dict]:
-    return ledger_read(path)
+def read(path: Path, lock: bool = True) -> list[dict]:
+    return ledger_read(path, lock=lock)
 
 
 def next_id(entries: list[dict]) -> str:
@@ -855,16 +857,125 @@ def cmd_where(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_rebase(args: argparse.Namespace) -> int:
+    """Append another branch's divergent tail under fresh IDs."""
+    from docket_rebase import RebaseError, renumber
+    path = ledger_path()
+    other = Path(args.other)
+    if not other.is_file():
+        print(f"docket: no ledger at {other}", file=sys.stderr)
+        return 1
+    try:
+        mine = read(path)
+        theirs = read(other)
+        tail, mapping = renumber(mine, theirs)
+    except (LedgerError, RebaseError, OSError) as exc:
+        print(f"docket: {exc}", file=sys.stderr)
+        return 1
+    if not tail:
+        print("docket: nothing to rebase; the histories already agree")
+        return 0
+    for old, new in mapping.items():
+        print(f"{old} -> {new}")
+    if args.dry_run:
+        print(f"\ndocket: {len(tail)} record(s) would be appended to {path}")
+        return 0
+    # append validates each record against everything already written, so a
+    # tail that would break the ledger stops partway and leaves it readable.
+    written = 0
+    try:
+        for record in tail:
+            append(path, record)
+            written += 1
+    except LedgerError as exc:
+        print(f"docket: {exc}", file=sys.stderr)
+        print(f"docket: appended {written} of {len(tail)} record(s); "
+              "run docket check", file=sys.stderr)
+        return 1
+    print(f"\ndocket: appended {written} record(s) to {path}")
+    return 0
+
+
+def cmd_check(args: argparse.Namespace) -> int:
+    """Report every fault in the ledger, rather than the first one.
+
+    read() raises on the first bad line. After a merge a person needs the whole
+    picture before deciding how to repair it.
+    """
+    path = ledger_path()
+    if not path.exists():
+        print(f"docket: no ledger at {path}")
+        return 0
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError) as exc:
+        print(f"docket: cannot read {path}: {exc}", file=sys.stderr)
+        return 1
+
+    faults: list[str] = []
+    good: list[dict] = []
+    seen: dict[str, int] = {}
+    highest = 0
+    count = 0
+    for number, line in enumerate(lines, 1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError as exc:
+            faults.append(f"line {number}: invalid JSON: {exc.msg}")
+            continue
+        count += 1
+        ident = str(record.get("id", "")) if isinstance(record, dict) else ""
+        match = ID_RE.fullmatch(ident)
+        if not match:
+            faults.append(f"line {number}: malformed id {ident!r}")
+            continue
+        if ident in seen:
+            faults.append(f"line {number}: duplicate id {ident}, first seen on line {seen[ident]}")
+            continue
+        seen[ident] = number
+        sequence = int(match.group(2))
+        if sequence <= highest:
+            faults.append(f"line {number}: id {ident} does not increase past {highest}")
+            continue
+        highest = sequence
+        # The ID checks alone let a hand-resolved merge pass: a record pointing
+        # at a same-numbered record from the other branch has a target that
+        # exists and has the right kind. validate_record is what catches a
+        # dangling or wrong-kind reference.
+        try:
+            good.append(validate_record(record, previous=good))
+        except LedgerError as exc:
+            faults.append(f"line {number}: {str(exc).removeprefix('docket: ')}")
+
+    if not faults:
+        print(f"docket: {path} reads cleanly, {count} record{'s' if count != 1 else ''}")
+        return 0
+    print(f"docket: {path} has {len(faults)} fault{'s' if len(faults) != 1 else ''}")
+    for fault in faults:
+        print(f"  {fault}")
+    print("\nDuplicate or out-of-order IDs usually mean two branches recorded "
+          "separately. Recover the other branch's ledger and run:")
+    print("  docket rebase OTHER_LEDGER")
+    return 1
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     """Move this project's ledger into the repository so it can be committed."""
     root = project_root()
     target = root / LEDGER
+    target.parent.mkdir(parents=True, exist_ok=True)
+    ignore = target.parent / ".gitignore"
+    if not ignore.exists():
+        # The append lock is local state. A team that commits .docket/ would
+        # otherwise commit it.
+        ignore.write_text("*.lock\n", encoding="utf-8")
     if target.exists():
         print(f"docket: already project-local at {target}")
         return 0
 
     existing = read(global_root() / slug(root) / "ledger.jsonl")
-    target.parent.mkdir(parents=True, exist_ok=True)
     with target.open("w") as f:
         for e in existing:
             f.write(json.dumps(e) + "\n")
@@ -1006,8 +1117,9 @@ _COMPLETION_FLAGS = (
     "--auto-scope", "--no-auto-scope",
     "--all", "--find", "--superseded", "--oneline", "--json", "--plain", "--pretty",
     "--style", "--interactive", "--no-interactive", "--for", "--version",
+    "--dry-run",
 )
-_COMPLETION_CMDS = ("claim", "decision", "question", "list", "show", "graph", "context", "where", "init", "completion")
+_COMPLETION_CMDS = ("claim", "decision", "question", "list", "show", "graph", "context", "where", "check", "rebase", "init", "completion")
 
 _BASH_COMPLETION = f"""\
 _docket() {{
@@ -1173,6 +1285,14 @@ def main(argv: list[str] | None = None) -> int:
 
     wh = sub.add_parser("where", help="print which ledger file is in use")
     wh.set_defaults(func=cmd_where)
+
+    ck = sub.add_parser("check", help="report what makes the ledger unreadable")
+    ck.set_defaults(func=cmd_check)
+
+    rb = sub.add_parser("rebase", help="renumber another ledger's tail onto this one")
+    rb.add_argument("other", help="path to the other branch's ledger")
+    rb.add_argument("--dry-run", action="store_true", help="print the ID map and write nothing")
+    rb.set_defaults(func=cmd_rebase)
 
     it = sub.add_parser("init", help="move this project's ledger into the repository")
     it.set_defaults(func=cmd_init)

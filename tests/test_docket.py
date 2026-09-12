@@ -343,5 +343,79 @@ class AutoScopeTests(unittest.TestCase):
             self.assertIn("tracked.py", out)
 
 
+class InitTests(unittest.TestCase):
+    def test_init_ignores_the_lock_file(self):
+        with tempfile.TemporaryDirectory() as home:
+            run(home, "init")
+            ignore = Path(home) / ".docket" / ".gitignore"
+            self.assertTrue(ignore.is_file())
+            self.assertIn("*.lock", ignore.read_text(encoding="utf-8"))
+
+    def test_init_leaves_an_existing_ignore_file_alone(self):
+        with tempfile.TemporaryDirectory() as home:
+            ignore = Path(home) / ".docket" / ".gitignore"
+            ignore.parent.mkdir(parents=True, exist_ok=True)
+            ignore.write_text("# mine\n", encoding="utf-8")
+            run(home, "init")
+            self.assertEqual(ignore.read_text(encoding="utf-8"), "# mine\n")
+
+
+class CheckTests(unittest.TestCase):
+    def test_check_passes_on_a_good_ledger(self):
+        with tempfile.TemporaryDirectory() as home:
+            run(home, "claim", "A premise", "--state", "accepted")
+            result = run(home, "check")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("1 record", result.stdout)
+
+    def test_check_reports_every_duplicate_and_ordering_fault(self):
+        with tempfile.TemporaryDirectory() as home:
+            ledger = Path(home) / ".docket" / "ledger.jsonl"
+            ledger.parent.mkdir(parents=True, exist_ok=True)
+            rows = [
+                docket_cli.make_record("claim", "First", state="accepted",
+                                       author="t", record_id="c1"),
+                docket_cli.make_record("claim", "Branch A", state="accepted",
+                                       author="t", record_id="c2"),
+                docket_cli.make_record("claim", "Branch B", state="accepted",
+                                       author="t", record_id="c2"),
+                docket_cli.make_record("claim", "Older", state="accepted",
+                                       author="t", record_id="c1"),
+            ]
+            ledger.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
+            result = run(home, "check")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("duplicate id c2", result.stdout)
+        self.assertIn("line 3", result.stdout)
+        self.assertIn("line 4", result.stdout)
+        self.assertIn("docket rebase", result.stdout)
+
+
+class RebaseCommandTests(unittest.TestCase):
+    def test_rebase_appends_a_renumbered_tail(self):
+        with tempfile.TemporaryDirectory() as home:
+            # Without init the ledger lives under DOCKET_HOME
+            # (tests/test_docket.py:22, bin/docket:160), so .docket/ledger.jsonl
+            # does not exist and read_text() raises.
+            run(home, "init")
+            run(home, "claim", "Shared premise", "--state", "accepted")
+            other = Path(home) / "other.jsonl"
+            mine = (Path(home) / ".docket" / "ledger.jsonl").read_text()
+            theirs = docket_cli.make_record("claim", "Their premise",
+                                            state="accepted", author="t",
+                                            record_id="c2")
+            other.write_text(mine + json.dumps(theirs) + "\n")
+            run(home, "claim", "My premise", "--state", "accepted")
+            preview = run(home, "rebase", str(other), "--dry-run")
+            self.assertIn("c2 -> c3", preview.stdout)
+            before = (Path(home) / ".docket" / "ledger.jsonl").read_text()
+            self.assertNotIn("Their premise", before)
+            result = run(home, "rebase", str(other))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(run(home, "check").returncode, 0)
+            after = (Path(home) / ".docket" / "ledger.jsonl").read_text()
+        self.assertIn("Their premise", after)
+
+
 if __name__ == "__main__":
     unittest.main()

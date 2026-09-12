@@ -286,15 +286,25 @@ def validate_entries(entries: Any) -> list[dict[str, Any]]:
 validate_records = validate_entries
 
 
-def read(path: Path | str) -> list[dict[str, Any]]:
-    """Read and strictly validate a ledger, raising on corruption."""
+def read(path: Path | str, lock: bool = True) -> list[dict[str, Any]]:
+    """Read and strictly validate a ledger, raising on corruption.
+
+    ``lock`` takes a shared lock for the duration of the file read, so a reader
+    never sees a partially written line. Callers already holding the exclusive
+    lock pass False.
+    """
     path = Path(path)
     if not path.exists():
         return []
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        if lock:
+            with _ledger_lock(path, exclusive=False):
+                text = path.read_text(encoding="utf-8")
+        else:
+            text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
         raise _error("read", f"cannot read {path}: {exc}") from exc
+    lines = text.splitlines()
     entries: list[dict[str, Any]] = []
     for line_number, line in enumerate(lines, 1):
         if not line.strip():
@@ -444,11 +454,15 @@ def graph_payload(entries: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 @contextmanager
-def _append_lock(path: Path) -> Iterator[None]:
+def _ledger_lock(path: Path, exclusive: bool = True) -> Iterator[None]:
     lock_path = Path(str(path) + ".lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+") as lock:
         if os.name == "nt":
+            # msvcrt has no shared mode, so a reader takes the exclusive lock.
+            # LK_LOCK retries ten times over one second and then raises, so a
+            # Windows reader that races a long append fails where a POSIX one
+            # waits. The alternative is a torn read.
             import msvcrt
             lock.seek(0)
             msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
@@ -459,7 +473,7 @@ def _append_lock(path: Path) -> Iterator[None]:
                 msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
         else:
             import fcntl
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
             try:
                 yield
             finally:
@@ -473,8 +487,10 @@ def append(path: Path | str, record: dict[str, Any]) -> dict[str, Any]:
     allocated while holding the lock, preventing duplicate IDs between writers.
     """
     path = Path(path)
-    with _append_lock(path):
-        entries = read(path)
+    with _ledger_lock(path):
+        # flock is per file description, not per thread, so a locking read here
+        # would block against the lock this call already holds.
+        entries = read(path, lock=False)
         candidate = copy.deepcopy(record)
         if not candidate.get("id"):
             kind = candidate.get("kind")
