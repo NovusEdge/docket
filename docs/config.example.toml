@@ -24,20 +24,24 @@ minimum = 512
 # record.
 detail_min = 40
 detail_max = 140
-# Percent of the budget the bare-name index may claim while records compete for
-# admission. The rest is reserved for record content. Raise it to name more
-# records on a large ledger; lower it to admit more full records.
-allowance_percent = 25
+# Most records the index names. Past this it prints a count and points at
+# `docket list`. Several hundred identifiers cost characters an agent cannot
+# act on. Each line adds about 40 characters past budget.target, so raising
+# this raises the briefing.
+max_lines = 40
 
 [weights]
 # Scope match strength, strongest first.
 scope_exact = 1000
 scope_glob = 700
 scope_prefix = 500
-# Query term match. Below scope_prefix on purpose: a scope states where a
-# record applies, and a word in common with the query is incidental. Raise it
-# above 500 to let query text outrank a directory scope.
-text = 400
+# Query term match, scaled by how rare the term is. Only an explicit --query
+# reaches this component. It sits above scope_glob, because a query states the
+# task and a glob scope from the working tree guesses at it. Keep this value
+# plus recency below scope_exact, or a record that merely mentions the query
+# outranks the record scoped to the file in hand. Lower it under 500 to let any
+# scope match win.
+text = 750
 # Position in the record sequence. The newest record scores the full value.
 recency = 200
 # Points per record pointing at this one through a relation, up to degree_cap

@@ -29,19 +29,25 @@ DEFAULTS: dict[str, dict[str, int]] = {
     "index": {
         "detail_min": 40,
         "detail_max": 140,
-        # Percent of the limit the bare-name index may claim while the gate
-        # decides what to admit. Charging the whole index starved the full-text
-        # tier: past about 1100 records the names alone exceeded the target, so
-        # every record was refused and the briefing carried no content.
-        "allowance_percent": 25,
+        # Most records the index names. Beyond this it prints a count and points
+        # at `docket list`, because several hundred identifiers are not
+        # something an agent can act on. Measured in experiments/context-scale:
+        # the admission gate prices the index at one bare identifier per record,
+        # so each index line adds about 40 characters past budget.target. At 40
+        # lines a thousand-record ledger renders 9,500 characters; at 120 it
+        # renders 12,400.
+        "max_lines": 40,
     },
     "weights": {
         "scope_exact": 1000,
         "scope_glob": 700,
         "scope_prefix": 500,
-        # Below scope_prefix on purpose. A scope states where a record applies;
-        # a word in common with the query is incidental.
-        "text": 400,
+        # Only --query reaches this component. A query states the task, and a
+        # glob scope from the working tree guesses at it, so this stays above
+        # scope_glob. This value plus the full recency bonus must stay below
+        # scope_exact, or a record that merely mentions the query outranks the
+        # record scoped to the file in hand.
+        "text": 750,
         "recency": 200,
         "degree": 50,
         "degree_cap": 10,
@@ -96,8 +102,8 @@ def merge(overrides: Mapping[str, Any] | None) -> dict[str, dict[str, int]]:
         raise ConfigError("budget.outer_multiple must be at least 1")
     if settings["index"]["detail_min"] > settings["index"]["detail_max"]:
         raise ConfigError("index.detail_min must not exceed index.detail_max")
-    if not 0 <= settings["index"]["allowance_percent"] <= 100:
-        raise ConfigError("index.allowance_percent must be between 0 and 100")
+    if settings["index"]["max_lines"] < 1:
+        raise ConfigError("index.max_lines must be at least 1")
     if settings["expansion"]["decay_denominator"] < 1:
         raise ConfigError("expansion.decay_denominator must be at least 1")
     if settings["auto_scope"]["limit"] < 1:

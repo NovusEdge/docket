@@ -2,7 +2,7 @@ import re
 import sys
 import unittest
 
-from lib.docket_context import build_context, _term_weights, _blocking_paths
+from lib.docket_context import build_context, build_delta, _term_weights, _blocking_paths
 from lib.docket_ledger import make_record, project
 
 
@@ -78,11 +78,14 @@ class ContextTests(unittest.TestCase):
             entry("d3", "decision", "Choose Postgres for production", choice="Postgres", scope=("app/db",)),
             entry("c4", "claim", "The database backup is encrypted", scope=("ops/backup",)),
         ]
-        rendered = build_context(projected(records), query="database", files=("app/db/models.py",), ledger="repo")
+        # File scope with no query: an explicit query outranks a scope, and
+        # test_an_explicit_query_outranks_a_file_scope covers that case.
+        rendered = build_context(projected(records), files=("app/db/models.py",), ledger="repo")
         self.assertLess(rendered.index("### d3 "), rendered.index("### d2 "))
-        self.assertLess(rendered.index("### d3 "), rendered.index("### c4 "))
         self.assertNotIn("### c1 ", rendered)
+        self.assertNotIn("### c4 ", rendered)
         self.assertIn("c1 claim", rendered)
+        self.assertIn("c4 claim", rendered)
         self.assertIn("Choose Postgres for production", rendered)
 
     def test_related_records_keep_complete_formulas_and_warn_on_premises(self):
@@ -356,7 +359,7 @@ class ContextTests(unittest.TestCase):
     def test_header_names_the_latest_record_and_the_real_selection(self):
         records = [entry("c1", "claim", "A premise", state="accepted")]
         rendered = build_context(projected(records), ledger="repo")
-        self.assertIn("| latest: c1", rendered)
+        self.assertRegex(rendered, r"\| latest: c1@[0-9a-f]{12}")
         self.assertIn("no task scope given", rendered)
 
     def test_admission_survives_a_large_ledger(self):
@@ -372,6 +375,64 @@ class ContextTests(unittest.TestCase):
                                          ledger="repo").count("### "), 20)
         self.assertGreater(build_context(history, files=("area1/x.py",),
                                          ledger="repo").count("### "), 20)
+
+    def test_a_long_file_scope_is_identified_by_digest(self):
+        records = [entry("c1", "claim", "A premise", state="accepted")]
+        many = tuple(f"src/module_{n}/file.py" for n in range(20))
+        rendered = build_context(projected(records), files=many, ledger="repo")
+        self.assertRegex(rendered, r"# files: 20 paths, [0-9a-f]{8}: ")
+        same = build_context(projected(records), files=many, ledger="repo")
+        other = build_context(projected(records), files=many[:-1], ledger="repo")
+        self.assertEqual(rendered, same)
+        self.assertNotEqual(rendered, other)
+
+    def test_an_explicit_query_outranks_a_file_scope(self):
+        records = [
+            entry("d1", "decision", "Unrelated renderer decision", choice="x",
+                  scope=("lib/**",)),
+            entry("d2", "decision", "Supersession semantics", choice="y",
+                  scope=("docs/**",)),
+        ]
+        rendered = build_context(projected(records), query="supersession",
+                                 files=("lib/render.py",), ledger="repo")
+        self.assertLess(rendered.index("### d2 "), rendered.index("### d1 "))
+
+    def test_an_exact_file_scope_outranks_an_incidental_query_word(self):
+        records = [
+            entry("d1", "decision", "Renderer budget rule", choice="x",
+                  scope=("lib/render.py",)),
+            entry("c2", "claim", "The installer mentions the cache in passing",
+                  state="accepted", scope=("installer/**",)),
+        ]
+        rendered = build_context(projected(records), query="cache",
+                                 files=("lib/render.py",), ledger="repo")
+        # The query beats a glob scope. It must not beat the record scoped to
+        # the file in hand, even with the full recency bonus added.
+        self.assertLess(rendered.index("### d1 "), rendered.index("### c2 "))
+
+    def test_index_caps_and_counts_the_remainder(self):
+        from lib.docket_config import merge
+        records = [entry(f"c{n}", "claim", f"Premise {n}", state="accepted")
+                   for n in range(1, 101)]
+        settings = merge({"index": {"max_lines": 10}})
+        rendered = build_context(projected(records), ledger="repo", settings=settings)
+        listed = [l for l in rendered.splitlines() if re.match(r"^c\d+ claim ", l)]
+        self.assertEqual(len(listed), 10)
+        self.assertIn("more; docket list", rendered)
+
+    def test_the_capped_index_keeps_the_highest_scoring_records(self):
+        from lib.docket_config import merge
+        records = [entry(f"c{n}", "claim", f"Premise {n}", state="accepted")
+                   for n in range(1, 101)]
+        settings = merge({"index": {"max_lines": 5}})
+        rendered = build_context(projected(records), ledger="repo", settings=settings)
+        listed = [int(n) for n in re.findall(r"^c(\d+) claim ", rendered, re.M)]
+        full = [int(n) for n in re.findall(r"^### c(\d+) ", rendered, re.M)]
+        # Recency is the only live component here, so the index holds the newest
+        # records the full-text tier could not fit.
+        self.assertEqual(len(listed), 5)
+        self.assertLess(max(listed), min(full))
+        self.assertNotIn("c1 claim", rendered)
 
     def test_every_record_is_accounted_for_in_the_footer(self):
         records = [
@@ -511,7 +572,7 @@ class GoldenBriefingTests(unittest.TestCase):
                 self.assertEqual(actual[key], expected[key])
 
 
-class IndexAllowanceTests(unittest.TestCase):
+class LargeLedgerTests(unittest.TestCase):
     def ledger(self, count):
         records = []
         for number in range(1, count + 1):
@@ -520,9 +581,9 @@ class IndexAllowanceTests(unittest.TestCase):
         return projected(records)
 
     def test_a_large_ledger_still_renders_record_content(self):
-        # The gate charged one bare name per current record before admitting any
-        # content, so past about 1100 records the names consumed the whole
-        # budget and the briefing carried no records at all.
+        # The gate charged one bare name per current record before admitting
+        # any content, so past about 1100 records the names consumed the
+        # whole budget and the briefing carried no records at all.
         rendered = build_context(self.ledger(2000), files=("lib/cache.py",),
                                  ledger="repo", max_chars=8000)
         full_text = int(re.search(r"# full text: (\d+)", rendered).group(1))
@@ -602,7 +663,10 @@ class DegreeTests(unittest.TestCase):
         records = [
             entry("c1", "claim", "The premise", state="accepted"),
             entry("q2", "question", "The question"),
-            entry("d3", "decision", "First", choice="a", supports=(("c1",),)),
+            # d3 names c1 twice, through supports and depends_on. _relation_ids
+            # de-duplicates, so the pair counts once.
+            entry("d3", "decision", "First", choice="a", supports=(("c1",),),
+                  depends_on=("c1",)),
             entry("d4", "decision", "Second", choice="b", depends_on=("c1",)),
             entry("d5", "decision", "Third", choice="c", answers=("q2",)),
             entry("d6", "decision", "Fourth", choice="d", supersedes=("d3",)),
@@ -644,6 +708,58 @@ class DegreeTests(unittest.TestCase):
             context._relation_ids = original
 
         self.assertLess(calls, 4 * len(records))
+
+class DeltaTests(unittest.TestCase):
+    def test_delta_names_added_and_newly_unavailable_records(self):
+        records = [
+            entry("c1", "claim", "The cache is reliable", state="accepted"),
+            entry("d2", "decision", "Serve from the cache", choice="serve",
+                  depends_on=("c1",)),
+            entry("c3", "claim", "Replace the premise", state="accepted",
+                  supersedes=("c1",)),
+        ]
+        delta = build_delta(projected(records), since="d2",
+                            baseline=projected(records[:2]), ledger="repo")
+        self.assertIn("### c3 ", delta)
+        self.assertIn("since: d2", delta)
+        # c1 retired and d2 lost its prerequisite, so both changed. Assert on
+        # the record block: a bare "d2" also matches the header's "since: d2".
+        self.assertIn("### d2 ", delta)
+        self.assertIn("2 no longer available", delta)
+
+    def test_delta_omits_a_record_that_was_never_available(self):
+        records = [
+            entry("c1", "claim", "A disputed premise", state="disputed"),
+            entry("c2", "claim", "A settled premise", state="accepted"),
+            entry("c3", "claim", "A later premise", state="accepted"),
+        ]
+        delta = build_delta(projected(records), since="c2",
+                            baseline=projected(records[:2]), ledger="repo")
+        self.assertIn("c3", delta)
+        # c1 was disputed before the baseline and is disputed now. Nothing
+        # changed about it, so it is not part of the delta.
+        self.assertNotIn("### c1 ", delta)
+        self.assertIn("0 no longer available", delta)
+
+    def test_delta_is_none_for_an_unknown_baseline(self):
+        records = [entry("c1", "claim", "A premise", state="accepted")]
+        self.assertIsNone(build_delta(projected(records), since="d99",
+                                      baseline=[], ledger="repo"))
+
+    def test_delta_refuses_a_baseline_whose_digest_no_longer_matches(self):
+        records = [
+            entry("c1", "claim", "A premise", state="accepted"),
+            entry("c2", "claim", "Another premise", state="accepted"),
+        ]
+        history = projected(records)
+        rendered = build_context(history, ledger="repo")
+        token = re.search(r"latest: (c\d+@[0-9a-f]+)", rendered).group(1)
+        self.assertIsNotNone(build_delta(history, since=token,
+                                         baseline=projected(records), ledger="repo"))
+        # A rebase renumbers the tail, so the same ID covers different history.
+        stale = token.split("@")[0] + "@deadbeef"
+        self.assertIsNone(build_delta(history, since=stale,
+                                      baseline=projected(records), ledger="repo"))
 
 
 if __name__ == "__main__":

@@ -37,6 +37,14 @@ class ConfigTests(unittest.TestCase):
             write(home, f"[budget]\ntarget = {DEFAULTS['budget']['target']}\n")
             self.assertEqual(load(home)[1], "default")
 
+    def test_the_example_file_states_the_defaults(self):
+        import tomllib
+        example = Path(__file__).resolve().parent.parent / "docs" / "config.example.toml"
+        # Every value in the example is documented as the default. A drifting
+        # example teaches a wrong number and silently changes a tuned briefing.
+        self.assertEqual(merge(tomllib.loads(example.read_text(encoding="utf-8"))),
+                         DEFAULTS)
+
     def test_unknown_section_and_key_are_rejected(self):
         with self.assertRaises(ConfigError):
             merge({"nonsense": {"x": 1}})

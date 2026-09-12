@@ -143,7 +143,9 @@ the union serves the renderer as a convenience.
 Every current record appears, in one of two tiers. The full-text tier holds
 complete record blocks. The index tier names each remaining record on one line
 with its ID, kind, state, and clipped text. An index line's length follows its
-score, so a near miss carries more text than a distant record.
+score, so a near miss carries more text than a distant record. The index names
+at most `index.max_lines` records, 40 by default, in score order, and closes
+with a count and `docket list` for the remainder.
 
 - The budget target is 8,000 characters.
 - A record matching the task scope or query renders in full even past the
@@ -156,8 +158,17 @@ score, so a near miss carries more text than a distant record.
 
 Records rank by an integer score over scope match strength, query term rarity,
 position in the record sequence, pinning, and how many records point at the
-record. A scope match outranks a text match, because a scope states where a
-record applies. Each full-text record prints its score and components.
+record. An exact path scope outranks an explicit `--query`, and a query outranks
+a glob or directory scope. A query states the task; a file scope derived from
+the working tree guesses at it. Each full-text record prints its score and
+components.
+
+A blocked decision prints one `blocked:` line for each chain of prerequisites.
+The line names every step and the reason the last one is unavailable, which the
+projection cannot supply: `blocked_by` flattens a chain into one list, so it
+cannot tell a two-step chain from two direct prerequisites. Each record on such
+a chain enters the full-text tier directly after the decision, under the label
+`blocking prerequisite`.
 
 Docket then adds related records in both directions: grounds, prerequisites,
 dependents, questions, and their answers. A related record inherits half its
@@ -167,11 +178,20 @@ record that does not fit still falls to an index line.
 
 With no `--query` and no `--file`, Docket derives file scope from the working
 tree's changed and untracked files. `--no-auto-scope` disables that, and
-`--auto-scope` forces it alongside an explicit query.
+`--auto-scope` forces it alongside an explicit query. A clean tree scopes from
+the paths the last commit touched, because that is the likeliest starting point
+for the next piece of work. A repository with no commits stays unscoped.
 
 The header includes ledger identity, a deterministic revision, and the latest
-record ID. The footer reports tier counts, incomplete relation coverage,
+record as `ID@DIGEST`. A file scope too long to print whole is named by its own
+digest and a count, so the briefing stays reproducible from its header. The
+footer reports tier counts, incomplete relation coverage, prerequisite coverage,
 evidence-provenance limits, and a `docket show ID --json` retrieval command.
+
+The coverage line measures the caller's task matches and their prerequisite
+closure. It reports either that all of them reached the full-text tier, or how
+many stayed in the index. An index line is not a gap: it names the record and
+gives the command that fetches it.
 
 Weights, budget, index detail, expansion decay, and the auto-scope cap come from
 `.docket/config.toml` when it exists. See [the annotated example](config.example.toml).
@@ -187,6 +207,29 @@ docket context --all --max-chars 12000
 The renderer does not fetch evidence, call a tokenizer, infer truth, or
 propagate state. Re-run the briefing after compaction or resume through the
 harness's existing hook surface.
+
+## Reading history from a point
+
+`docket context --since RECORD_ID` reports what changed after that record: the
+records added since, and the records that lost availability since. A record that
+was already unavailable at the baseline is not a change and does not appear.
+
+`--since` accepts `ID` or the `ID@DIGEST` pair the header prints. The digest
+covers the history up to and including that record. `docket rebase` renumbers a
+tail, so an ID alone can name a different record after a rebase. The digest
+catches that case and refuses the baseline. An unknown or stale baseline prints
+a note on stderr, then a full briefing. Nothing calls `--since` automatically.
+The session hooks fire on startup, resume, clear, and compact only.
+
+`docket show ID --at RECORD_ID` projects the ledger prefix that ends at the
+named record, so a supersession or an answer recorded later does not appear. An
+unknown baseline exits 1.
+
+```sh
+docket context --since d40
+docket context --since d40@7f3a9c21e0b4
+docket show c12 --at d40
+```
 
 ## Sharing a ledger
 

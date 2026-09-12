@@ -798,7 +798,14 @@ def cmd_graph(args: argparse.Namespace) -> int:
 
 
 def cmd_show(args: argparse.Namespace) -> int:
-    entries = project(read(ledger_path()), validated=True)
+    raw = read(ledger_path())
+    if args.at:
+        if not any(item.get("id") == args.at for item in raw):
+            print(f"docket: unknown record {args.at}", file=sys.stderr)
+            return 1
+        cutoff = int(args.at[1:])
+        raw = [item for item in raw if int(item["id"][1:]) <= cutoff]
+    entries = project(raw, validated=True)
     by_id = {e.get("id"): e for e in entries}
     e = by_id.get(args.id)
     if not e:
@@ -1117,7 +1124,37 @@ def auto_scope_files(limit: int = _AUTO_SCOPE_LIMIT) -> tuple[str, ...]:
         for group in groups:
             if index < len(group) and group[index] not in paths:
                 paths.append(group[index])
+
+    if not paths:
+        # A clean tree says nothing about the task. The last commit does, and it
+        # is the likeliest starting point for the next piece of work. --root
+        # keeps a first commit readable, and -m keeps a merge readable, because
+        # a combined diff prints nothing for either.
+        try:
+            done = subprocess.run(
+                ["git", "diff-tree", "-m", "--root", "--no-commit-id",
+                 "--name-only", "-r", "-z", "HEAD"],
+                cwd=root, capture_output=True, timeout=3)
+        except (OSError, subprocess.SubprocessError):
+            return ()
+        # A repository with no commits has no HEAD, so git exits non-zero and
+        # the briefing stays unscoped.
+        if done.returncode == 0:
+            text = done.stdout.decode("utf-8", errors="surrogateescape")
+            # -m prints one diff per parent, so a merge repeats a path.
+            paths = list(dict.fromkeys(
+                path for path in text.split("\0") if path and not path.endswith("/")))
     return tuple(paths[:limit])
+
+
+def _print_context(text: str, args: argparse.Namespace) -> int:
+    if not text:
+        return 0
+    if args.for_harness:
+        print(json.dumps(CONTEXT_ENVELOPES[args.for_harness](text)))
+    else:
+        print(text, end="")
+    return 0
 
 
 def cmd_context(args: argparse.Namespace) -> int:
@@ -1135,6 +1172,27 @@ def cmd_context(args: argparse.Namespace) -> int:
     if args.max_chars is not None and args.max_chars < minimum:
         print(f"docket: --max-chars must be at least {minimum}", file=sys.stderr)
         return 2
+    if args.since:
+        from docket_context import build_delta
+        try:
+            raw = read(ledger_path())
+        except (LedgerError, OSError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        # Project twice. The second projection is the history as it stood at the
+        # baseline, and the renderer needs it to tell a new loss from an old one.
+        ident = args.since.partition("@")[0]
+        cutoff = int(ident[1:]) if ID_RE.fullmatch(ident) else -1
+        prefix = [item for item in raw if int(item["id"][1:]) <= cutoff]
+        delta = build_delta(project(raw), since=args.since,
+                            baseline=project(prefix),
+                            max_chars=args.max_chars, ledger=str(ledger_path()),
+                            settings=settings)
+        if delta is not None:
+            return _print_context(delta, args)
+        print(f"docket: baseline {args.since} is unknown or stale; "
+              "printing a full briefing", file=sys.stderr)
+
     files = tuple(args.file or ())
     forced = args.auto_scope is True
     default_on = (args.auto_scope is None and not args.query
@@ -1155,20 +1213,14 @@ def cmd_context(args: argparse.Namespace) -> int:
     except (LedgerError, OSError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
-    if not text:
-        return 0
-    if args.for_harness:
-        print(json.dumps(CONTEXT_ENVELOPES[args.for_harness](text)))
-    else:
-        print(text, end="")
-    return 0
+    return _print_context(text, args)
 
 
 _COMPLETION_FLAGS = (
     "--state", "--choice", "--alternative", "--scope", "--rationale",
     "--supports", "--depends-on", "--answers", "--supersedes", "--evidence",
     "--revisit", "--cost", "--pin", "--kind", "--query", "--file", "--max-chars",
-    "--auto-scope", "--no-auto-scope",
+    "--auto-scope", "--no-auto-scope", "--since", "--at",
     "--all", "--find", "--superseded", "--oneline", "--json", "--plain", "--pretty",
     "--style", "--interactive", "--no-interactive", "--for", "--version",
     "--dry-run",
@@ -1314,6 +1366,8 @@ def main(argv: list[str] | None = None) -> int:
     sh = sub.add_parser("show", help="print one entry, human-readable")
     sh.add_argument("id")
     sh.add_argument("--json", action="store_true", help="print the entry as JSON")
+    sh.add_argument("--at", default="",
+                    help="print the record as history stood at this record ID")
     sh.set_defaults(func=cmd_show)
 
     ctx = sub.add_parser("context", help="print the ledger for session injection")
@@ -1335,6 +1389,8 @@ def main(argv: list[str] | None = None) -> int:
         "--no-auto-scope", dest="auto_scope", action="store_false",
         help="never derive file scope from git",
     )
+    ctx.add_argument("--since", default="",
+                     help="report what changed after this record ID or ID@DIGEST")
     ctx.set_defaults(func=cmd_context)
 
     wh = sub.add_parser("where", help="print which ledger file is in use")

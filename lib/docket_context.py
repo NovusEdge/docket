@@ -329,7 +329,14 @@ def _header(
     if query.strip():
         lines.append(f"# query: {_clip_metadata(query, 140)}")
     if files:
-        lines.append(f"# files: {_clip_metadata(', '.join(files), 180)}")
+        joined = ", ".join(files)
+        if len(joined) <= 180:
+            lines.append(f"# files: {joined}")
+        else:
+            # Clipping alone loses the inputs, and the briefing must be
+            # reproducible from its own header.
+            digest = hashlib.sha256("\0".join(files).encode("utf-8")).hexdigest()[:8]
+            lines.append(f"# files: {len(files)} paths, {digest}: {_clip_metadata(joined, 150)}")
     if all_records:
         lines.append("# selection: all current records")
     elif query.strip() or files:
@@ -417,6 +424,60 @@ def _render_record(
     return "\n".join(lines)
 
 
+def build_delta(
+    entries: Iterable[Mapping[str, Any]],
+    *,
+    since: str,
+    baseline: Iterable[Mapping[str, Any]],
+    max_chars: int | None = None,
+    ledger: str = "",
+    settings: Mapping[str, Any] | None = None,
+) -> str | None:
+    """What changed after a baseline record, or None when it is unknown.
+
+    The ID sequence is monotonic, so a record ID fixes a point in history
+    without a stored snapshot. The revision digest cannot serve here: it hashes
+    the whole history, so recovery of a baseline would mean a hash of every
+    prefix of the file until one matched.
+
+    ``baseline`` is the projection as it stood at ``since``. Availability now is
+    not enough to report a change: a claim recorded as disputed long before the
+    baseline is unavailable and always was.
+    """
+
+    history = list(entries)
+    by_id = {_id(item): item for item in history}
+    since, _, expected = since.partition("@")
+    if since not in by_id:
+        return None
+    cutoff = int(since[1:])
+    prefix = [item for item in history if int(_id(item)[1:]) <= cutoff]
+    if expected and _revision(prefix) != expected:
+        # A rebase renumbers the tail, so this ID now covers different history.
+        return None
+    was_available = {_id(item) for item in baseline if _available(item)}
+    cfg = settings if settings is not None else _SETTINGS_DEFAULTS
+    limit = max_chars if max_chars is not None else cfg["budget"]["target"]
+    added = [item for item in history if int(_id(item)[1:]) > cutoff]
+    changed = [item for item in history
+               if int(_id(item)[1:]) <= cutoff
+               and _id(item) in was_available and not _available(item)]
+    latest = max(by_id, key=lambda ident: int(ident[1:]), default="")
+    revision = _revision(history)
+    head = "\n".join([
+        f"# docket: {_clip_metadata(ledger or 'ledger', 180)} | revision: {revision}"
+        f" | latest: {latest}@{revision} | since: {since}",
+        f"# changed: {len(added)} added, {len(changed)} no longer available.",
+    ]) + "\n\n"
+    blocks: list[str] = []
+    for item in added + changed:
+        block = _render_record(item, "changed", "", by_id)
+        if len(head) + len("\n\n".join(blocks + [block])) > limit:
+            block = _index_line(item, cfg["index"]["detail_min"])
+        blocks.append(block)
+    return head + "\n\n".join(blocks) + "\n"
+
+
 def build_context(
     entries: Iterable[Mapping[str, Any]],
     *,
@@ -443,7 +504,6 @@ def build_context(
     expansion = cfg["expansion"]
     detail_min = cfg["index"]["detail_min"]
     detail_max = cfg["index"]["detail_max"]
-    allowance_percent = cfg["index"]["allowance_percent"]
     if max_chars is None:
         soft_limit = cfg["budget"]["target"]
         hard_limit = soft_limit * cfg["budget"]["outer_multiple"]
@@ -468,7 +528,8 @@ def build_context(
     reasons: dict[str, str] = {}
     task_matched: set[str] = set()
     term_weights = _term_weights(current, query)
-
+    # One relation map serves scoring, adjacency, and the footer's related set,
+    # so _relation_ids runs once per record for the whole briefing.
     relations = {_id(item): _relation_ids(item) for item in history}
     in_degrees: Counter[str] = Counter()
     for targets in relations.values():
@@ -517,6 +578,11 @@ def build_context(
     retired_count = sum(_is_retired(item) for item in history)
     revision = _revision(history)
     latest = max(by_id, key=lambda ident: int(ident[1:]), default="")
+    if latest:
+        # The digest covers the history up to and including that record, which
+        # here is the whole history. A rebase renumbers the tail, so an agent
+        # that passes the pair back to --since learns its baseline is stale.
+        latest = f"{latest}@{revision}"
     prefix = "\n".join(
         _header(ledger, revision, query, tuple(file_list), all_records, latest, settings_id)
     ) + "\n\n"
@@ -537,7 +603,7 @@ def build_context(
             f"# full text: {included_count}; index: {shown}; retired: {retired_count}.",
         ]
         if shown < deferred_count:
-            lines.append(f"# Not listed: {deferred_count - shown}; the budget could not name them.")
+            lines.append(f"# Not listed: {deferred_count - shown}; reach them with docket list.")
         if related_count:
             lines.append(f"# Related records in index only: {related_count}; formulas remain complete.")
         # The measured set is the caller's own task matches plus their
@@ -600,30 +666,63 @@ def build_context(
         full = "\n\n".join(rendered_record(i) for i in candidate_order)
         pool = current_ids if index_ids is None else index_ids
         deferred = [i for i in pool if i not in candidate_set]
+        # Score order, so the cap keeps the records closest to the task.
+        shown = deferred[:cfg["index"]["max_lines"]]
         parts = [prefix.rstrip("\n"), ""]
         if full:
             parts += [full, ""]
-        if deferred:
+        if shown:
             if names_only:
-                parts.append("# index: " + ", ".join(deferred))
+                parts.append("# index: " + ", ".join(shown))
             else:
-                parts.append(f"# index: {len(deferred)} more current records")
+                parts.append(f"# index: {len(shown)} more current records")
                 parts.append("\n".join(
                     _index_line(by_id[i], detail_of(i) if detail is None else detail)
-                    for i in deferred
+                    for i in shown
                 ))
-        return "\n".join(parts).rstrip("\n") + footer(candidate_set, len(deferred))
+            if len(deferred) > len(shown):
+                parts.append(f"# and {len(deferred) - len(shown)} more; docket list")
+        return "\n".join(parts).rstrip("\n") + footer(candidate_set, len(shown))
 
     # Counters for the admission trial. Rendering the whole briefing to measure
     # each candidate cost O(n) per admit, so a 10000-record ledger took 20s.
     body_length = 0
-    names_length = sum(len(ident) for ident in current_ids)
-    names_shown = len(current_ids)
+    deferred_count = len(current_ids)
     related_pending: set[str] = set()
     needed_ids = set(task_matched)
     missing_count = len(needed_ids)
     base_length = len(prefix.rstrip("\n"))
     index_head = len("# index: ")
+    max_lines = cfg["index"]["max_lines"]
+
+    # The index names at most max_lines records, so the gate prices a sliding
+    # window over current_ids instead of the whole list. The cursor only moves
+    # forward, which keeps the whole admission pass linear.
+    window: list[str] = []
+    window_length = 0
+    cursor = 0
+
+    def _fill_window():
+        nonlocal cursor, window_length
+        while len(window) < max_lines and cursor < len(current_ids):
+            candidate = current_ids[cursor]
+            cursor += 1
+            if candidate not in included:
+                window.append(candidate)
+                window_length += len(candidate)
+
+    def _next_after_window(exclude):
+        """The name that would enter the window if one left it."""
+
+        scan = cursor
+        while scan < len(current_ids):
+            candidate = current_ids[scan]
+            if candidate not in included and candidate != exclude:
+                return candidate
+            scan += 1
+        return ""
+
+    _fill_window()
 
     def _trial_length(ident):
         """Length of the briefing that admitting ident would produce.
@@ -634,13 +733,20 @@ def build_context(
         """
 
         full = body_length + len(rendered_record(ident)) + 2 * len(order)
-        if ident in current_id_set:
-            length, shown = names_length - len(ident), names_shown - 1
-        else:
-            length, shown = names_length, names_shown
+        deferred = deferred_count - (1 if ident in current_id_set else 0)
+        length, shown = window_length, len(window)
+        if ident in window:
+            length -= len(ident)
+            shown -= 1
+            entering = _next_after_window(ident)
+            if entering:
+                length += len(entering)
+                shown += 1
         if shown:
             index = index_head + length + 2 * (shown - 1)
             total = base_length + full + index + 4
+            if deferred > shown:
+                total += len(f"# and {deferred - shown} more; docket list") + 1
         else:
             # "\n".join ends with the empty part, and rstrip drops that newline.
             total = base_length + full + 2
@@ -659,39 +765,24 @@ def build_context(
             if step not in needed_ids and step not in included and step not in added:
                 added.add(step)
                 missing += 1
-        return total + len(footer_text(len(included) + 1, shown, shown,
+        return total + len(footer_text(len(included) + 1, shown, deferred,
                                        related, missing))
 
     def admit(ident, label, mandatory=False):
-        nonlocal body_length, names_length, names_shown, missing_count
+        nonlocal body_length, deferred_count, window_length, missing_count
         if ident in included:
             return True
         labels[ident] = label
         # A task match may push past the target. Nothing may push past the
         # ceiling, which equals the target whenever the caller named one.
         limit = hard_limit if mandatory else soft_limit
-        # Price the index at what the ladder guarantees, which is one bare name
-        # per record, and cap that charge at its allowance. Charging the full
-        # index-line form collapsed admission past about 150 records; charging
-        # every bare name collapsed it past about 1100. The ladder trims the
-        # index to fit, so the gate never charges for names the output drops.
-        if ident in current_id_set:
-            length, shown = names_length - len(ident), names_shown - 1
-        else:
-            length, shown = names_length, names_shown
         if _VERIFY_TRIAL:
             measured = len(render(order + [ident], included | {ident}, names_only=True))
             computed = _trial_length(ident)
             if measured != computed:
                 raise AssertionError(
                     f"trial length for {ident}: computed {computed}, rendered {measured}")
-        index_cost = index_head + length + 2 * (shown - 1) if shown else 0
-        # The allowance follows the limit in play. Deriving it from hard_limit
-        # while charging against soft_limit made the setting mean its stated
-        # percent of the ceiling, which is three times that share of the target.
-        allowance = limit * allowance_percent // 100
-        charged = _trial_length(ident) - max(0, index_cost - allowance)
-        if charged > limit:
+        if _trial_length(ident) > limit:
             del labels[ident]
             # A refused candidate never reaches the output, so its rendered text
             # is dead. Keeping every one cost 35 MB at 40000 records.
@@ -701,8 +792,11 @@ def build_context(
         order.append(ident)
         body_length += len(rendered_record(ident))
         if ident in current_id_set:
-            names_length -= len(ident)
-            names_shown -= 1
+            deferred_count -= 1
+        if ident in window:
+            window.remove(ident)
+            window_length -= len(ident)
+            _fill_window()
         related_pending.discard(ident)
         related_pending.update(target for target in relations[ident]
                                if target not in included and target in current_id_set)
@@ -742,8 +836,13 @@ def build_context(
         base = len(head.rstrip("\n")) + (full + 4 if chosen_order else 2)
 
         def length(keep):
-            index = index_head + sums[keep] + 2 * (keep - 1)
-            tail = footer_text(len(chosen_set), keep, len(deferred_ids),
+            # render names at most max_lines of them and then says how many it
+            # left out, so trimming past the cap only changes that count.
+            shown = min(keep, max_lines)
+            index = index_head + sums[shown] + 2 * (shown - 1)
+            if keep > shown:
+                index += len(f"# and {keep - shown} more; docket list") + 1
+            tail = footer_text(len(chosen_set), shown, len(deferred_ids),
                                len(related), missing)
             computed = base + index + len(tail)
             if _VERIFY_TRIAL:
@@ -847,4 +946,4 @@ def build_context(
     return result
 
 
-__all__ = ["build_context"]
+__all__ = ["build_context", "build_delta"]
