@@ -116,7 +116,9 @@ class MigrateCliTests(unittest.TestCase):
             self.assertIn("--emit-map", result.stderr)
             self.assertEqual(ledger.read_bytes(), before)
 
-    def test_a_support_edge_into_a_question_fails_with_the_recovery(self):
+    def test_a_support_edge_into_a_question_converts_with_a_warning(self):
+        # Rule B: a because target that derives to a question has no schema-2
+        # relation, so the edge drops and the migration proceeds.
         records = [
             dict(LEGACY[1], id="d1", because=[]),
             dict(LEGACY[0], id="d2", because=["d1"]),
@@ -125,8 +127,23 @@ class MigrateCliTests(unittest.TestCase):
             work = Path(work)
             ledger = project(work, records)
             result = run(work, "migrate")
-            self.assertEqual(result.returncode, 2)
-            self.assertIn("--emit-map", result.stderr)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("d2 is justified by d1, a question", result.stderr)
+
+    def test_a_ledger_needing_both_rules_converts_with_both_warnings(self):
+        records = [
+            dict(LEGACY[1], id="d1", because=[]),
+            dict(LEGACY[0], id="d2", because=["d1"]),
+            dict(LEGACY[1], id="d3", because=[]),
+            dict(LEGACY[0], id="d4", because=[], supersedes=["d3"]),
+        ]
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            ledger = project(work, records)
+            result = run(work, "migrate")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("d2 is justified by d1, a question", result.stderr)
+            self.assertIn("d4 supersedes d3, a question", result.stderr)
 
     def test_map_and_emit_map_are_mutually_exclusive(self):
         with tempfile.TemporaryDirectory() as work:

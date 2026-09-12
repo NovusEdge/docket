@@ -127,7 +127,62 @@ def detect_version(records: list[dict[str, Any]]) -> int:
     return version
 
 
-def derive_mapping(source: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+def _rewrite_supersedes_into_answers(
+    raw: dict[str, Any], old_id: str, entry: dict[str, Any],
+    kinds: dict[str, str], notes: list[str] | None,
+) -> None:
+    """Move a supersedes target that derives to a question onto answers.
+
+    A question cannot carry answers (lib.docket_ledger forbids it), so a
+    question source is left on the default supersedes path; same-kind
+    question-to-question supersession is already legal there.
+    """
+    if entry["kind"] == "question":
+        return
+    targets = _id_list(raw.get("supersedes", []), f"{old_id}.supersedes")
+    moved = [ref for ref in targets if kinds.get(ref) == "question"]
+    if not moved:
+        return
+    entry["supersedes"] = [ref for ref in targets if ref not in moved]
+    entry["answers"] = [*entry.get("answers", []), *moved]
+    if notes is not None:
+        for ref in moved:
+            notes.append(f"{old_id} supersedes {ref}, a question; recorded as an answers edge")
+
+
+def _rewrite_support_into_questions(
+    raw: dict[str, Any], old_id: str, entry: dict[str, Any],
+    kinds: dict[str, str], notes: list[str] | None,
+) -> None:
+    """Drop a because target that derives to a question from supports.
+
+    Schema 2 has no relation a question can hold on the justifying end:
+    supports and depends_on both refuse a question target. The source edge
+    survives regardless, in legacy.relation_map.source_because.
+    """
+    groups = _support_sets(raw.get("because", []), f"{old_id}.because")
+    filtered: list[list[str]] = []
+    changed = False
+    for group in groups:
+        kept = [ref for ref in group if kinds.get(ref) != "question"]
+        if len(kept) != len(group):
+            changed = True
+            if notes is not None:
+                for ref in group:
+                    if ref not in kept:
+                        notes.append(
+                            f"{old_id} is justified by {ref}, a question; support edge "
+                            "dropped and kept in legacy.relation_map.source_because"
+                        )
+        if kept:
+            filtered.append(kept)
+    if changed:
+        entry["supports"] = filtered
+
+
+def derive_mapping(
+    source: list[dict[str, Any]], notes: list[str] | None = None,
+) -> dict[str, dict[str, Any]]:
     """Build a classification map from schema-1 fields alone.
 
     Every value reads a field or the record's structure. Nothing reads the
@@ -159,6 +214,15 @@ def derive_mapping(source: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
             f"{state}: {', '.join(ids)}" for state, ids in sorted(unknown.items())
         )
         raise MigrationError(f"unrecognised schema-1 state(s) {detail}")
+
+    # Kinds are resolved for every record before either rule runs, so a rule
+    # can tell a question target from a claim or decision target.
+    kinds = {old_id: entry["kind"] for old_id, entry in mapping.items()}
+    for raw in source:
+        old_id = raw["id"]
+        entry = mapping[old_id]
+        _rewrite_supersedes_into_answers(raw, old_id, entry, kinds, notes)
+        _rewrite_support_into_questions(raw, old_id, entry, kinds, notes)
     return mapping
 
 
@@ -424,7 +488,7 @@ def _report_line(old_id: str, record: dict[str, Any]) -> str:
 
 
 def migrate_in_place(path: Path | str, mapping_path: Path | str | None = None,
-                     dry_run: bool = False) -> tuple[int, list[str]]:
+                     dry_run: bool = False) -> tuple[int, list[str], list[str]]:
     """Convert a ledger to the current schema, keeping the original beside it.
 
     Both renames happen inside one directory, so each is atomic. A crash
@@ -438,7 +502,7 @@ def migrate_in_place(path: Path | str, mapping_path: Path | str | None = None,
     source = read_source(path)
     version = detect_version(source)
     if version == SCHEMA_LATEST:
-        return 0, []
+        return 0, [], []
     step = STEPS.get(version)
     if step is None:
         raise MigrationError(f"no migration from schema {version} to {SCHEMA_LATEST}")
@@ -451,15 +515,16 @@ def migrate_in_place(path: Path | str, mapping_path: Path | str | None = None,
         )
 
     old_ids = {raw["id"] for raw in source}
+    notes: list[str] = []
     if mapping_path is None:
-        mapping = derive_mapping(source)
+        mapping = derive_mapping(source, notes=notes)
     else:
         mapping = read_mapping(Path(mapping_path), old_ids)
     records = step(source, mapping)
     records = core_validator()(records) or records
     report = [_report_line(raw["id"], record) for raw, record in zip(source, records)]
     if dry_run:
-        return len(records), report
+        return len(records), report, notes
 
     # This module loads as top-level "docket_migrate" under bin/docket (only
     # lib/ on sys.path) and as "lib.docket_migrate" under the test suite (the
@@ -477,7 +542,7 @@ def migrate_in_place(path: Path | str, mapping_path: Path | str | None = None,
                 handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
         path.rename(backup)
         temp.rename(path)
-    return len(records), report
+    return len(records), report, notes
 
 
 def main(argv: list[str] | None = None) -> int:

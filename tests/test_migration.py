@@ -319,6 +319,88 @@ class DerivationTests(unittest.TestCase):
         with self.assertRaises(docket_migrate.MigrationError):
             docket_migrate.detect_version([{"schema": 1}, {"schema": 2}])
 
+    def test_a_settled_record_superseding_an_open_record_becomes_an_answer(self):
+        source = [
+            {"id": "d19", "state": "open", "question": "SSH reachability?",
+             "answer": "", "because": []},
+            {"id": "d25", "state": "settled",
+             "question": "SSH reachability for GCE instances (closes d19)",
+             "answer": "Yes.", "because": [], "supersedes": ["d19"]},
+        ]
+        derived = docket_migrate.derive_mapping(source)
+        self.assertEqual(derived["d25"]["supersedes"], [])
+        self.assertEqual(derived["d25"]["answers"], ["d19"])
+        with tempfile.TemporaryDirectory() as work:
+            path = Path(work) / "ledger.jsonl"
+            write_jsonl(path, source)
+            docket_migrate.migrate_in_place(path)
+            from lib.docket_ledger import read as ledger_read, project
+            entries = ledger_read(path)
+            projected = {r["id"]: r for r in project(entries)}
+        self.assertEqual(projected["q19"]["state"], "resolved")
+
+    def test_an_open_record_superseding_an_open_record_keeps_supersedes(self):
+        source = [
+            {"id": "d6", "state": "open", "question": "Q6", "answer": "", "because": []},
+            {"id": "d19", "state": "open", "question": "Q19", "answer": "",
+             "because": [], "supersedes": ["d6"]},
+        ]
+        derived = docket_migrate.derive_mapping(source)
+        self.assertNotIn("supersedes", derived["d19"])
+        self.assertNotIn("answers", derived["d19"])
+
+    def test_a_support_edge_into_a_question_is_dropped(self):
+        source = [
+            {"id": "d1", "state": "open", "question": "How do they authenticate?",
+             "answer": "", "because": []},
+            {"id": "d6", "state": "settled", "question": "Ship the connector?",
+             "answer": "Yes.", "because": [["d1"]]},
+        ]
+        derived = docket_migrate.derive_mapping(source)
+        self.assertEqual(derived["d6"]["supports"], [])
+        with tempfile.TemporaryDirectory() as work:
+            path = Path(work) / "ledger.jsonl"
+            write_jsonl(path, source)
+            docket_migrate.migrate_in_place(path)
+            converted = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+        by_id = {r["id"]: r for r in converted}
+        self.assertEqual(by_id["d6"]["supports"], [])
+        self.assertEqual(by_id["d6"]["legacy"]["relation_map"]["source_because"], [["d1"]])
+
+    def test_a_justification_set_keeps_its_non_question_member(self):
+        source = [
+            {"id": "d1", "state": "open", "question": "Q1", "answer": "", "because": []},
+            {"id": "d2", "state": "settled", "question": "Q2", "answer": "Yes.",
+             "because": []},
+            {"id": "d3", "state": "settled", "question": "Q3", "answer": "Yes.",
+             "because": [["d1", "d2"]]},
+        ]
+        derived = docket_migrate.derive_mapping(source)
+        self.assertEqual(derived["d3"]["supports"], [["d2"]])
+
+    def test_both_rules_emit_a_note_naming_both_records(self):
+        source = [
+            {"id": "d1", "state": "open", "question": "Q1", "answer": "", "because": []},
+            {"id": "d2", "state": "settled", "question": "Q2 (closes d1)", "answer": "Yes.",
+             "because": [], "supersedes": ["d1"]},
+        ]
+        notes: list[str] = []
+        docket_migrate.derive_mapping(source, notes=notes)
+        self.assertEqual(notes, ["d2 supersedes d1, a question; recorded as an answers edge"])
+
+        source = [
+            {"id": "d1", "state": "open", "question": "Q1", "answer": "", "because": []},
+            {"id": "d6", "state": "settled", "question": "Q6", "answer": "Yes.",
+             "because": [["d1"]]},
+        ]
+        notes = []
+        docket_migrate.derive_mapping(source, notes=notes)
+        self.assertEqual(
+            notes,
+            ["d6 is justified by d1, a question; support edge dropped and "
+             "kept in legacy.relation_map.source_because"],
+        )
+
 
 class InPlaceTests(unittest.TestCase):
     def legacy(self) -> list[dict]:
@@ -338,7 +420,7 @@ class InPlaceTests(unittest.TestCase):
             path = Path(work) / "ledger.jsonl"
             write_jsonl(path, self.legacy())
             original = path.read_bytes()
-            count, _ = docket_migrate.migrate_in_place(path)
+            count, _, _ = docket_migrate.migrate_in_place(path)
             self.assertEqual(count, 2)
             backup = Path(str(path) + ".schema1")
             self.assertEqual(backup.read_bytes(), original)
@@ -369,7 +451,7 @@ class InPlaceTests(unittest.TestCase):
             path = Path(work) / "ledger.jsonl"
             write_jsonl(path, self.legacy())
             before = path.read_bytes()
-            count, report = docket_migrate.migrate_in_place(path, dry_run=True)
+            count, report, _ = docket_migrate.migrate_in_place(path, dry_run=True)
             self.assertEqual(count, 2)
             self.assertEqual(len(report), 2)
             self.assertIn("d1", report[0])

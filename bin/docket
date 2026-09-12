@@ -918,7 +918,7 @@ def cmd_migrate(args: argparse.Namespace) -> int:
             print(f"docket: wrote {len(mapping)} mapping entr"
                   f"{'y' if len(mapping) == 1 else 'ies'} to {args.emit_map}")
             return 0
-        count, report = migrate_in_place(path, mapping_path=args.map, dry_run=args.dry_run)
+        count, report, notes = migrate_in_place(path, mapping_path=args.map, dry_run=args.dry_run)
     except MigrationError as exc:
         print(f"docket: {exc}", file=sys.stderr)
         print("docket: to classify records by hand, run 'docket migrate --emit-map FILE', "
@@ -930,6 +930,8 @@ def cmd_migrate(args: argparse.Namespace) -> int:
     if not count:
         print("docket: already schema 2")
         return 0
+    for note in notes:
+        print(f"docket: warning: {note}", file=sys.stderr)
     for line in report:
         print(line)
     if args.dry_run:
