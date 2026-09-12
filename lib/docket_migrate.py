@@ -53,6 +53,17 @@ OPTIONAL_FIELDS = {
     "cost_if_wrong", "cost", "pinned", "choice", "alternatives",
     "id", "ts", "author", "session", "branch", "decided_by", *RELATION_FIELDS,
 }
+SCHEMA_LATEST = 2
+
+# Schema 1 typed the difference between settling on doing something and
+# settling on not doing it. Schema 2 does not, and the choice text carries it.
+# ruled-out must not become revoked: a non-adopted decision renders as
+# unavailable current support, and these records still apply.
+LEGACY_STATES = {
+    "settled": ("decision", "adopted"),
+    "ruled-out": ("decision", "adopted"),
+    "open": ("question", "open"),
+}
 
 
 class MigrationError(ValueError):
@@ -96,6 +107,58 @@ def read_source(path: Path) -> list[dict[str, Any]]:
         _source_relations(raw, old_id)
         records.append(raw)
     return records
+
+
+def detect_version(records: list[dict[str, Any]]) -> int:
+    """The schema version every record in the source shares.
+
+    A record with no schema field is schema 1. Schema 1 wrote no such field.
+    """
+    versions = {record.get("schema", 1) for record in records}
+    if not versions:
+        return SCHEMA_LATEST
+    if len(versions) > 1:
+        found = ", ".join(str(value) for value in sorted(versions, key=str))
+        raise MigrationError(f"mixed schema versions in one ledger: {found}")
+    version = versions.pop()
+    if not isinstance(version, int):
+        raise MigrationError(f"invalid schema version {version!r}")
+    return version
+
+
+def derive_mapping(source: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Build a classification map from schema-1 fields alone.
+
+    Every value reads a field or the record's structure. Nothing reads the
+    meaning of an English sentence, so the tool still has no prose classifier.
+    """
+    unknown: dict[str, list[str]] = {}
+    mapping: dict[str, dict[str, Any]] = {}
+    for raw in source:
+        old_id = raw["id"]
+        state = raw.get("state")
+        if not isinstance(state, str) or state not in LEGACY_STATES:
+            unknown.setdefault(str(state), []).append(old_id)
+            continue
+        kind, new_state = LEGACY_STATES[state]
+        answer = raw.get("answer", "")
+        if not isinstance(answer, str):
+            raise MigrationError(f"answer for {old_id} must be a string")
+        text = raw.get("question", "")
+        entry: dict[str, Any] = {"kind": kind, "state": new_state, "text": text}
+        if kind == "decision":
+            if not answer:
+                raise MigrationError(
+                    f"{old_id} is {state} with an empty answer, so no choice can be derived"
+                )
+            entry["choice"] = answer
+        mapping[old_id] = entry
+    if unknown:
+        detail = "; ".join(
+            f"{state}: {', '.join(ids)}" for state, ids in sorted(unknown.items())
+        )
+        raise MigrationError(f"unrecognised schema-1 state(s) {detail}")
+    return mapping
 
 
 def read_mapping(path: Path, source_ids: set[str]) -> dict[str, dict[str, Any]]:

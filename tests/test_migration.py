@@ -258,5 +258,67 @@ class MigrationTests(unittest.TestCase):
             self.assertTrue((work / "new.jsonl").exists())
 
 
+class DerivationTests(unittest.TestCase):
+    def test_a_settled_record_becomes_an_adopted_decision(self):
+        source = [{"id": "d1", "state": "settled", "question": "Ship it?",
+                   "answer": "Yes, on Friday.", "because": []}]
+        derived = docket_migrate.derive_mapping(source)
+        self.assertEqual(derived["d1"]["kind"], "decision")
+        self.assertEqual(derived["d1"]["state"], "adopted")
+        self.assertEqual(derived["d1"]["text"], "Ship it?")
+        self.assertEqual(derived["d1"]["choice"], "Yes, on Friday.")
+
+    def test_a_ruled_out_record_stays_adopted(self):
+        # A ruled-out record commits to not doing something and still applies.
+        # A revoked decision renders as unusable support.
+        source = [{"id": "d1", "state": "ruled-out", "question": "Delete the key?",
+                   "answer": "No. Another team still sends it.", "because": []}]
+        derived = docket_migrate.derive_mapping(source)
+        self.assertEqual(derived["d1"]["kind"], "decision")
+        self.assertEqual(derived["d1"]["state"], "adopted")
+        self.assertEqual(derived["d1"]["choice"], "No. Another team still sends it.")
+
+    def test_an_open_record_becomes_a_question(self):
+        source = [{"id": "d1", "state": "open", "question": "Which validator?",
+                   "answer": "Undecided.", "because": []}]
+        derived = docket_migrate.derive_mapping(source)
+        self.assertEqual(derived["d1"]["kind"], "question")
+        self.assertEqual(derived["d1"]["state"], "open")
+        self.assertNotIn("choice", derived["d1"])
+
+    def test_an_unknown_state_is_rejected_and_named(self):
+        source = [{"id": "d1", "state": "parked", "question": "Q", "answer": "A",
+                   "because": []}]
+        with self.assertRaises(docket_migrate.MigrationError) as caught:
+            docket_migrate.derive_mapping(source)
+        self.assertIn("parked", str(caught.exception))
+        self.assertIn("d1", str(caught.exception))
+
+    def test_a_settled_record_without_an_answer_is_rejected(self):
+        source = [{"id": "d1", "state": "settled", "question": "Q", "answer": "",
+                   "because": []}]
+        with self.assertRaises(docket_migrate.MigrationError) as caught:
+            docket_migrate.derive_mapping(source)
+        self.assertIn("d1", str(caught.exception))
+
+    def test_the_derived_map_passes_read_mapping(self):
+        source = [{"id": "d1", "state": "settled", "question": "Q1", "answer": "A1",
+                   "because": []},
+                  {"id": "d2", "state": "open", "question": "Q2", "answer": "A2",
+                   "because": ["d1"]}]
+        with tempfile.TemporaryDirectory() as work:
+            path = Path(work) / "map.json"
+            path.write_text(json.dumps(docket_migrate.derive_mapping(source)))
+            loaded = docket_migrate.read_mapping(path, {"d1", "d2"})
+        self.assertEqual(set(loaded), {"d1", "d2"})
+
+    def test_version_detection(self):
+        self.assertEqual(docket_migrate.detect_version([{"id": "d1"}]), 1)
+        self.assertEqual(docket_migrate.detect_version([{"schema": 1}]), 1)
+        self.assertEqual(docket_migrate.detect_version([{"schema": 2}]), 2)
+        with self.assertRaises(docket_migrate.MigrationError):
+            docket_migrate.detect_version([{"schema": 1}, {"schema": 2}])
+
+
 if __name__ == "__main__":
     unittest.main()
