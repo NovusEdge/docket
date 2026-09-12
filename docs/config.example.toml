@@ -35,10 +35,11 @@ max_lines = 40
 scope_exact = 1000
 scope_glob = 700
 scope_prefix = 500
-# Query term match. Below scope_prefix on purpose: a scope states where a
-# record applies, and a word in common with the query is incidental. Raise it
-# above 500 to let query text outrank a directory scope.
-text = 400
+# Query term match, scaled by how rare the term is. Above scope_exact on
+# purpose: only an explicit --query reaches this component, and a query states
+# the task while a file scope taken from the working tree guesses at it. Lower
+# it under 500 to let any scope match outrank the query.
+text = 1100
 # Position in the record sequence. The newest record scores the full value.
 recency = 200
 # Points per record pointing at this one through a relation, up to degree_cap

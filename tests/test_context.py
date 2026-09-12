@@ -77,11 +77,14 @@ class ContextTests(unittest.TestCase):
             entry("d3", "decision", "Choose Postgres for production", choice="Postgres", scope=("app/db",)),
             entry("c4", "claim", "The database backup is encrypted", scope=("ops/backup",)),
         ]
-        rendered = build_context(projected(records), query="database", files=("app/db/models.py",), ledger="repo")
+        # File scope with no query: an explicit query outranks a scope, and
+        # test_an_explicit_query_outranks_a_file_scope covers that case.
+        rendered = build_context(projected(records), files=("app/db/models.py",), ledger="repo")
         self.assertLess(rendered.index("### d3 "), rendered.index("### d2 "))
-        self.assertLess(rendered.index("### d3 "), rendered.index("### c4 "))
         self.assertNotIn("### c1 ", rendered)
+        self.assertNotIn("### c4 ", rendered)
         self.assertIn("c1 claim", rendered)
+        self.assertIn("c4 claim", rendered)
         self.assertIn("Choose Postgres for production", rendered)
 
     def test_related_records_keep_complete_formulas_and_warn_on_premises(self):
@@ -371,6 +374,17 @@ class ContextTests(unittest.TestCase):
                                          ledger="repo").count("### "), 20)
         self.assertGreater(build_context(history, files=("area1/x.py",),
                                          ledger="repo").count("### "), 20)
+
+    def test_an_explicit_query_outranks_a_file_scope(self):
+        records = [
+            entry("d1", "decision", "Unrelated renderer decision", choice="x",
+                  scope=("lib/**",)),
+            entry("d2", "decision", "Supersession semantics", choice="y",
+                  scope=("docs/**",)),
+        ]
+        rendered = build_context(projected(records), query="supersession",
+                                 files=("lib/render.py",), ledger="repo")
+        self.assertLess(rendered.index("### d2 "), rendered.index("### d1 "))
 
     def test_degree_map_counts_every_inbound_relation_once(self):
         from lib.docket_context import _degree_map
