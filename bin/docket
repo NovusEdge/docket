@@ -1070,6 +1070,26 @@ def auto_scope_files(limit: int = _AUTO_SCOPE_LIMIT) -> tuple[str, ...]:
         for group in groups:
             if index < len(group) and group[index] not in paths:
                 paths.append(group[index])
+
+    if not paths:
+        # A clean tree says nothing about the task. The last commit does, and it
+        # is the likeliest starting point for the next piece of work. --root
+        # keeps a first commit readable, and -m keeps a merge readable, because
+        # a combined diff prints nothing for either.
+        try:
+            done = subprocess.run(
+                ["git", "diff-tree", "-m", "--root", "--no-commit-id",
+                 "--name-only", "-r", "-z", "HEAD"],
+                cwd=root, capture_output=True, timeout=3)
+        except (OSError, subprocess.SubprocessError):
+            return ()
+        # A repository with no commits has no HEAD, so git exits non-zero and
+        # the briefing stays unscoped.
+        if done.returncode == 0:
+            text = done.stdout.decode("utf-8", errors="surrogateescape")
+            # -m prints one diff per parent, so a merge repeats a path.
+            paths = list(dict.fromkeys(
+                path for path in text.split("\0") if path and not path.endswith("/")))
     return tuple(paths[:limit])
 
 

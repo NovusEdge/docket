@@ -304,6 +304,18 @@ class AutoScopeTests(unittest.TestCase):
         self.assertEqual(rejected.returncode, 2)
         self.assertIn("at least 2000", rejected.stderr)
 
+    def test_auto_scope_falls_back_to_the_last_commit_on_a_clean_tree(self):
+        with tempfile.TemporaryDirectory() as home:
+            self._repo(home)
+            cwd = os.getcwd()
+            os.chdir(home)
+            try:
+                paths = docket_cli.auto_scope_files()
+            finally:
+                os.chdir(cwd)
+        # The tree is clean; tracked.py is what the last commit touched.
+        self.assertEqual(paths, ("tracked.py",))
+
     def test_auto_scope_is_empty_outside_a_repository(self):
         with tempfile.TemporaryDirectory() as plain:
             cwd = os.getcwd()
