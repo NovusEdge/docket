@@ -29,6 +29,14 @@ DEFAULTS: dict[str, dict[str, int]] = {
     "index": {
         "detail_min": 40,
         "detail_max": 140,
+        # Most records the index names. Beyond this it prints a count and points
+        # at `docket list`, because several hundred identifiers are not
+        # something an agent can act on. Measured in experiments/context-scale:
+        # the admission gate prices the index at one bare identifier per record,
+        # so each index line adds about 40 characters past budget.target. At 40
+        # lines a thousand-record ledger renders 9,500 characters; at 120 it
+        # renders 12,400.
+        "max_lines": 40,
     },
     "weights": {
         "scope_exact": 1000,
@@ -91,6 +99,8 @@ def merge(overrides: Mapping[str, Any] | None) -> dict[str, dict[str, int]]:
         raise ConfigError("budget.outer_multiple must be at least 1")
     if settings["index"]["detail_min"] > settings["index"]["detail_max"]:
         raise ConfigError("index.detail_min must not exceed index.detail_max")
+    if settings["index"]["max_lines"] < 1:
+        raise ConfigError("index.max_lines must be at least 1")
     if settings["expansion"]["decay_denominator"] < 1:
         raise ConfigError("expansion.decay_denominator must be at least 1")
     if settings["auto_scope"]["limit"] < 1:

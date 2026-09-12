@@ -372,6 +372,30 @@ class ContextTests(unittest.TestCase):
         self.assertGreater(build_context(history, files=("area1/x.py",),
                                          ledger="repo").count("### "), 20)
 
+    def test_index_caps_and_counts_the_remainder(self):
+        from lib.docket_config import merge
+        records = [entry(f"c{n}", "claim", f"Premise {n}", state="accepted")
+                   for n in range(1, 101)]
+        settings = merge({"index": {"max_lines": 10}})
+        rendered = build_context(projected(records), ledger="repo", settings=settings)
+        listed = [l for l in rendered.splitlines() if re.match(r"^c\d+ claim ", l)]
+        self.assertEqual(len(listed), 10)
+        self.assertIn("more; docket list", rendered)
+
+    def test_the_capped_index_keeps_the_highest_scoring_records(self):
+        from lib.docket_config import merge
+        records = [entry(f"c{n}", "claim", f"Premise {n}", state="accepted")
+                   for n in range(1, 101)]
+        settings = merge({"index": {"max_lines": 5}})
+        rendered = build_context(projected(records), ledger="repo", settings=settings)
+        listed = [int(n) for n in re.findall(r"^c(\d+) claim ", rendered, re.M)]
+        full = [int(n) for n in re.findall(r"^### c(\d+) ", rendered, re.M)]
+        # Recency is the only live component here, so the index holds the newest
+        # records the full-text tier could not fit.
+        self.assertEqual(len(listed), 5)
+        self.assertLess(max(listed), min(full))
+        self.assertNotIn("c1 claim", rendered)
+
     def test_every_record_is_accounted_for_in_the_footer(self):
         records = [
             entry("c1", "claim", "Old premise", state="accepted"),

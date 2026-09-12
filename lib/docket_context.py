@@ -513,7 +513,7 @@ def build_context(
             f"# full text: {len(included)}; index: {shown}; retired: {retired_count}.",
         ]
         if shown < len(deferred):
-            lines.append(f"# Not listed: {len(deferred) - shown}; the budget could not name them.")
+            lines.append(f"# Not listed: {len(deferred) - shown}; reach them with docket list.")
         if related_omitted:
             lines.append(f"# Related records in index only: {len(related_omitted)}; formulas remain complete.")
         # The measured set is the caller's own task matches plus their
@@ -559,19 +559,23 @@ def build_context(
         )
         pool = current_ids if index_ids is None else index_ids
         deferred = [i for i in pool if i not in candidate_set]
+        # Score order, so the cap keeps the records closest to the task.
+        shown = deferred[:cfg["index"]["max_lines"]]
         parts = [prefix.rstrip("\n"), ""]
         if full:
             parts += [full, ""]
-        if deferred:
+        if shown:
             if names_only:
-                parts.append("# index: " + ", ".join(deferred))
+                parts.append("# index: " + ", ".join(shown))
             else:
-                parts.append(f"# index: {len(deferred)} more current records")
+                parts.append(f"# index: {len(shown)} more current records")
                 parts.append("\n".join(
                     _index_line(by_id[i], detail_of(i) if detail is None else detail)
-                    for i in deferred
+                    for i in shown
                 ))
-        return "\n".join(parts).rstrip("\n") + footer(candidate_set, len(deferred))
+            if len(deferred) > len(shown):
+                parts.append(f"# and {len(deferred) - len(shown)} more; docket list")
+        return "\n".join(parts).rstrip("\n") + footer(candidate_set, len(shown))
 
     def admit(ident, label, mandatory=False):
         if ident in included:

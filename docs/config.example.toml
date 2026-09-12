@@ -24,6 +24,11 @@ minimum = 512
 # record.
 detail_min = 40
 detail_max = 140
+# Most records the index names. Past this it prints a count and points at
+# `docket list`. Several hundred identifiers cost characters an agent cannot
+# act on. Each line adds about 40 characters past budget.target, so raising
+# this raises the briefing.
+max_lines = 40
 
 [weights]
 # Scope match strength, strongest first.
