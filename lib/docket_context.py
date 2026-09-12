@@ -97,8 +97,18 @@ def _scope_strength(entry: Mapping[str, Any], files: tuple[str, ...],
     return best
 
 
-def _degree(ident: str, history: list[Mapping[str, Any]]) -> int:
-    return sum(ident in _relation_ids(item) for item in history)
+def _degree_map(history: list[Mapping[str, Any]]) -> dict[str, int]:
+    """Inbound relation count per record, in one pass.
+
+    The per-record form scanned the whole history for every record, which made
+    scoring quadratic in the ledger size.
+    """
+
+    degrees: dict[str, int] = {}
+    for item in history:
+        for target in _relation_ids(item):
+            degrees[target] = degrees.get(target, 0) + 1
+    return degrees
 
 
 def _score(
@@ -448,6 +458,7 @@ def build_context(
     reasons: dict[str, str] = {}
     task_matched: set[str] = set()
     term_weights = _term_weights(current, query)
+    degrees = _degree_map(history)
 
     matched = []
     for item in current:
@@ -457,7 +468,7 @@ def build_context(
             item,
             files=file_list,
             text_points=text_points,
-            degree=_degree(ident, history),
+            degree=degrees.get(ident, 0),
             rank=rank_of.get(ident, 0),
             total=total_ranks,
             weights=weights,

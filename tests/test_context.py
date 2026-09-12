@@ -372,6 +372,22 @@ class ContextTests(unittest.TestCase):
         self.assertGreater(build_context(history, files=("area1/x.py",),
                                          ledger="repo").count("### "), 20)
 
+    def test_degree_map_counts_every_inbound_relation_once(self):
+        from lib.docket_context import _degree_map
+        records = [
+            entry("c1", "claim", "A premise", state="accepted"),
+            entry("c2", "claim", "Another premise", state="accepted"),
+            entry("d3", "decision", "Uses both", choice="x",
+                  supports=(("c1", "c2"),), depends_on=("c1",)),
+            entry("d4", "decision", "Uses one", choice="y", supports=(("c1",),)),
+        ]
+        degrees = _degree_map(projected(records))
+        # d3 names c1 through supports and depends_on; _relation_ids
+        # de-duplicates, so it counts once.
+        self.assertEqual(degrees["c1"], 2)
+        self.assertEqual(degrees["c2"], 1)
+        self.assertEqual(degrees.get("d4", 0), 0)
+
     def test_index_caps_and_counts_the_remainder(self):
         from lib.docket_config import merge
         records = [entry(f"c{n}", "claim", f"Premise {n}", state="accepted")

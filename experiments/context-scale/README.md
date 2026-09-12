@@ -48,6 +48,9 @@ in relation scoring.
 The unscoped briefing now flattens at about 9,500 characters from 100 records
 upward, instead of growing to the point where the ladder discards the index.
 
+One-pass relation scoring cuts the run from 15 seconds to 5, and every number
+in the table is unchanged by it.
+
 The scoped rows stay at the ceiling because the index is not what fills them.
 Every `lib/**` record matches the file scope, so each one admits as mandatory
 and renders in full: 83 records at 500 and 87 at 1000. Their index falls to
