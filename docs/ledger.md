@@ -254,10 +254,19 @@ and the untouched schema-1 file survives at `ledger.jsonl.schema1`. A ledger
 already at schema 2 exits clean and changes nothing. `--dry-run` prints the
 derived conversion and writes nothing.
 
-Three conditions stop the derivation: a support edge into a question, a
-supersession that crosses kinds, or a `settled` or `ruled-out` record with no
-answer. Each prints the affected records and a recovery: derive a map to a
-file, edit it, then apply it explicitly.
+Two edge shapes are common in old ledgers and get fixed automatically:
+
+- A `supersedes` edge that points at a question becomes an `answers` edge.
+  Schema 2 does not let a question carry `answers`.
+- A `because` edge that points at a question is dropped. Schema 2 has no
+  relation for this. The old edge still shows up in `legacy` metadata.
+
+The command prints a warning line for each fix.
+
+One case still stops the migration: a `settled` or `ruled-out` record with no
+answer. There is no text to build a `choice` from. It prints the affected
+records and a recovery: derive a map to a file, edit it, then apply it
+explicitly.
 
 ```sh
 docket migrate --emit-map map.json

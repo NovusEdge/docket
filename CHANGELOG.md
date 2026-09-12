@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docket migrate` converts a pre-0.8 ledger to schema 2. It derives the record
   kinds from the old state field, keeps the original at `ledger.jsonl.schema1`,
   and accepts a hand-edited classification map through `--emit-map` and `--map`.
+  It rewrites a `supersedes` edge into a question as an `answers` edge, and
+  drops a support edge into a question, warning about both on stderr.
 
 ### Fixed
 
