@@ -480,6 +480,10 @@ def _ledger_lock(path: Path, exclusive: bool = True) -> Iterator[None]:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
+# The migration replaces the whole file and needs the lock an append takes.
+ledger_lock = _ledger_lock
+
+
 def append(path: Path | str, record: dict[str, Any]) -> dict[str, Any]:
     """Validate and append one record under a process lock.
 

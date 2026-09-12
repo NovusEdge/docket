@@ -320,5 +320,93 @@ class DerivationTests(unittest.TestCase):
             docket_migrate.detect_version([{"schema": 1}, {"schema": 2}])
 
 
+class InPlaceTests(unittest.TestCase):
+    def legacy(self) -> list[dict]:
+        return [
+            {"id": "d1", "ts": "2026-01-01T00:00:00+00:00", "state": "settled",
+             "question": "Ship it?", "answer": "Yes.", "because": [],
+             "supersedes": [], "cost_if_wrong": "", "session": "", "author": "",
+             "branch": ""},
+            {"id": "d2", "ts": "2026-01-02T00:00:00+00:00", "state": "ruled-out",
+             "question": "Delete the key?", "answer": "No.", "because": ["d1"],
+             "supersedes": [], "cost_if_wrong": "", "session": "", "author": "",
+             "branch": ""},
+        ]
+
+    def test_conversion_replaces_the_file_and_keeps_the_original(self):
+        with tempfile.TemporaryDirectory() as work:
+            path = Path(work) / "ledger.jsonl"
+            write_jsonl(path, self.legacy())
+            original = path.read_bytes()
+            count, _ = docket_migrate.migrate_in_place(path)
+            self.assertEqual(count, 2)
+            backup = Path(str(path) + ".schema1")
+            self.assertEqual(backup.read_bytes(), original)
+            converted = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+            self.assertEqual([r["id"] for r in converted], ["d1", "d2"])
+            self.assertTrue(all(r["schema"] == 2 for r in converted))
+
+    def test_the_result_reads_back_through_the_ledger_reader(self):
+        from lib.docket_ledger import read as ledger_read
+        with tempfile.TemporaryDirectory() as work:
+            path = Path(work) / "ledger.jsonl"
+            write_jsonl(path, self.legacy())
+            docket_migrate.migrate_in_place(path)
+            self.assertEqual(len(ledger_read(path)), 2)
+
+    def test_an_existing_backup_stops_the_command(self):
+        with tempfile.TemporaryDirectory() as work:
+            path = Path(work) / "ledger.jsonl"
+            write_jsonl(path, self.legacy())
+            Path(str(path) + ".schema1").write_text("earlier\n")
+            before = path.read_bytes()
+            with self.assertRaises(docket_migrate.MigrationError):
+                docket_migrate.migrate_in_place(path)
+            self.assertEqual(path.read_bytes(), before)
+
+    def test_a_dry_run_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as work:
+            path = Path(work) / "ledger.jsonl"
+            write_jsonl(path, self.legacy())
+            before = path.read_bytes()
+            count, report = docket_migrate.migrate_in_place(path, dry_run=True)
+            self.assertEqual(count, 2)
+            self.assertEqual(len(report), 2)
+            self.assertIn("d1", report[0])
+            self.assertEqual(path.read_bytes(), before)
+            self.assertFalse(Path(str(path) + ".schema1").exists())
+
+    def test_a_failure_leaves_the_ledger_untouched(self):
+        records = self.legacy()
+        records[0]["state"] = "parked"
+        with tempfile.TemporaryDirectory() as work:
+            path = Path(work) / "ledger.jsonl"
+            write_jsonl(path, records)
+            before = path.read_bytes()
+            with self.assertRaises(docket_migrate.MigrationError):
+                docket_migrate.migrate_in_place(path)
+            self.assertEqual(path.read_bytes(), before)
+            self.assertFalse(Path(str(path) + ".schema1").exists())
+            self.assertFalse(Path(str(path) + ".migrating").exists())
+
+    def test_an_explicit_map_overrides_the_derived_one(self):
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            path = work / "ledger.jsonl"
+            write_jsonl(path, self.legacy())
+            override = docket_migrate.derive_mapping(self.legacy())
+            override["d1"]["kind"] = "claim"
+            override["d1"]["state"] = "accepted"
+            override["d1"]["id"] = "c1"
+            override["d1"].pop("choice")
+            override["d2"]["supports"] = [["d1"]]
+            map_path = work / "map.json"
+            map_path.write_text(json.dumps(override))
+            docket_migrate.migrate_in_place(path, mapping_path=map_path)
+            converted = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+            self.assertEqual(converted[0]["kind"], "claim")
+            self.assertEqual(converted[0]["id"], "c1")
+
+
 if __name__ == "__main__":
     unittest.main()

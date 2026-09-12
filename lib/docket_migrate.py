@@ -96,9 +96,10 @@ def read_source(path: Path) -> list[dict[str, Any]]:
             raise MigrationError(f"malformed input at line {lineno}: {exc.msg}") from exc
         if not isinstance(raw, dict):
             raise MigrationError(f"malformed input at line {lineno}: record must be an object")
-        if raw.get("schema") == 2:
-            raise MigrationError(f"malformed input at line {lineno}: source is already schema 2")
         old_id = raw.get("id")
+        if raw.get("schema") == SCHEMA_LATEST:
+            records.append(raw)
+            continue
         if not isinstance(old_id, str) or not OLD_ID.fullmatch(old_id):
             raise MigrationError(f"malformed input at line {lineno}: invalid old id {old_id!r}")
         if old_id in seen:
@@ -410,6 +411,70 @@ def migrate(source_path: Path | str, mapping_path: Path | str, output_path: Path
         raise MigrationError(f"output already exists: {output_path}") from exc
     except OSError as exc:
         raise MigrationError(f"cannot create output {output_path}: {exc}") from exc
+
+
+STEPS = {1: build_records}
+
+BACKUP_SUFFIX = ".schema1"
+TEMP_SUFFIX = ".migrating"
+
+
+def _report_line(old_id: str, record: dict[str, Any]) -> str:
+    return f"{old_id} -> {record['id']} {record['kind']}/{record['state']}"
+
+
+def migrate_in_place(path: Path | str, mapping_path: Path | str | None = None,
+                     dry_run: bool = False) -> tuple[int, list[str]]:
+    """Convert a ledger to the current schema, keeping the original beside it.
+
+    Both renames happen inside one directory, so each is atomic. A crash
+    between them leaves the source at BACKUP_SUFFIX and the result at
+    TEMP_SUFFIX, and neither file is truncated.
+    """
+    path = Path(path)
+    backup = Path(str(path) + BACKUP_SUFFIX)
+    temp = Path(str(path) + TEMP_SUFFIX)
+    if not dry_run and backup.exists():
+        raise MigrationError(
+            f"{backup} already exists; a second migration would overwrite the original"
+        )
+
+    source = read_source(path)
+    version = detect_version(source)
+    if version == SCHEMA_LATEST:
+        return 0, []
+    step = STEPS.get(version)
+    if step is None:
+        raise MigrationError(f"no migration from schema {version} to {SCHEMA_LATEST}")
+
+    old_ids = {raw["id"] for raw in source}
+    if mapping_path is None:
+        mapping = derive_mapping(source)
+    else:
+        mapping = read_mapping(Path(mapping_path), old_ids)
+    records = step(source, mapping)
+    records = core_validator()(records) or records
+    report = [_report_line(raw["id"], record) for raw, record in zip(source, records)]
+    if dry_run:
+        return len(records), report
+
+    # This module loads as top-level "docket_migrate" under bin/docket (only
+    # lib/ on sys.path) and as "lib.docket_migrate" under the test suite (the
+    # repo root on sys.path). A module-level import cannot satisfy both, so
+    # core_validator's own root-plus-package-name approach is reused here.
+    root = Path(__file__).resolve().parent.parent
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    ledger_lock = importlib.import_module("lib.docket_ledger").ledger_lock
+    with ledger_lock(path):
+        if temp.exists():
+            raise MigrationError(f"{temp} already exists; remove it and retry")
+        with temp.open("x", encoding="utf-8") as handle:
+            for record in records:
+                handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+        path.rename(backup)
+        temp.rename(path)
+    return len(records), report
 
 
 def main(argv: list[str] | None = None) -> int:
