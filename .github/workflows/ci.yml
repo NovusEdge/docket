@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Python and Go tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: installer/go.mod
+          cache-dependency-path: |
+            installer/go.sum
+            graph/go.sum
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Test ledger CLI
+        run: python3 tests/test_docket.py
+      - name: Test installer Python helpers
+        run: python3 -m unittest discover -s installer -p 'test_*.py'
+      - name: Test and vet installer
+        working-directory: installer
+        run: |
+          go test ./...
+          go vet ./...
+      - name: Test and vet graph viewer
+        working-directory: graph
+        run: |
+          go test ./...
+          go vet ./...
+
+  cross-build:
+    name: Cross-build release targets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: installer/go.mod
+          cache-dependency-path: |
+            installer/go.sum
+            graph/go.sum
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Build installer and graph release targets
+        run: |
+          output_dir="$(mktemp -d)"
+          trap 'rm -rf "$output_dir"' EXIT
+          python3 installer/release.py --output-dir "$output_dir/installer" --version ci
+          python3 graph/release.py --output-dir "$output_dir/graph" --version ci
+          test "$(find "$output_dir/installer" -maxdepth 1 -type f -name 'docket-installer-*' | wc -l)" -eq 6
+          test "$(find "$output_dir/graph" -maxdepth 1 -type f -name 'docket-graph-*' | wc -l)" -eq 6
+          test -s "$output_dir/installer/SHA256SUMS"
+          test -s "$output_dir/graph/GRAPH-SHA256SUMS"

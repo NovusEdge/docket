@@ -5,34 +5,104 @@ prefix := env_var_or_default("PREFIX", env_var("HOME") / ".local/bin")
 default:
     @just --list
 
-# run both suites
+# test the ledger, native installer, and download launcher
 [group('dev')]
 test:
     python3 tests/test_docket.py
-    python3 tests/test_install.py
+    cd graph && go test ./...
+    cd installer && go test ./...
+    python3 -m unittest discover -s installer -p 'test_*.py'
 
 # install and uninstall against a throwaway HOME, leaving this machine alone
 [group('dev')]
 verify:
     #!/usr/bin/env bash
     set -euo pipefail
-    home=$(mktemp -d)
-    trap 'rm -rf "$home"' EXIT
-    HOME="$home" python3 installer/install.py --yes
-    "$home/.local/bin/docket" --version
-    HOME="$home" python3 installer/install.py --uninstall --yes
-    for leftover in ".local/bin/docket" ".claude/skills/docket"; do
-      if [ -e "$home/$leftover" ] || [ -L "$home/$leftover" ]; then
-        echo "FAIL: uninstall left $leftover"
-        exit 1
-      fi
-    done
-    echo ok
+    cd installer
+    go test -run '^TestInstallUninstallRoundTripInTemporaryHome$' -v .
 
 # wire this machine
 [group('install')]
 install:
     python3 installer/install.py
+
+# refresh only the installed Docket checkout and graph viewer
+[group('install')]
+update:
+    python3 installer/install.py --update
+
+# build the installer without running it
+[group('dev')]
+installer-build:
+    cd installer && go build -o docket-installer .
+
+# build the native graph viewer for this checkout
+[group('dev')]
+graph-build:
+    cd graph && go build -o docket-graph .
+
+# cross-build graph viewer release assets and GRAPH-SHA256SUMS
+[group('release')]
+graph-release:
+    python3 graph/release.py
+
+# remove repository build outputs and Python caches; preserve ledgers and source
+[group('dev')]
+clean:
+    #!/usr/bin/env python3
+    import os
+    import shutil
+    from pathlib import Path
+
+    root = Path.cwd()
+
+    def has_symlink_parent(target):
+        current = root
+        for part in target.relative_to(root).parts[:-1]:
+            current /= part
+            if current.is_symlink():
+                return True
+        return False
+
+    for relative in (
+        "installer/docket-installer",
+        "installer/docket-installer.exe",
+        "installer/installer",
+        "installer/installer.exe",
+        "graph/docket-graph",
+        "graph/docket-graph.exe",
+        "graph/graph",
+        "graph/graph.exe",
+        "dist",
+    ):
+        target = root / relative
+        if has_symlink_parent(target):
+            continue
+        if target.is_symlink() or target.is_file():
+            target.unlink()
+        elif target.is_dir():
+            shutil.rmtree(target)
+
+    cache_names = {"__pycache__", ".pytest_cache", ".ruff_cache"}
+    for current, directories, _ in os.walk(root, topdown=True, followlinks=False):
+        current_path = Path(current)
+        if ".git" in directories:
+            directories.remove(".git")
+        if ".docket" in directories:
+            directories.remove(".docket")
+        for name in list(directories):
+            target = current_path / name
+            if target.is_symlink():
+                directories.remove(name)
+                continue
+            if name in cache_names:
+                shutil.rmtree(target)
+                directories.remove(name)
+
+# cross-build installer release assets and SHA256SUMS
+[group('release')]
+installer-release:
+    python3 installer/release.py
 
 # print every file the installer would write, and write none of them
 [group('install')]

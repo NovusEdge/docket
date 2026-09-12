@@ -24,16 +24,35 @@ writing anything. It detects Claude Code, Codex, Gemini CLI, Cursor, GitHub
 Copilot CLI, and OpenCode, and pre-selects the ones it finds; you can select an
 undetected one too, if you're about to install it.
 
-On Linux and macOS this runs in a small interface the installer fetches into
-its own cache directory on first use. If that fetch fails for any reason it
-falls back to plain prompts; Windows always uses plain prompts.
+The launcher downloads a native installer for Linux, macOS, or Windows and
+checks its SHA-256 checksum before running it. The installer also prepares the
+native graph viewer for Linux, macOS, or Windows on amd64 and arm64. A
+published install verifies the viewer against `GRAPH-SHA256SUMS`; an install
+from a source checkout builds `graph/docket-graph` locally when Go is
+available. From a checkout, the launcher builds the installer locally; this
+requires Go 1.26 or later.
+If the checked-out version has no published viewer assets and Go is unavailable,
+the installer reports the missing release rather than selecting another
+version.
 
 Add `--yes` for the defaults-only behaviour with no prompts, the same as CI
 uses. Add `--dry-run` to see every file the installer would write. Add
-`--uninstall` to remove them. The uninstall keeps your decision ledgers.
+`--update` to refresh the existing Docket checkout and native graph viewer
+without changing harness configuration or PATH. It requires the installed
+`docket` command and accepts `--dry-run`. Add `--uninstall` to remove the
+integrations. The uninstall keeps your decision ledgers.
 
 Run the installer again to update. It pulls the current version and rewrites the
 configuration.
+
+`docket graph` opens the native interactive viewer when `graph/docket-graph` is
+present and the command has a terminal on both input and output. Installing a
+Claude or Codex plugin from this repository supplies skills and hooks only; it
+does not download a compiled viewer. For a source checkout, run
+`just graph-build` when Go is available. If the viewer is absent, automatic
+mode prints a concise installation hint and uses the compact text renderer;
+graph invocation never downloads or builds anything. Use `--interactive` to
+require the viewer or `--plain` for text output.
 
 Start a new agent session after the installation. Then run this command to
 verify:

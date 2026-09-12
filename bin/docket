@@ -10,6 +10,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import textwrap
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,8 +31,9 @@ def global_root() -> Path:
 def version() -> str:
     """The release, from the VERSION file beside the checkout.
 
-    Read only when --version asks for it. The SessionStart hook runs `context`
-    on every session and must not pay for a file read it never uses.
+    Read only when a version or top-level help request asks for it. The
+    SessionStart hook runs `context` on every session and must not pay for a
+    file read it never uses.
     """
     try:
         return (Path(__file__).resolve().parent.parent / "VERSION").read_text().strip()
@@ -42,6 +44,13 @@ def version() -> str:
 class VersionAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
         print(f"docket {version()}")
+        parser.exit()
+
+
+class HelpAction(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        print(f"docket {version()}")
+        print(parser.format_help(), end="")
         parser.exit()
 
 
@@ -424,6 +433,66 @@ def _graph_entries(args: argparse.Namespace) -> tuple[list[dict], dict[str, str]
     return entries, retired
 
 
+def _graph_viewer_path() -> Path:
+    """The viewer built by the installer in this checkout."""
+    name = "docket-graph.exe" if os.name == "nt" else "docket-graph"
+    return Path(__file__).resolve().parent.parent / "graph" / name
+
+
+def _graph_is_tty() -> bool:
+    """Whether graph owns both terminal handles needed by Bubble Tea."""
+    return all(
+        bool(getattr(stream, "isatty", lambda: False)())
+        for stream in (sys.stdin, sys.stdout)
+    )
+
+
+def _graph_viewer_error(viewer: Path) -> None:
+    print(
+        f"docket: interactive viewer not found at {viewer}; "
+        "build it with `cd graph && go build -o docket-graph .`",
+        file=sys.stderr,
+    )
+
+
+def _graph_payload(entries: list[dict], retired: dict[str, str]) -> dict:
+    """Serialize only the normalized graph model consumed by the Go viewer."""
+    return {
+        "version": 1,
+        "entries": [_node_info(e, retired) for e in entries],
+    }
+
+
+def _run_graph_viewer(entries: list[dict], retired: dict[str, str], pretty: bool = False) -> int:
+    """Run the native viewer with an inherited terminal and private input."""
+    viewer = _graph_viewer_path()
+    temp_path: Path | None = None
+    try:
+        fd, raw_path = tempfile.mkstemp(prefix="docket-graph-", suffix=".json")
+        temp_path = Path(raw_path)
+        with os.fdopen(fd, "w", encoding="utf-8") as data_file:
+            json.dump(_graph_payload(entries, retired), data_file)
+            data_file.write("\n")
+
+        try:
+            command = [str(viewer), "--data", str(temp_path)]
+            if pretty:
+                command.append("--pretty")
+            result = subprocess.run(command)
+        except KeyboardInterrupt:
+            return 130
+        except OSError as exc:
+            print(f"docket: could not start interactive viewer: {exc}", file=sys.stderr)
+            return 1
+        return result.returncode
+    finally:
+        if temp_path is not None:
+            try:
+                temp_path.unlink()
+            except OSError:
+                pass
+
+
 def _id_num(eid: str) -> int:
     try:
         return int(eid[1:])
@@ -665,30 +734,63 @@ def _rail_join(columns: list[str | None], c: int, dupes: list[int],
     return _c(_DIM, row, use_color)
 
 
-def cmd_graph(args: argparse.Namespace) -> int:
-    entries, retired = _graph_entries(args)
-    if not entries:
-        print("docket: nothing recorded")
-        return 0
-
+def _render_graph(entries: list[dict], retired: dict[str, str], args: argparse.Namespace,
+                  style: str) -> int:
     use_color = False if args.plain else True if args.pretty else _use_color()
     glyphs = _GRAPH_GLYPHS if _use_glyphs() else _GRAPH_GLYPHS_ASCII
     width = shutil.get_terminal_size().columns
     nodes = {e["id"]: _node_info(e, retired) for e in entries}
     entries_desc = sorted(entries, key=lambda e: _id_num(e["id"]), reverse=True)
 
-    if args.style == "rail":
+    if style == "rail":
         lines = _rail_lines(entries_desc, nodes, glyphs, use_color, width)
     else:
         roots = _forest_roots(entries, nodes)
         children = _forest_children(entries, nodes, roots)
-        if args.style == "compact":
+        if style == "compact":
             lines = _compact_lines(nodes, roots, children, glyphs, use_color)
         else:
             lines = _forest_lines(nodes, roots, children, glyphs, use_color, width)
 
     print("\n".join(lines))
     return 0
+
+
+def cmd_graph(args: argparse.Namespace) -> int:
+    style = getattr(args, "style", None)
+    interactive = bool(getattr(args, "interactive", False))
+    no_interactive = bool(getattr(args, "no_interactive", False))
+    plain = bool(getattr(args, "plain", False))
+
+    if interactive and no_interactive:
+        print("docket: --interactive conflicts with --no-interactive", file=sys.stderr)
+        return 2
+    if interactive and plain:
+        print("docket: --interactive conflicts with --plain", file=sys.stderr)
+        return 2
+    if interactive and style is not None:
+        print("docket: --interactive conflicts with --style", file=sys.stderr)
+        return 2
+    if interactive and not _graph_is_tty():
+        print("docket: --interactive requires terminal stdin and stdout", file=sys.stderr)
+        return 1
+
+    entries, retired = _graph_entries(args)
+    if not entries:
+        print("docket: nothing recorded")
+        return 0
+
+    viewer = _graph_viewer_path()
+    auto = _graph_is_tty() and not no_interactive and not plain and style is None
+    if interactive or auto:
+        if not viewer.is_file():
+            _graph_viewer_error(viewer)
+            if interactive:
+                return 1
+            return _render_graph(entries, retired, args, "compact")
+        return _run_graph_viewer(entries, retired, pretty=bool(getattr(args, "pretty", False)))
+
+    return _render_graph(entries, retired, args, style or "forest")
 
 
 def cmd_show(args: argparse.Namespace) -> int:
@@ -837,7 +939,7 @@ def cmd_context(args: argparse.Namespace) -> int:
 _COMPLETION_FLAGS = (
     "--state", "--answer", "--because", "--supersedes", "--cost",
     "--find", "--superseded", "--oneline", "--json", "--plain", "--pretty",
-    "--style", "--for", "--version",
+    "--style", "--interactive", "--no-interactive", "--for", "--version",
 )
 _COMPLETION_CMDS = ("add", "ruled-out", "open", "list", "show", "graph", "context", "where", "init", "completion")
 
@@ -919,9 +1021,14 @@ def _add_decision_args(p: argparse.ArgumentParser) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(prog="docket", description=__doc__)
+    p = argparse.ArgumentParser(
+        prog="docket",
+        description="Record project decisions, rejected options, and open questions.",
+        add_help=False,
+    )
+    p.add_argument("-h", "--help", action=HelpAction, nargs=0, help="show this help and exit")
     p.add_argument("--version", action=VersionAction, nargs=0, help="print the release and exit")
-    sub = p.add_subparsers(dest="cmd", required=True)
+    sub = p.add_subparsers(dest="cmd")
 
     a = sub.add_parser("add", help="record a decision")
     _add_decision_args(a)
@@ -947,12 +1054,15 @@ def main(argv: list[str] | None = None) -> int:
     ls.add_argument("--pretty", action="store_true", help="force colour on, e.g. piping to less -R")
     ls.set_defaults(func=cmd_list)
 
-    gr = sub.add_parser("graph", help="draw the support graph")
-    gr.add_argument("--style", choices=("forest", "rail", "compact"), default="forest")
+    gr = sub.add_parser("graph", help="browse decision support relationships")
+    gr.add_argument("--style", choices=("forest", "rail", "compact"))
     gr.add_argument("--state", choices=STATES)
     gr.add_argument("--find", help="match question or answer text")
     gr.add_argument("--plain", action="store_true", help="force colour off")
     gr.add_argument("--pretty", action="store_true", help="force colour on, e.g. piping to less -R")
+    mode = gr.add_mutually_exclusive_group()
+    mode.add_argument("--interactive", action="store_true", help="use the native interactive viewer")
+    mode.add_argument("--no-interactive", action="store_true", help="force the static text renderer")
     gr.set_defaults(func=cmd_graph)
 
     sh = sub.add_parser("show", help="print one entry, human-readable")
@@ -978,6 +1088,15 @@ def main(argv: list[str] | None = None) -> int:
     co.set_defaults(func=cmd_completion)
 
     args = p.parse_args(argv)
+    if args.cmd is None:
+        print(f"docket {version()}")
+        print(p.format_help(), end="")
+        return 0
+    if args.cmd == "graph" and args.interactive:
+        if args.plain:
+            p.error("graph --interactive conflicts with --plain")
+        if args.style is not None:
+            p.error("graph --interactive conflicts with --style")
     return args.func(args)
 
 
