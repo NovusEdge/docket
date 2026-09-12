@@ -12,10 +12,24 @@ import subprocess
 import sys
 import tempfile
 import textwrap
-from datetime import datetime, timezone
 from pathlib import Path
 
-STATES = ("settled", "ruled-out", "open")
+_LIB_DIR = Path(__file__).resolve().parent.parent / "lib"
+if str(_LIB_DIR) not in sys.path:
+    sys.path.insert(0, str(_LIB_DIR))
+
+from docket_ledger import (  # noqa: E402
+    KINDS,
+    STATES,
+    LedgerError,
+    append,
+    graph_payload,
+    make_record,
+    project,
+    read as ledger_read,
+    retired_by,
+)
+
 LEDGER = Path(".docket/ledger.jsonl")
 
 # Honours XDG so the global store can be relocated, and CLAUDE_CONFIG_DIR so an
@@ -147,130 +161,26 @@ def ledger_path(start: Path | None = None) -> Path:
 
 
 def read(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
-    entries = []
-    for n, line in enumerate(path.read_text().splitlines(), 1):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            entries.append(json.loads(line))
-        except json.JSONDecodeError:
-            print(f"docket: skipped malformed line {n}", file=sys.stderr)
-    return entries
+    return ledger_read(path)
 
 
 def next_id(entries: list[dict]) -> str:
-    used = {e.get("id", "") for e in entries}
-    n = len(entries) + 1
-    while f"d{n}" in used:
-        n += 1
-    return f"d{n}"
-
-
-def cmd_add(args: argparse.Namespace) -> int:
-    if args.answer_pos and args.answer_flag:
-        print("docket: give the answer once, not both positionally and as --answer", file=sys.stderr)
-        return 1
-    if not args.answer_pos and not args.answer_flag:
-        print("docket: an answer is required, positionally or via --answer", file=sys.stderr)
-        return 1
-    args.answer = args.answer_pos or args.answer_flag
-
-    path = ledger_path()
-    entries = read(path)
-
-    # Each --because is one conjunctive set; repeating the flag adds an
-    # alternative. Stored as [["d1","d2"], ["d5"]], read as (d1 AND d2) OR d5.
-    because = [
-        [b.strip() for b in group.split(",") if b.strip()]
-        for group in (args.because or [])
-    ]
-    because = [s for s in because if s]
-    supersedes = [s.strip() for s in (args.supersedes or "").split(",") if s.strip()]
-
-    known = {e.get("id") for e in entries}
-    unknown = [b for s in because for b in s if b not in known]
-    unknown += [s for s in supersedes if s not in known]
-    if unknown:
-        print(f"docket: unknown ids: {', '.join(unknown)}", file=sys.stderr)
-        return 1
-
-    entry = {
-        "id": next_id(entries),
-        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "state": args.state,
-        "question": args.question,
-        "answer": args.answer,
-        # Empty means atomic. Each inner list is a complete, independent
-        # justification; the claim survives while any one of them survives.
-        "because": because,
-        # Ids this entry retires. The retired entry keeps its own state field
-        # forever, so this link is the only thing that marks that state stale.
-        "supersedes": supersedes,
-        "cost_if_wrong": args.cost or "",
-        "session": session_id(),
-        "author": resolved_author(),
-        # Captured because the log is append-only. An entry written on a branch
-        # can never learn afterwards which branch it came from.
-        "branch": branch(project_root()),
-    }
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a") as f:
-        f.write(json.dumps(entry) + "\n")
-    print(f"{entry['id']}  {entry['state']}  {entry['question']}")
-    return 0
+    from docket_ledger import next_id as ledger_next_id
+    return ledger_next_id(entries)
 
 
 def justification_sets(e: dict) -> list[list[str]]:
-    """because as alternative sets, reading a legacy flat list as one set.
-
-    Every entry before this change stored because as a flat list of ids,
-    which meant a single conjunctive set. That shape still reads as one set
-    rather than one alternative per id, so old entries do not over-retract
-    into needing every id independently.
-
-    The ledger is append-only, so a line with an unparseable shape can never
-    self-heal. Degrade the way a malformed JSON line already does: warn and
-    skip rather than crash the caller.
-    """
-    b = e.get("because") or []
-    if not b:
-        return []
-    if all(isinstance(x, str) for x in b):
-        return [b]
-    if all(isinstance(s, list) and all(isinstance(x, str) for x in s) for s in b):
-        return b
-    print(f"docket: entry {e.get('id')} has an unparseable because; ignoring it", file=sys.stderr)
-    return []
+    return e.get("supports", [])
 
 
 def retired_by(entries: list[dict]) -> dict[str, str]:
-    """Map each superseded id to the entry that retired it.
-
-    A shape this cannot parse is skipped the way a malformed because is: the
-    log is append-only, so a bad line can never repair itself, and hiding every
-    other entry behind it would be worse than ignoring it.
-    """
-    out: dict[str, str] = {}
-    for e in entries:
-        ids = e.get("supersedes") or []
-        if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids):
-            print(
-                f"docket: entry {e.get('id')} has an unparseable supersedes; ignoring it",
-                file=sys.stderr,
-            )
-            continue
-        for i in ids:
-            out[i] = e.get("id", "")
-    return out
+    """Map each superseded ID to its replacement."""
+    return {target: e["id"] for e in entries for target in e.get("supersedes", [])}
 
 
 def _match(e: dict, term: str) -> bool:
     term = term.lower()
-    return term in e.get("question", "").lower() or term in e.get("answer", "").lower()
+    return term in e.get("text", "").lower() or term in e.get("choice", "").lower()
 
 
 _LIST_ID_W, _LIST_STATE_W = 5, 9
@@ -290,17 +200,73 @@ def _list_dim_tail(line: str, marker: str, use_color: bool) -> str:
     return line[:idx] + _c(_DIM, line[idx:], use_color)
 
 
+def _shared_fields(args: argparse.Namespace) -> dict:
+    from docket_ledger import parse_evidence
+    return {
+        "scope": args.scope or [],
+        "rationale": args.rationale or "",
+        "supports": [[ref.strip() for ref in group.split(",") if ref.strip()] for group in (args.supports or [])],
+        "depends_on": [ref.strip() for ref in (args.depends_on or "").split(",") if ref.strip()],
+        "answers": [ref.strip() for ref in (args.answers or "").split(",") if ref.strip()],
+        "supersedes": [ref.strip() for ref in (args.supersedes or "").split(",") if ref.strip()],
+        "evidence": [parse_evidence(item) for item in (args.evidence or [])],
+        "revisit": args.revisit or "",
+        "cost_if_wrong": args.cost or "",
+        "pinned": bool(args.pin),
+        "author": resolved_author(),
+        "session": session_id(),
+        "branch": branch(project_root()),
+    }
+
+
+def _append_cli(kind: str, args: argparse.Namespace) -> int:
+    try:
+        fields = _shared_fields(args)
+        if kind == "decision":
+            fields.update({"state": args.state, "choice": args.choice, "alternatives": args.alternative or [], "decided_by": args.decided_by})
+        elif kind == "claim":
+            fields["state"] = args.state
+        entry = make_record(kind, args.text, **fields)
+        entry["id"] = ""
+        entry = append(ledger_path(), entry)
+    except (LedgerError, OSError, json.JSONDecodeError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    print(f"{entry['id']}  {entry['state']}  {entry['text']}")
+    return 0
+
+
+def cmd_claim(args: argparse.Namespace) -> int:
+    return _append_cli("claim", args)
+
+
+def cmd_decision(args: argparse.Namespace) -> int:
+    return _append_cli("decision", args)
+
+
+def cmd_question(args: argparse.Namespace) -> int:
+    return _append_cli("question", args)
+
+
 def cmd_list(args: argparse.Namespace) -> int:
-    entries = read(ledger_path())
+    entries = project(read(ledger_path()))
     retired = retired_by(entries)
     if not args.superseded:
         entries = [e for e in entries if e.get("id") not in retired]
     if args.state:
         entries = [e for e in entries if e.get("state") == args.state]
+    if getattr(args, "kind", None):
+        entries = [e for e in entries if e.get("kind") == args.kind]
     if args.find:
         entries = [e for e in entries if _match(e, args.find)]
     if not entries:
+        if getattr(args, "json", False):
+            print("[]")
+            return 0
         print("docket: nothing recorded")
+        return 0
+    if getattr(args, "json", False):
+        print(json.dumps(entries, ensure_ascii=False, indent=2))
         return 0
 
     use_color = False if args.plain else True if args.pretty else _use_color()
@@ -312,7 +278,7 @@ def cmd_list(args: argparse.Namespace) -> int:
             # Truncated, never wrapped: one entry stays one line, which is what
             # makes the mode scannable and pipeable into grep.
             room = max(width - _LIST_ID_W - _LIST_STATE_W - 2, 20)
-            question = textwrap.shorten(e["question"], width=room, placeholder="…")
+            question = textwrap.shorten(e["text"], width=room, placeholder="...")
             print(f"{id_str} {e['state']:<{_LIST_STATE_W}} {question}")
         return 0
 
@@ -326,14 +292,16 @@ def cmd_list(args: argparse.Namespace) -> int:
         state_str = _c(_STATE_COLOR.get(e["state"], _DIM), f"{e['state']:<{_LIST_STATE_W}}", use_color)
 
         avail = max(width - _LIST_HEAD_W, 20)
-        wrapped = textwrap.wrap(e["question"] + dep + gone, width=avail) or [""]
+        wrapped = textwrap.wrap(e["text"] + dep + gone, width=avail) or [""]
         print(f"{id_str} {state_str} " + _list_dim_tail(_list_dim_tail(wrapped[0], "<-", use_color), "(superseded by", use_color))
         for line in wrapped[1:]:
             line = _list_dim_tail(_list_dim_tail(line, "<-", use_color), "(superseded by", use_color)
             print(" " * _LIST_HEAD_W + line)
 
-        for line in textwrap.wrap(e["answer"], width=max(width - 6, 20)) or [""]:
-            print("      " + line)
+        detail = e.get("choice", e.get("rationale", ""))
+        if detail:
+            for line in textwrap.wrap(detail, width=max(width - 6, 20)) or [""]:
+                print("      " + line)
     return 0
 
 
@@ -372,7 +340,11 @@ def _use_glyphs() -> bool:
         return False
 
 
-_STATE_COLOR = {"settled": "2", "ruled-out": "1", "open": "3"}  # green, red, yellow
+_STATE_COLOR = {
+    "accepted": "2", "adopted": "2", "resolved": "2",
+    "rejected": "1", "revoked": "1", "disputed": "1",
+    "unassessed": "3", "open": "3",
+}  # green, red, yellow
 _DIM = "8"
 
 _GRAPH_GLYPHS = {
@@ -404,18 +376,43 @@ def _node_info(e: dict, retired: dict[str, str]) -> dict:
                 supports.append(i)
     return {
         "id": e["id"],
+        "kind": e.get("kind", ""),
         "state": e.get("state", ""),
-        "question": e.get("question", ""),
-        "answer": e.get("answer", ""),
+        "recorded_state": e.get("recorded_state", e.get("state", "")),
+        "question": e.get("text", ""),
+        "answer": e.get("choice", e.get("rationale", "")),
         "cost": e.get("cost_if_wrong", ""),
         "sets": sets,
         "supports": supports,
         "retired_by": retired.get(e["id"], ""),
+        "supersedes": e.get("supersedes", []),
+        "depends_on": e.get("depends_on", []),
+        "answers": e.get("answers", []),
+        "resolved_by": e.get("resolved_by", []),
+        "scope": e.get("scope", []),
+        "rationale": e.get("rationale", ""),
+        "alternatives": e.get("alternatives", []),
+        "evidence": e.get("evidence", []),
+        "revisit": e.get("revisit", ""),
+        "author": e.get("author", ""),
+        "ts": e.get("ts", ""),
+        "branch": e.get("branch", ""),
+        "session": e.get("session", ""),
+        "pinned": e.get("pinned", False),
+        "applicable": e.get("applicable"),
+        "blocked_by": e.get("blocked_by", []),
+        "decided_by": e.get("decided_by", ""),
     }
 
 
 def _formula(sets: list[list[str]]) -> str:
     return " | ".join(",".join(s) for s in sets)
+
+
+def _blocked_text(info: dict) -> str:
+    if info.get("kind") == "decision" and info.get("applicable") is False:
+        return "! blocked by " + (", ".join(info.get("blocked_by", [])) or "prerequisites")
+    return ""
 
 
 def _graph_entries(args: argparse.Namespace) -> tuple[list[dict], dict[str, str]]:
@@ -424,12 +421,14 @@ def _graph_entries(args: argparse.Namespace) -> tuple[list[dict], dict[str, str]
     Unlike cmd_list, retired entries stay in, or the edges a later entry drew
     to them would dangle.
     """
-    entries = read(ledger_path())
+    entries = project(read(ledger_path()))
     retired = retired_by(entries)
     if args.state:
         entries = [e for e in entries if e.get("state") == args.state]
     if args.find:
         entries = [e for e in entries if _match(e, args.find)]
+    if getattr(args, "kind", None):
+        entries = [e for e in entries if e.get("kind") == args.kind]
     return entries, retired
 
 
@@ -457,10 +456,7 @@ def _graph_viewer_error(viewer: Path) -> None:
 
 def _graph_payload(entries: list[dict], retired: dict[str, str]) -> dict:
     """Serialize only the normalized graph model consumed by the Go viewer."""
-    return {
-        "version": 1,
-        "entries": [_node_info(e, retired) for e in entries],
-    }
+    return graph_payload(entries)
 
 
 def _run_graph_viewer(entries: list[dict], retired: dict[str, str], pretty: bool = False) -> int:
@@ -573,6 +569,8 @@ def _forest_lines(nodes: dict[str, dict], roots: list[str], children: dict[str, 
         text += "\n" + info["answer"]
         if info["cost"]:
             text += "\n" + "! cost: " + info["cost"]
+        if _blocked_text(info):
+            text += "\n" + _blocked_text(info)
 
         cont_prefix = "".join(("   " if last else glyphs["vert"] + "  ") for last in ancestor_last)
         avail = max(width - len(prefix) - label_width, 20)
@@ -606,7 +604,8 @@ def _compact_lines(nodes: dict[str, dict], roots: list[str], children: dict[str,
             prefix += glyphs["elbow"] if ancestor_last[-1] else glyphs["tee"]
         label, _ = _label(info, glyphs, use_color)
         retired = f"  {_c(_DIM, glyphs['retired'] + ' retired by ' + info['retired_by'], use_color)}" if info["retired_by"] else ""
-        lines.append(f"{prefix}{label} {info['question']}{retired}")
+        blocked = f"  {_blocked_text(info)}" if _blocked_text(info) else ""
+        lines.append(f"{prefix}{label} {info['question']}{retired}{blocked}")
         kids = sorted(children.get(eid, []), key=_id_num)
         for i, kid in enumerate(kids):
             walk(kid, ancestor_last + [i == len(kids) - 1])
@@ -695,6 +694,8 @@ def _rail_lines(entries_desc: list[dict], nodes: dict[str, dict], glyphs: dict, 
             text += "\n" + _formula(info["sets"])
         if info["retired_by"]:
             text += "\n" + f"{glyphs['retired']} retired by {info['retired_by']}"
+        if _blocked_text(info):
+            text += "\n" + _blocked_text(info)
         wrapped: list[str] = []
         for para in text.split("\n"):
             wrapped.extend(textwrap.wrap(para, width=avail) or [""])
@@ -794,7 +795,7 @@ def cmd_graph(args: argparse.Namespace) -> int:
 
 
 def cmd_show(args: argparse.Namespace) -> int:
-    entries = read(ledger_path())
+    entries = project(read(ledger_path()))
     by_id = {e.get("id"): e for e in entries}
     e = by_id.get(args.id)
     if not e:
@@ -806,7 +807,7 @@ def cmd_show(args: argparse.Namespace) -> int:
         return 0
 
     def cite(i: str) -> str:
-        q = by_id.get(i, {}).get("question")
+        q = by_id.get(i, {}).get("text")
         return f"{i} ({q})" if q else i
 
     width = shutil.get_terminal_size().columns
@@ -818,10 +819,11 @@ def cmd_show(args: argparse.Namespace) -> int:
                                                subsequent_indent=indent) or [f"  {label}:"]):
             print(line)
 
-    for line in textwrap.wrap(f"{e['id']}  {e.get('state', '')}  {e.get('question', '')}",
+    for line in textwrap.wrap(f"{e['id']}  {e.get('kind', '')}  {e.get('state', '')}  {e.get('text', '')}",
                               width=width, subsequent_indent=" " * 15):
         print(line)
-    field("Answer", e.get("answer", ""))
+    field("Choice", e.get("choice", ""))
+    field("Rationale", e.get("rationale", ""))
     sets = justification_sets(e)
     if sets:
         field("Because", " | ".join(", ".join(cite(i) for i in s) for s in sets))
@@ -831,8 +833,17 @@ def cmd_show(args: argparse.Namespace) -> int:
     retired = retired_by(entries)
     if e["id"] in retired:
         field("Superseded by", cite(retired[e["id"]]))
+    if e.get("depends_on"):
+        field("Depends on", ", ".join(cite(i) for i in e["depends_on"]))
+    if e.get("answers"):
+        field("Answers", ", ".join(cite(i) for i in e["answers"]))
+    if e.get("resolved_by"):
+        field("Resolved by", ", ".join(cite(i) for i in e["resolved_by"]))
+    if e.get("decided_by"):
+        field("Decided by", e["decided_by"])
     if e.get("cost_if_wrong"):
         field("Cost if wrong", e["cost_if_wrong"])
+    field("Recorded state", e.get("recorded_state", e.get("state", "")))
     print(f"  Author: {e.get('author', '')}  Session: {e.get('session', '')}  Branch: {e.get('branch', '')}")
     return 0
 
@@ -886,47 +897,23 @@ CONTEXT_ENVELOPES = {
 }
 
 
-def build_context() -> str:
-    """The ledger text `context` injects at session start.
-
-    Empty string for an empty ledger, so a project without one costs no
-    context.
-    """
-    entries = read(ledger_path())
-    if not entries:
-        return ""
-
-    retired = retired_by(entries)
-    entries = [e for e in entries if e.get("id") not in retired]
-
-    settled = [e for e in entries if e.get("state") == "settled"]
-    ruled = [e for e in entries if e.get("state") == "ruled-out"]
-    still_open = [e for e in entries if e.get("state") == "open"]
-
-    me = run_prefix(os.name, sys.executable, str(Path(__file__).resolve()))
-    lines = [
-        "# docket: decisions already made in this project",
-        "",
-        "Treat these as binding. To contradict one, say so explicitly and",
-        "record the reversal. Record decisions by running:",
-        "",
-        f"    {me} add \"question\" --answer \"...\"",
-        "",
-    ]
-    for label, group in (("Settled", settled), ("Ruled out", ruled), ("Open", still_open)):
-        if not group:
-            continue
-        lines.append(f"## {label}")
-        for e in group:
-            lines.append(f"- [{e['id']}] {e['question']} -> {e['answer']}")
-            if e.get("cost_if_wrong"):
-                lines.append(f"  cost if wrong: {e['cost_if_wrong']}")
-        lines.append("")
-    return "\n".join(lines) + "\n"
-
-
 def cmd_context(args: argparse.Namespace) -> int:
-    text = build_context()
+    if args.max_chars < 512:
+        print("docket: --max-chars must be at least 512", file=sys.stderr)
+        return 2
+    from docket_context import build_context as render_context
+    try:
+        text = render_context(
+            project(read(ledger_path())),
+            query=args.query or "",
+            files=tuple(args.file or ()),
+            max_chars=args.max_chars,
+            ledger=str(ledger_path()),
+            all_records=args.all_records,
+        )
+    except (LedgerError, OSError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     if not text:
         return 0
     if args.for_harness:
@@ -937,11 +924,13 @@ def cmd_context(args: argparse.Namespace) -> int:
 
 
 _COMPLETION_FLAGS = (
-    "--state", "--answer", "--because", "--supersedes", "--cost",
-    "--find", "--superseded", "--oneline", "--json", "--plain", "--pretty",
+    "--state", "--choice", "--alternative", "--scope", "--rationale",
+    "--supports", "--depends-on", "--answers", "--supersedes", "--evidence",
+    "--revisit", "--cost", "--pin", "--kind", "--query", "--file", "--max-chars",
+    "--all", "--find", "--superseded", "--oneline", "--json", "--plain", "--pretty",
     "--style", "--interactive", "--no-interactive", "--for", "--version",
 )
-_COMPLETION_CMDS = ("add", "ruled-out", "open", "list", "show", "graph", "context", "where", "init", "completion")
+_COMPLETION_CMDS = ("claim", "decision", "question", "list", "show", "graph", "context", "where", "init", "completion")
 
 _BASH_COMPLETION = f"""\
 _docket() {{
@@ -949,8 +938,8 @@ _docket() {{
     cur="${{COMP_WORDS[COMP_CWORD]}}"
     prev="${{COMP_WORDS[COMP_CWORD-1]}}"
     case "$prev" in
-        --state) COMPREPLY=($(compgen -W "{' '.join(STATES)}" -- "$cur")); return ;;
-        --because|--supersedes|show)
+        --state) COMPREPLY=($(compgen -W "unassessed accepted disputed rejected adopted revoked open resolved" -- "$cur")); return ;;
+        --supports|--depends-on|--answers|--supersedes|show)
             COMPREPLY=($(compgen -W "$(docket list --oneline 2>/dev/null | awk '{{print $1}}')" -- "$cur")); return ;;
         completion) COMPREPLY=($(compgen -W "bash zsh fish" -- "$cur")); return ;;
     esac
@@ -978,11 +967,14 @@ _arguments -C \\
 case $words[1] in
     show) _docket_ids ;;
     completion) _values 'shell' bash zsh fish ;;
-    add|ruled-out|open)
+    claim|decision|question)
         _arguments \\
-            '--state[decision state]:state:({' '.join(STATES)})' \\
-            '--answer[answer text]:answer:' \\
-            '--because[supporting ids]:id:_docket_ids' \\
+            '--state[state]:state:(unassessed accepted disputed rejected adopted revoked open resolved)' \\
+            '--choice[decision choice]:choice:' \\
+            '--alternative[decision alternative]:alternative:' \\
+            '--supports[supporting ids]:id:_docket_ids' \\
+            '--depends-on[decision prerequisites]:id:_docket_ids' \\
+            '--answers[question ids]:id:_docket_ids' \\
             '--supersedes[retired ids]:id:_docket_ids' \\
             '--cost[cost if wrong]:cost:'
         ;;
@@ -993,9 +985,9 @@ _FISH_COMPLETION = f"""\
 set -l docket_cmds {' '.join(_COMPLETION_CMDS)}
 complete -c docket -n "not __fish_seen_subcommand_from $docket_cmds" -a "$docket_cmds"
 complete -c docket -n "__fish_seen_subcommand_from show" -a "(docket list --oneline 2>/dev/null | awk '{{print \\$1}}')"
-complete -c docket -n "__fish_seen_subcommand_from add ruled-out open" -l because -a "(docket list --oneline 2>/dev/null | awk '{{print \\$1}}')"
-complete -c docket -n "__fish_seen_subcommand_from add ruled-out open" -l supersedes -a "(docket list --oneline 2>/dev/null | awk '{{print \\$1}}')"
-complete -c docket -n "__fish_seen_subcommand_from add" -l state -a "{' '.join(STATES)}"
+complete -c docket -n "__fish_seen_subcommand_from claim decision question" -l supports -a "(docket list --oneline 2>/dev/null | awk '{{print \\$1}}')"
+complete -c docket -n "__fish_seen_subcommand_from claim decision question" -l supersedes -a "(docket list --oneline 2>/dev/null | awk '{{print \\$1}}')"
+complete -c docket -n "__fish_seen_subcommand_from claim decision" -l state -a "unassessed accepted disputed rejected adopted revoked"
 complete -c docket -n "__fish_seen_subcommand_from completion" -a "bash zsh fish"
 """
 
@@ -1007,56 +999,67 @@ def cmd_completion(args: argparse.Namespace) -> int:
     return 0
 
 
-def _add_decision_args(p: argparse.ArgumentParser) -> None:
-    p.add_argument("question")
-    p.add_argument("answer_pos", metavar="answer", nargs="?", help="the answer text")
-    p.add_argument("--answer", dest="answer_flag", help="the answer text, alternative to the positional")
-    p.add_argument(
-        "--because", action="append",
-        help="comma-separated ids this depends on; repeat for an alternative support set",
-    )
-    p.add_argument("--supersedes", help="comma-separated ids this entry retires")
-    p.add_argument("--cost", help="what breaks if this is later reversed")
-    p.set_defaults(func=cmd_add)
+def _add_shared_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--scope", action="append", default=[])
+    p.add_argument("--rationale", default="")
+    p.add_argument("--supports", action="append", default=[], metavar="CSV")
+    p.add_argument("--depends-on", default="", metavar="CSV")
+    p.add_argument("--answers", default="", metavar="CSV")
+    p.add_argument("--supersedes", default="", metavar="CSV")
+    p.add_argument("--evidence", action="append", default=[])
+    p.add_argument("--revisit", default="")
+    p.add_argument("--cost", default="")
+    p.add_argument("--pin", action="store_true")
 
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="docket",
-        description="Record project decisions, rejected options, and open questions.",
+        description="Record typed claims, decisions, and open questions.",
         add_help=False,
     )
     p.add_argument("-h", "--help", action=HelpAction, nargs=0, help="show this help and exit")
     p.add_argument("--version", action=VersionAction, nargs=0, help="print the release and exit")
     sub = p.add_subparsers(dest="cmd")
 
-    a = sub.add_parser("add", help="record a decision")
-    _add_decision_args(a)
-    a.add_argument("--state", choices=STATES, default="settled")
+    cl = sub.add_parser("claim", help="record a proposition")
+    cl.add_argument("text")
+    cl.add_argument("--state", choices=STATES["claim"], default="unassessed")
+    _add_shared_args(cl)
+    cl.set_defaults(func=cmd_claim)
 
-    ro = sub.add_parser("ruled-out", help="record a rejected decision")
-    _add_decision_args(ro)
-    ro.set_defaults(state="ruled-out")
+    dec = sub.add_parser("decision", help="record a commitment")
+    dec.add_argument("text", metavar="QUESTION")
+    dec.add_argument("--choice", required=True)
+    dec.add_argument("--alternative", action="append", default=[])
+    dec.add_argument("--state", choices=STATES["decision"], default="adopted")
+    dec.add_argument("--decided-by", default="")
+    _add_shared_args(dec)
+    dec.set_defaults(func=cmd_decision)
 
-    op = sub.add_parser("open", help="record a question with no answer yet")
-    _add_decision_args(op)
-    op.set_defaults(state="open")
+    qu = sub.add_parser("question", help="record an unresolved inquiry")
+    qu.add_argument("text")
+    _add_shared_args(qu)
+    qu.set_defaults(func=cmd_question)
 
-    ls = sub.add_parser("list", help="list decisions")
-    ls.add_argument("--state", choices=STATES)
+    ls = sub.add_parser("list", help="list records")
+    ls.add_argument("--kind", choices=KINDS)
+    ls.add_argument("--state", choices=tuple(sorted({state for values in STATES.values() for state in values})))
     ls.add_argument("--find", help="match question or answer text")
     ls.add_argument(
         "--superseded", action="store_true",
         help="include entries a later decision retired",
     )
     ls.add_argument("--oneline", action="store_true", help="one line per entry, no answer")
+    ls.add_argument("--json", action="store_true", help="print projected records as JSON")
     ls.add_argument("--plain", action="store_true", help="force colour off")
     ls.add_argument("--pretty", action="store_true", help="force colour on, e.g. piping to less -R")
     ls.set_defaults(func=cmd_list)
 
     gr = sub.add_parser("graph", help="browse decision support relationships")
     gr.add_argument("--style", choices=("forest", "rail", "compact"))
-    gr.add_argument("--state", choices=STATES)
+    gr.add_argument("--kind", choices=KINDS)
+    gr.add_argument("--state", choices=tuple(sorted({state for values in STATES.values() for state in values})))
     gr.add_argument("--find", help="match question or answer text")
     gr.add_argument("--plain", action="store_true", help="force colour off")
     gr.add_argument("--pretty", action="store_true", help="force colour on, e.g. piping to less -R")
@@ -1075,6 +1078,10 @@ def main(argv: list[str] | None = None) -> int:
         "--for", dest="for_harness", choices=sorted(CONTEXT_ENVELOPES),
         help="wrap the ledger text in this harness's own hook envelope",
     )
+    ctx.add_argument("--query", default="")
+    ctx.add_argument("--file", action="append", default=[])
+    ctx.add_argument("--max-chars", type=int, default=8000)
+    ctx.add_argument("--all", dest="all_records", action="store_true")
     ctx.set_defaults(func=cmd_context)
 
     wh = sub.add_parser("where", help="print which ledger file is in use")
@@ -1097,7 +1104,11 @@ def main(argv: list[str] | None = None) -> int:
             p.error("graph --interactive conflicts with --plain")
         if args.style is not None:
             p.error("graph --interactive conflicts with --style")
-    return args.func(args)
+    try:
+        return args.func(args)
+    except (LedgerError, OSError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

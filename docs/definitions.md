@@ -117,6 +117,11 @@ Retain a reasoned claim while one complete justification set survives. Retract
 the claim when no complete justification set survives. Retain other atomic
 claims unless the work withdraws them explicitly.
 
+This `j` relation is the formal outcome model. It is not the schema 2
+`supports` field and it does not describe an automatic runtime retraction rule.
+Implemented `supports` records declared grounds, can target a claim or a
+decision, and carries no entailment or automatic truth-maintenance behavior.
+
 Treating atomic claims as self-evident is foundationalism. It is an assumption,
 not a result. The regress it answers is real: every reasoned claim needs support,
 that support needs support, and the chain terminates, loops, or continues without
@@ -168,20 +173,87 @@ section computes correctly and the composition does not.
 
 ## Ledger states
 
-The implementation records three states for a decision.
+Schema 2 has three record types. Type answers what a line is; state answers what
+was recorded about that type; currentness answers whether the line remains in the
+current view. These dimensions are independent.
 
-- **settled** - The decision applies to later work.
-- **ruled-out** - The work rejected this option.
-- **open** - The question does not have an answer.
+**Claim.** A proposition represented by `text`. Its recorded state is
+`unassessed`, `accepted`, `disputed`, or `rejected`. Acceptance is a workflow
+judgment. It does not establish truth, validate its evidence, or propagate truth
+to another claim.
 
-The proposed action gate maps these states to `allow`, `deny`, and `ask`. The
-current ledger does not enforce this mapping.
+**Decision.** A commitment represented by `text` and a required `choice` from
+`alternatives`. Its recorded state is `adopted` or `revoked`. An adopted
+decision is a commitment available to later work, not a claim that the choice is
+correct.
 
-**Supersession.** An entry keeps its recorded state because the log is
-append-only. A later entry can name the IDs that it retires.
+**Question.** An unresolved inquiry represented by `text`. Its recorded state is
+always `open`. A current accepted claim or applicable adopted decision can
+resolve a question through an `answers` link in the derived view. The original
+question line and recorded state remain unchanged.
 
-A retired entry remains in the history but is no longer current. State records
-the decision. Supersession records whether the decision remains current.
+**Recorded state.** The state written on the append-only line. It is preserved
+when another record supersedes that line.
+
+**Effective state.** The state shown by a derived view after applying
+supersession, applicability, and question-resolution rules. A view exposes both
+recorded and effective state when they differ. A decision may remain recorded as
+`adopted` while being blocked by an unavailable prerequisite; a blocked decision
+does not resolve a question.
+
+**Currentness.** A record is current when no later same-kind record supersedes
+it. A retired record remains retrievable history. Its `retired_by` field names
+the record that retired it. Retiring a replacement does not revive its
+predecessor.
+
+**Supersession.** A later record names same-kind IDs in `supersedes`. This
+retires those records permanently in derived current views without deleting or
+rewriting their history. Supersession does not revoke dependents automatically.
+
+The action gate described in the research documents is future behavior. The
+ledger records typed states and relationships; it does not enforce an
+`allow`/`deny`/`ask` mapping.
+
+An adopted decision is **applicable** when its `depends_on` claims are accepted
+and current and its `depends_on` decisions are adopted, current, and themselves
+applicable. Otherwise a derived view exposes the unavailable prerequisite IDs
+in `blocked_by`. This is a derived usability result. It does not revoke the
+recorded choice or propagate truth.
+
+## Record fields and relationships
+
+Every schema 2 record contains `schema`, `kind`, `id`, `text`, `state`, `ts`,
+`author`, `session`, and `branch`. IDs use `c`, `d`, or `q` followed by a
+positive integer. Allocation uses the next global sequence across all types.
+
+The common optional fields are `scope`, `rationale`, `supports`, `depends_on`,
+`answers`, `supersedes`, `evidence`, `revisit`, `cost_if_wrong`, and `pinned`.
+They have empty defaults, except `pinned`, which defaults to false. Decisions
+also have `choice` and `alternatives`.
+
+`supports` stores declared grounds as a list of nonempty ID lists. IDs in one
+inner list are conjunctive AND requirements. Inner lists are alternative OR
+sets. For example, `[["c1", "c2"], ["c3"]]` means `(c1 AND c2) OR c3`.
+The relation is a recorded support formula, not a verified logical implication.
+Support targets are claims or decisions. Docket does not automatically
+propagate state or enumerate transitive support sets.
+
+`depends_on` is a separate operational relation. Only decisions may use it;
+its targets are claims or decisions. It records prerequisites for using a
+commitment and never means an alternative justification. Do not collapse it
+into `supports`.
+
+`answers` links a current claim or decision to an earlier question. Only claims
+and decisions may answer questions. `evidence` contains objects with a required
+nonempty `ref` and optional `checked_at` and `commit` strings. Evidence records
+provenance supplied by the recorder. It does not claim that the reference was
+freshly checked. `revisit` and `cost_if_wrong` record conditions and consequences
+for human review.
+
+All relations refer to earlier existing records. The validator rejects unknown
+IDs, self-links, duplicate IDs, invalid shapes, invalid states, and invalid
+cross-type relations. History and recorded state remain available; current and
+resolved views are derived.
 
 ## Terms deliberately not defined here
 

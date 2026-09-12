@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "docket",
-      "description": "Records decisions as settled, ruled out, or open, and loads them at session start so later work cannot silently contradict them.",
+      "description": "Records claims, decisions, and questions with supporting evidence and scoped context for later work.",
       "source": "./",
       "category": "productivity"
     }

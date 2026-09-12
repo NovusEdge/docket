@@ -28,7 +28,9 @@ jobs:
         with:
           python-version: "3.10"
       - name: Test ledger CLI
-        run: python3 tests/test_docket.py
+        run: |
+          python3 tests/test_docket.py
+          python3 -m unittest discover -s tests -p 'test_*.py'
       - name: Test installer Python helpers
         run: python3 -m unittest discover -s installer -p 'test_*.py'
       - name: Test and vet installer

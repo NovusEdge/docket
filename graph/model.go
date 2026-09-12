@@ -21,14 +21,40 @@ type GraphData struct {
 }
 
 type Entry struct {
-	ID        string     `json:"id"`
-	State     string     `json:"state"`
-	Question  string     `json:"question"`
-	Answer    string     `json:"answer"`
-	Cost      string     `json:"cost"`
-	Sets      [][]string `json:"sets"`
-	Supports  []string   `json:"supports"`
-	RetiredBy string     `json:"retired_by"`
+	ID            string     `json:"id"`
+	Kind          string     `json:"kind"`
+	State         string     `json:"state"`
+	RecordedState string     `json:"recorded_state"`
+	Question      string     `json:"question"`
+	Answer        string     `json:"answer"`
+	Choice        string     `json:"choice"`
+	Cost          string     `json:"cost"`
+	Sets          [][]string `json:"sets"`
+	Supports      []string   `json:"supports"`
+	DependsOn     []string   `json:"depends_on"`
+	Answers       []string   `json:"answers"`
+	Supersedes    []string   `json:"supersedes"`
+	RetiredBy     string     `json:"retired_by"`
+	ResolvedBy    []string   `json:"resolved_by"`
+	Applicable    bool       `json:"applicable"`
+	BlockedBy     []string   `json:"blocked_by"`
+	DecidedBy     string     `json:"decided_by"`
+	Scope         []string   `json:"scope"`
+	Rationale     string     `json:"rationale"`
+	Alternatives  []string   `json:"alternatives"`
+	Evidence      []Evidence `json:"evidence"`
+	Revisit       string     `json:"revisit"`
+	Author        string     `json:"author"`
+	TS            string     `json:"ts"`
+	Branch        string     `json:"branch"`
+	Session       string     `json:"session"`
+	Pinned        bool       `json:"pinned"`
+}
+
+type Evidence struct {
+	Ref       string `json:"ref"`
+	CheckedAt string `json:"checked_at"`
+	Commit    string `json:"commit"`
 }
 
 type graphRow struct {
@@ -203,7 +229,22 @@ func (m model) visibleRows() []graphRow {
 func (m model) matches(id string) bool {
 	e := m.entries[id]
 	needle := strings.ToLower(m.query)
-	for _, value := range []string{e.ID, e.State, e.Question, e.Answer, e.Cost} {
+	values := []string{e.ID, e.Kind, e.State, e.RecordedState, e.Question, e.Answer, e.Choice, e.Cost, e.Rationale, e.Revisit, e.Author, e.DecidedBy, e.TS, e.Branch, e.Session, e.RetiredBy}
+	values = append(values, e.Scope...)
+	values = append(values, e.Alternatives...)
+	values = append(values, e.Supports...)
+	values = append(values, e.DependsOn...)
+	values = append(values, e.Answers...)
+	values = append(values, e.Supersedes...)
+	values = append(values, e.ResolvedBy...)
+	values = append(values, e.BlockedBy...)
+	for _, set := range e.Sets {
+		values = append(values, set...)
+	}
+	for _, evidence := range e.Evidence {
+		values = append(values, evidence.Ref, evidence.CheckedAt, evidence.Commit)
+	}
+	for _, value := range values {
 		if strings.Contains(strings.ToLower(sanitize(value)), needle) {
 			return true
 		}
@@ -237,21 +278,70 @@ func (m model) detailText(id string) string {
 		return "No entry selected"
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s  %s\n", sanitize(e.ID), sanitize(stateLabel(e.State)))
-	if e.Question != "" {
-		fmt.Fprintf(&b, "Question\n%s\n", sanitize(e.Question))
+	effective := overviewState(e)
+	kind := e.Kind
+	if kind == "" {
+		kind = "record"
 	}
-	if e.Answer != "" {
-		fmt.Fprintf(&b, "Answer\n%s\n", sanitize(e.Answer))
+	fmt.Fprintf(&b, "%s  %s  %s\n", sanitize(e.ID), sanitize(kindLabel(kind)), sanitize(stateLabel(effective)))
+	recorded := e.RecordedState
+	if recorded == "" {
+		recorded = e.State
+	}
+	if recorded != "" {
+		fmt.Fprintf(&b, "Recorded state\n%s\n", sanitize(stateLabel(recorded)))
+	}
+	if e.Question != "" {
+		fmt.Fprintf(&b, "Text\n%s\n", sanitize(e.Question))
+	}
+	if strings.EqualFold(e.Kind, "decision") {
+		choice := e.Choice
+		if choice == "" {
+			choice = e.Answer
+		}
+		if choice != "" {
+			fmt.Fprintf(&b, "Choice\n%s\n", sanitize(choice))
+		}
+		if e.Rationale != "" {
+			fmt.Fprintf(&b, "Rationale\n%s\n", sanitize(e.Rationale))
+		}
+	} else if e.Rationale != "" || e.Answer != "" {
+		rationale := e.Rationale
+		if rationale == "" {
+			rationale = e.Answer
+		}
+		fmt.Fprintf(&b, "Rationale\n%s\n", sanitize(rationale))
 	}
 	if e.Cost != "" {
 		fmt.Fprintf(&b, "Cost\n%s\n", sanitize(e.Cost))
+	}
+	if len(e.Scope) > 0 {
+		fmt.Fprintf(&b, "Scope\n%s\n", strings.Join(sanitizeList(e.Scope), ", "))
+	}
+	if len(e.Alternatives) > 0 {
+		fmt.Fprintf(&b, "Alternatives\n%s\n", strings.Join(sanitizeList(e.Alternatives), ", "))
+	}
+	if strings.EqualFold(e.Kind, "decision") {
+		fmt.Fprintf(&b, "Applicable\n%t\n", e.Applicable)
+		if strings.EqualFold(overviewState(e), "adopted") {
+			condition := "blocked"
+			if e.Applicable {
+				condition = "applicable"
+			}
+			fmt.Fprintf(&b, "Condition\n%s\n", condition)
+		}
+		if len(e.BlockedBy) > 0 {
+			fmt.Fprintf(&b, "Blocked by\n%s\n", strings.Join(sanitizeList(e.BlockedBy), ", "))
+		}
+		if e.DecidedBy != "" {
+			fmt.Fprintf(&b, "Decided by\n%s\n", sanitize(e.DecidedBy))
+		}
 	}
 	b.WriteString("Tree: first-support tree projection\n")
 	if len(e.Sets) == 0 && len(e.Supports) == 0 {
 		b.WriteString("Supports: none\n")
 	} else if len(e.Sets) > 0 {
-		b.WriteString("Justification sets (AND within, OR between)\n")
+		b.WriteString("Supports (AND within, OR between)\n")
 		for i, set := range e.Sets {
 			if len(set) == 0 {
 				fmt.Fprintf(&b, "  Set %d: (root)\n", i+1)
@@ -264,10 +354,55 @@ func (m model) detailText(id string) string {
 			fmt.Fprintf(&b, "  Set %d: %s\n", i+1, strings.Join(ids, " AND "))
 		}
 	} else {
-		fmt.Fprintf(&b, "Supports: %s\n", strings.Join(sanitizeList(e.Supports), ", "))
+		fmt.Fprintf(&b, "Supports\n%s\n", strings.Join(sanitizeList(e.Supports), ", "))
+	}
+	if len(e.Supports) > 0 && len(e.Sets) > 0 {
+		fmt.Fprintf(&b, "Supports union\n%s\n", strings.Join(sanitizeList(e.Supports), ", "))
+	}
+	if len(e.DependsOn) > 0 {
+		fmt.Fprintf(&b, "Depends on\n%s\n", strings.Join(sanitizeList(e.DependsOn), ", "))
+	}
+	if len(e.Answers) > 0 {
+		fmt.Fprintf(&b, "Answers\n%s\n", strings.Join(sanitizeList(e.Answers), ", "))
+	}
+	if len(e.ResolvedBy) > 0 {
+		fmt.Fprintf(&b, "Resolved by\n%s\n", strings.Join(sanitizeList(e.ResolvedBy), ", "))
+	}
+	if len(e.Supersedes) > 0 {
+		fmt.Fprintf(&b, "Supersedes\n%s\n", strings.Join(sanitizeList(e.Supersedes), ", "))
 	}
 	if e.RetiredBy != "" {
 		fmt.Fprintf(&b, "retired by %s\n", sanitize(e.RetiredBy))
+	}
+	if len(e.Evidence) > 0 {
+		b.WriteString("Evidence\n")
+		for _, evidence := range e.Evidence {
+			fmt.Fprintf(&b, "  %s\n", sanitize(evidence.Ref))
+			if evidence.CheckedAt != "" {
+				fmt.Fprintf(&b, "    Checked at: %s\n", sanitize(evidence.CheckedAt))
+			}
+			if evidence.Commit != "" {
+				fmt.Fprintf(&b, "    Commit: %s\n", sanitize(evidence.Commit))
+			}
+		}
+	}
+	if e.Revisit != "" {
+		fmt.Fprintf(&b, "Revisit\n%s\n", sanitize(e.Revisit))
+	}
+	if e.Author != "" {
+		fmt.Fprintf(&b, "Author\n%s\n", sanitize(e.Author))
+	}
+	if e.TS != "" {
+		fmt.Fprintf(&b, "Timestamp\n%s\n", sanitize(e.TS))
+	}
+	if e.Branch != "" {
+		fmt.Fprintf(&b, "Branch\n%s\n", sanitize(e.Branch))
+	}
+	if e.Session != "" {
+		fmt.Fprintf(&b, "Session\n%s\n", sanitize(e.Session))
+	}
+	if e.Pinned {
+		b.WriteString("Pinned\ntrue\n")
 	}
 	return strings.TrimSpace(b.String())
 }
@@ -416,7 +551,7 @@ func (m model) View() tea.View {
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#D7A86E"))
 	selectedStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F4D7A1")).Background(lipgloss.Color("#3A2F26"))
 	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#7F8C98"))
-	leftLines := []string{m.paint(titleStyle, fitLine("DECISION GRAPH", leftWidth))}
+	leftLines := []string{m.paint(titleStyle, fitLine("LEDGER GRAPH", leftWidth))}
 	if m.searching {
 		searchView := m.searchInput.View()
 		if !m.pretty {
@@ -465,13 +600,27 @@ func (m model) View() tea.View {
 		}
 		label := prefix + mark + " " + sanitize(row.id)
 		selectedRow := i == m.selected && !m.detailFocus
-		if e.State != "" || e.RetiredBy != "" {
+		if e.Kind != "" || overviewState(e) != "" {
 			displayState := overviewState(e)
+			condition := decisionCondition(e)
+			styleState := displayState
+			if condition == "blocked" {
+				styleState = "blocked"
+			}
 			state := sanitize(stateLabel(displayState))
 			if !selectedRow {
-				state = m.paint(m.stateStyle(displayState), state)
+				state = m.paint(m.stateStyle(styleState), state)
 			}
-			label += "  [" + state + "]"
+			kind := sanitize(kindLabel(e.Kind))
+			if kind != "" {
+				label += "  [" + kind + "] [" + state
+				if condition != "" {
+					label += ", " + condition
+				}
+				label += "]"
+			} else {
+				label += "  [" + state + "]"
+			}
 		}
 		if e.Question != "" {
 			label += "  " + sanitize(e.Question)
@@ -598,11 +747,13 @@ func (m model) paint(style lipgloss.Style, value string) string {
 
 func (m model) stateStyle(state string) lipgloss.Style {
 	switch strings.ToLower(state) {
-	case "settled":
+	case "settled", "accepted", "adopted", "resolved":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("#7FB069"))
-	case "open", "pending":
+	case "open", "pending", "unassessed":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("#D7A86E"))
-	case "ruled-out", "ruled_out", "retired":
+	case "blocked":
+		return lipgloss.NewStyle().Foreground(lipgloss.Color("#7F8C98"))
+	case "ruled-out", "ruled_out", "rejected", "disputed", "revoked", "retired":
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("#B56B6B"))
 	default:
 		return lipgloss.NewStyle().Foreground(lipgloss.Color("#9AA5B1"))
@@ -639,6 +790,8 @@ func stateLabel(state string) string {
 		return "settled"
 	case "ruled-out", "ruled_out":
 		return "ruled out"
+	case "recorded":
+		return "recorded"
 	case "retired":
 		return "retired"
 	default:
@@ -650,7 +803,33 @@ func overviewState(entry Entry) string {
 	if entry.RetiredBy != "" {
 		return "retired"
 	}
-	return entry.State
+	if entry.State != "" {
+		return entry.State
+	}
+	return entry.RecordedState
+}
+
+func decisionCondition(entry Entry) string {
+	if !strings.EqualFold(entry.Kind, "decision") || !strings.EqualFold(overviewState(entry), "adopted") {
+		return ""
+	}
+	if entry.Applicable {
+		return "applicable"
+	}
+	return "blocked"
+}
+
+func kindLabel(kind string) string {
+	switch strings.ToLower(kind) {
+	case "claim":
+		return "claim"
+	case "decision":
+		return "decision"
+	case "question":
+		return "question"
+	default:
+		return kind
+	}
 }
 
 func max(a, b int) int {

@@ -15,22 +15,45 @@ claim. The dependency graph is the part that summarization discards.
 
 ## Current system
 
-Docket stores an append-only decision ledger. Each entry has a `settled`,
-`ruled-out`, or `open` state.
+Docket 0.8.0 stores schema 2 records in an append-only JSONL ledger. A record is
+one of three types:
 
-An entry can record alternative support sets in `because`. A later entry can use
-`supersedes` to retire an earlier entry.
+- A **claim** is a proposition with state `unassessed`, `accepted`, `disputed`,
+  or `rejected`.
+- A **decision** is a commitment to a required `choice`, with state `adopted` or
+  `revoked`.
+- A **question** is an unresolved inquiry, with recorded state `open`; an
+  answer can give it effective state `resolved` in the derived view.
 
-The session hook loads current entries when an agent session starts. Docket keeps
-retired entries in the history and omits them from normal views.
+Type, recorded state, and currentness are separate. An accepted claim is a
+workflow judgment, not proof that the proposition is true. A superseded record
+keeps its recorded state and history while leaving the current view. A current
+accepted claim or adopted decision can resolve a question through an `answers`
+link without rewriting the question line.
 
-The current command does not retract dependent entries automatically. A person or
-agent must review each entry that depends on a retired entry.
+Claims and decisions may declare `supports` as complete AND sets with OR
+alternatives. For example, `[["c1", "c2"], ["c3"]]` means `(c1 AND c2) OR
+c3`. A decision may also declare `depends_on` prerequisites. This operational
+relation is separate from support and has no OR interpretation.
+
+The session hook loads a bounded context briefing. At startup it ranks pinned
+records first. For a task query, matching task text and scope take priority over
+unrelated pins. It then includes bounded related
+support, dependency, and answer records. It reports omitted records and keeps
+whole record blocks within an explicit character budget. Evidence references,
+checked timestamps, commits, revisit conditions, and costs are provenance and
+review data. Docket does not report that evidence was freshly verified.
+
+The command does not retract dependent records automatically. A person or agent
+must review decisions whose prerequisites or support records become unusable.
+An adopted decision with unavailable `depends_on` prerequisites remains adopted
+in the ledger but is derived as blocked and cannot resolve a question.
 
 ## Target system
 
-The target system adds a decision graph and a deterministic graph walker. It also
-adds automatic dependency retraction, outcome tracking, and an action gate.
+The typed graph and deterministic context walker are the 0.8.0 foundation. The
+target system still proposes outcome tracking and an action gate, but those are
+separate future features.
 
 Reversibility sets the proposed threshold for human review. A low-cost mistake can
 continue with a recorded decision. An irreversible or shared change waits for a
@@ -164,7 +187,11 @@ must identify measured agent systems that use a complete JTMS.
 
 Holding a claim while any one of several justifications survives is the
 assumption-based variant (de Kleer 1986). Its label for a node is a set of
-environments, which is the shape `because` takes here.
+environments, which is the shape Docket's `supports` field takes here.
+
+The formal justification relation and the runtime field have different
+contracts. `supports` records declared grounds for claims or decisions. It does
+not entail its target, retract dependents, or propagate truth automatically.
 
 DMN-Guided Prompting (Springer 2025) uses DMN structure to decompose decisions
 into questions for an LLM. Do not claim this decomposition as novel.
