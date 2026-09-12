@@ -1,4 +1,6 @@
 .docket/
+# The harness creates agent worktrees here.
+.claude/worktrees/
 .superpowers/
 superpowers/
 __pycache__/

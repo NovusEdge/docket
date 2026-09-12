@@ -938,7 +938,11 @@ def auto_scope_files(limit: int = _AUTO_SCOPE_LIMIT) -> tuple[str, ...]:
             groups.append([])
             continue
         text = done.stdout.decode("utf-8", errors="surrogateescape")
-        groups.append([path for path in text.split("\0") if path])
+        # git collapses an untracked nested repository to a directory entry
+        # with a trailing slash. A scope matches files, so such an entry can
+        # never match and would spend a slot in the cap.
+        groups.append([path for path in text.split("\0")
+                       if path and not path.endswith("/")])
 
     # Interleave the two sources. Taking the head of a concatenated list let a
     # branch with more than `limit` modified files starve every untracked one,
