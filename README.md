@@ -95,6 +95,7 @@ records, reports what was omitted, and includes a command to retrieve more.
 - [Definitions](docs/definitions.md): what claims, decisions, and questions mean.
 - [Decision chains](docs/decision-chains.md): the reasoning behind the model.
 - [Agent context goals](docs/agent-context-goals.md): future directions for compact briefings, retrieval, and evaluation.
+- [Changelog](CHANGELOG.md): what changed in each release.
 
 **Upgrading from before 0.8?** The ledger format and commands changed.
 Follow the [migration guide](docs/ledger.md#explicit-migration-from-schema-1)
