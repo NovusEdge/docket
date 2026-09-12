@@ -375,6 +375,16 @@ class ContextTests(unittest.TestCase):
         self.assertGreater(build_context(history, files=("area1/x.py",),
                                          ledger="repo").count("### "), 20)
 
+    def test_a_long_file_scope_is_identified_by_digest(self):
+        records = [entry("c1", "claim", "A premise", state="accepted")]
+        many = tuple(f"src/module_{n}/file.py" for n in range(20))
+        rendered = build_context(projected(records), files=many, ledger="repo")
+        self.assertRegex(rendered, r"# files: 20 paths, [0-9a-f]{8}: ")
+        same = build_context(projected(records), files=many, ledger="repo")
+        other = build_context(projected(records), files=many[:-1], ledger="repo")
+        self.assertEqual(rendered, same)
+        self.assertNotEqual(rendered, other)
+
     def test_an_explicit_query_outranks_a_file_scope(self):
         records = [
             entry("d1", "decision", "Unrelated renderer decision", choice="x",

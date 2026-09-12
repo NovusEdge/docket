@@ -321,7 +321,14 @@ def _header(
     if query.strip():
         lines.append(f"# query: {_clip_metadata(query, 140)}")
     if files:
-        lines.append(f"# files: {_clip_metadata(', '.join(files), 180)}")
+        joined = ", ".join(files)
+        if len(joined) <= 180:
+            lines.append(f"# files: {joined}")
+        else:
+            # Clipping alone loses the inputs, and the briefing must be
+            # reproducible from its own header.
+            digest = hashlib.sha256("\0".join(files).encode("utf-8")).hexdigest()[:8]
+            lines.append(f"# files: {len(files)} paths, {digest}: {_clip_metadata(joined, 150)}")
     if all_records:
         lines.append("# selection: all current records")
     elif query.strip() or files:
