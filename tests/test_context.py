@@ -1,5 +1,6 @@
-import unittest
 import re
+import sys
+import unittest
 
 from lib.docket_context import build_context, _term_weights, _blocking_paths
 from lib.docket_ledger import make_record, project
@@ -480,6 +481,29 @@ class ContextTests(unittest.TestCase):
         rendered = build_context(projected(records), files=("lib/cache.py",),
                                  ledger="repo", max_chars=2200)
         self.assertIn("# Coverage: partial, 1 in the index only", rendered)
+
+
+class GoldenBriefingTests(unittest.TestCase):
+    """Byte-for-byte output, so the budget gate can be rewritten safely.
+
+    tests/golden/regenerate.py rebuilds the file. Regenerate it only when a
+    change is meant to alter what a briefing says.
+    """
+
+    def test_briefings_match_the_recorded_output(self):
+        import json
+        from pathlib import Path
+
+        sys.path.insert(0, str(Path(__file__).parent / "golden"))
+        import regenerate
+
+        expected = json.loads(
+            (Path(__file__).parent / "golden" / "context_snapshots.json").read_text())
+        actual = regenerate.snapshots()
+        self.assertEqual(sorted(actual), sorted(expected))
+        for key in sorted(expected):
+            with self.subTest(case=key):
+                self.assertEqual(actual[key], expected[key])
 
 
 class IndexAllowanceTests(unittest.TestCase):

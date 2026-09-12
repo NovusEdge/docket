@@ -446,7 +446,9 @@ def project(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     applicability, blocked = _decision_applicability(entries, retired)
     result = []
     for entry in entries:
-        projected = copy.deepcopy(entry)
+        # validate_entries already returned copies, and that list is local to
+        # this call, so sharing the nested values with it harms no caller.
+        projected = dict(entry)
         projected["recorded_state"] = entry["state"]
         if entry["kind"] == "question" and answers[entry["id"]]:
             projected["state"] = "resolved"

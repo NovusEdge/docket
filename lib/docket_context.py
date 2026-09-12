@@ -238,13 +238,20 @@ def _blocking_paths(
     ident: str,
     by_id: Mapping[str, Mapping[str, Any]],
     depth: int = 8,
+    cache: dict[str, list[list[str]]] | None = None,
 ) -> list[list[str]]:
     """Each path of prerequisites from a decision to an unavailable record.
 
     The projection flattens prerequisites: `_decision_applicability` collects
     `[dependency, *reasons]` into one list, so `blocked_by` cannot tell a
     two-step chain from two direct prerequisites.
+
+    The result is fixed for the whole build, so ``cache`` lets one briefing
+    share it across the budget trial that renders a record many times.
     """
+
+    if cache is not None and ident in cache:
+        return cache[ident]
 
     paths: list[list[str]] = []
 
@@ -267,6 +274,8 @@ def _blocking_paths(
                 paths.append(list(step[1:]))
 
     walk(ident, (ident,))
+    if cache is not None:
+        cache[ident] = paths
     return paths
 
 
@@ -327,6 +336,7 @@ def _render_record(
     relation: str,
     reason: str = "",
     by_id: Mapping[str, Mapping[str, Any]] | None = None,
+    blocking_cache: dict[str, list[list[str]]] | None = None,
 ) -> str:
     kind = _text(entry.get("kind") or "record").casefold()
     state = _effective_state(entry)
@@ -355,7 +365,7 @@ def _render_record(
         if _list(entry.get("blocked_by")):
             lines.append(f"blocked_by: {_json(_list(entry.get('blocked_by')))}")
         if by_id:
-            for path in _blocking_paths(_id(entry), by_id):
+            for path in _blocking_paths(_id(entry), by_id, cache=blocking_cache):
                 terminal = by_id.get(path[-1], {})
                 lines.append(f"blocked: {' -> '.join(path)} {_unavailable_reason(terminal)}")
         if _text(entry.get("decided_by")):
@@ -508,21 +518,21 @@ def build_context(
                          key=lambda ident: (-scores.get(ident, 0), -int(ident[1:])))
     current_id_set = set(current_ids)
 
-    def footer(included, listed=None):
-        deferred = [ident for ident in current_ids if ident not in included]
-        shown = len(deferred) if listed is None else listed
+    # Fixed for the whole build, so the budget trial that renders a record many
+    # times pays for its blocking paths once.
+    blocking_cache: dict[str, list[list[str]]] = {}
+
+    def footer_text(included_count, shown, deferred_count, related_count, missing_count):
         # A retired record is never in current_ids, so it can only be counted
         # here as retired. Counting it as "in the index" would send an agent
         # looking for an index line that does not exist.
-        related_omitted = {target for ident in included for target in relations[ident]
-                           if target not in included and target in current_id_set}
         lines = [
-            f"# full text: {len(included)}; index: {shown}; retired: {retired_count}.",
+            f"# full text: {included_count}; index: {shown}; retired: {retired_count}.",
         ]
-        if shown < len(deferred):
-            lines.append(f"# Not listed: {len(deferred) - shown}; the budget could not name them.")
-        if related_omitted:
-            lines.append(f"# Related records in index only: {len(related_omitted)}; formulas remain complete.")
+        if shown < deferred_count:
+            lines.append(f"# Not listed: {deferred_count - shown}; the budget could not name them.")
+        if related_count:
+            lines.append(f"# Related records in index only: {related_count}; formulas remain complete.")
         # The measured set is the caller's own task matches plus their
         # prerequisite closure. The closure alone reads "covered" almost always,
         # because a blocking chain is admitted right after its root; the whole
@@ -532,19 +542,29 @@ def build_context(
             lines.append("# No task matches; the index names every current record.")
             coverage = "no matches found"
         else:
-            needed = set(task_matched)
-            for ident in included:
-                if _text(by_id[ident].get("kind")).casefold() != "decision":
-                    continue
-                for path in _blocking_paths(ident, by_id):
-                    needed.update(path)
-            missing = needed - included
-            coverage = (f"partial, {len(missing)} in the index only" if missing
+            coverage = (f"partial, {missing_count} in the index only" if missing_count
                         else "task matches and their prerequisites covered")
         lines.append(f"# Coverage: {coverage}. Selected ledger data only.")
         lines.append("# Declared grounds; evidence not freshly verified.")
         lines.append("# Retrieve full record: docket show RECORD_ID --json")
         return "\n\n" + "\n".join(lines) + "\n"
+
+    def blocking_ids(ident):
+        if _text(by_id[ident].get("kind")).casefold() != "decision":
+            return ()
+        return [step for path in _blocking_paths(ident, by_id, cache=blocking_cache)
+                for step in path]
+
+    def footer(included, listed=None):
+        deferred_count = sum(1 for ident in current_ids if ident not in included)
+        shown = deferred_count if listed is None else listed
+        related = {target for ident in included for target in relations[ident]
+                   if target not in included and target in current_id_set}
+        needed = set(task_matched)
+        for ident in included:
+            needed.update(blocking_ids(ident))
+        return footer_text(len(included), shown, deferred_count, len(related),
+                           len(needed - included))
 
     # Shorten only diagnostic metadata. Propositions and relationship formulas
     # are never sliced, even when the caller supplies a giant path or query.
@@ -559,11 +579,18 @@ def build_context(
         span = detail_max - detail_min
         return detail_min + (scores.get(ident, 0) * span) // top_score
 
+    record_cache: dict[tuple[str, str], str] = {}
+
+    def rendered_record(ident):
+        key = (ident, labels[ident])
+        if key not in record_cache:
+            record_cache[key] = _render_record(
+                by_id[ident], labels[ident], reasons.get(ident, ""), by_id,
+                blocking_cache=blocking_cache)
+        return record_cache[key]
+
     def render(candidate_order, candidate_set, index_ids=None, detail=None, names_only=False):
-        full = "\n\n".join(
-            _render_record(by_id[i], labels[i], reasons.get(i, ""), by_id)
-            for i in candidate_order
-        )
+        full = "\n\n".join(rendered_record(i) for i in candidate_order)
         pool = current_ids if index_ids is None else index_ids
         deferred = [i for i in pool if i not in candidate_set]
         parts = [prefix.rstrip("\n"), ""]
@@ -580,15 +607,47 @@ def build_context(
                 ))
         return "\n".join(parts).rstrip("\n") + footer(candidate_set, len(deferred))
 
-    def _names_cost(candidate_set):
-        """Length of the bare-name index for everything outside candidate_set."""
+    # Counters for the admission trial. Rendering the whole briefing to measure
+    # each candidate cost O(n) per admit, so a 10000-record ledger took 20s.
+    body_length = 0
+    names_length = sum(len(ident) for ident in current_ids)
+    names_shown = len(current_ids)
+    related_pending: set[str] = set()
+    needed_ids = set(task_matched)
+    base_length = len(prefix.rstrip("\n"))
+    index_head = len("# index: ")
 
-        names = [i for i in current_ids if i not in candidate_set]
-        if not names:
-            return 0
-        return len("# index: ") + sum(len(i) for i in names) + 2 * (len(names) - 1)
+    def _trial_length(ident):
+        """Length of the briefing that admitting ident would produce.
+
+        This mirrors render(order + [ident], included | {ident}, names_only=True)
+        exactly. A rendered record is never empty, so the full-text block is
+        always present and only the index part varies.
+        """
+
+        full = body_length + len(rendered_record(ident)) + 2 * len(order)
+        if ident in current_id_set:
+            length, shown = names_length - len(ident), names_shown - 1
+        else:
+            length, shown = names_length, names_shown
+        if shown:
+            index = index_head + length + 2 * (shown - 1)
+            total = base_length + full + index + 4
+        else:
+            # "\n".join ends with the empty part, and rstrip drops that newline.
+            total = base_length + full + 2
+        related = set(related_pending)
+        related.discard(ident)
+        related.update(target for target in relations[ident]
+                       if target != ident and target not in included
+                       and target in current_id_set)
+        needed = needed_ids | set(blocking_ids(ident))
+        missing = needed - included - {ident}
+        return total + len(footer_text(len(included) + 1, shown, shown,
+                                       len(related), len(missing)))
 
     def admit(ident, label, mandatory=False):
+        nonlocal body_length, names_length, names_shown
         if ident in included:
             return True
         labels[ident] = label
@@ -596,22 +655,29 @@ def build_context(
         # ceiling, which equals the target whenever the caller named one.
         limit = hard_limit if mandatory else soft_limit
         # Price the index at what the ladder guarantees, which is one bare name
-        # per record. Charging the full index-line form here made admission
-        # collapse on a real ledger: past about 150 records the index alone
-        # exceeded the limit, so the second record and every record after it
-        # was refused while the ladder then discarded the very index the gate
-        # had charged for.
-        trial = render(order + [ident], included | {ident}, names_only=True)
-        # Cap that charge. One bare name per record still outgrows the whole
-        # limit past about 1100 records, which refused every record in turn and
-        # left the briefing with no content. The ladder trims the index to fit,
-        # so the gate charges it no more than its allowance.
-        charged = len(trial) - max(0, _names_cost(included | {ident}) - allowance)
+        # per record, and cap that charge at its allowance. Charging the full
+        # index-line form collapsed admission past about 150 records; charging
+        # every bare name collapsed it past about 1100. The ladder trims the
+        # index to fit, so the gate never charges for names the output drops.
+        if ident in current_id_set:
+            length, shown = names_length - len(ident), names_shown - 1
+        else:
+            length, shown = names_length, names_shown
+        index_cost = index_head + length + 2 * (shown - 1) if shown else 0
+        charged = _trial_length(ident) - max(0, index_cost - allowance)
         if charged > limit:
             del labels[ident]
             return False
         included.add(ident)
         order.append(ident)
+        body_length += len(rendered_record(ident))
+        if ident in current_id_set:
+            names_length -= len(ident)
+            names_shown -= 1
+        related_pending.discard(ident)
+        related_pending.update(target for target in relations[ident]
+                               if target not in included and target in current_id_set)
+        needed_ids.update(blocking_ids(ident))
         return True
 
     for ident in root_ids:
@@ -623,7 +689,7 @@ def build_context(
     for ident in root_ids:
         if ident not in included:
             continue
-        for path in _blocking_paths(ident, by_id):
+        for path in _blocking_paths(ident, by_id, cache=blocking_cache):
             for step in path:
                 admit(step, "blocking prerequisite", mandatory=ident in task_matched)
 
