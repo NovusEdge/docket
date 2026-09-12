@@ -62,8 +62,8 @@ when their CLI options are omitted, and sets `pinned` to `false`:
 - `evidence`: provenance objects attached to the record.
 - `revisit`: a note about when or why to revisit the record.
 - `cost_if_wrong`: the stated cost if the record is wrong.
-- `pinned`: whether the record receives priority in unscoped context; defaults
-  to `false`.
+- `pinned`: whether the record scores a fixed bonus in every briefing; defaults
+  to `false`. A pin no longer outranks a better scope match.
 
 Path scopes use normalized repository-relative paths. A scope containing a
 slash or glob metacharacters uses `fnmatch`; a literal directory scope also
@@ -140,24 +140,42 @@ the union serves the renderer as a convenience.
 
 `docket context` renders projected records for a harness.
 
-- The default budget is 8,000 characters.
-- The minimum accepted budget is 512 characters.
-- The budget includes the header, complete record blocks, warnings, and
+Every current record appears, in one of two tiers. The full-text tier holds
+complete record blocks. The index tier names each remaining record on one line
+with its ID, kind, state, and clipped text. An index line's length follows its
+score, so a near miss carries more text than a distant record.
+
+- The budget target is 8,000 characters.
+- A record matching the task scope or query renders in full even past the
+  target, up to three times it.
+- `--max-chars` sets a hard ceiling instead, with a minimum of 512 characters.
+- The budget includes the header, record blocks, index lines, warnings, and the
   retrieval footer.
-- Docket keeps propositions and negations whole when it reaches the budget.
+- Docket keeps propositions and negations whole. Over the ceiling it shortens
+  index lines, then trims the lowest-scoring ones, then lists bare IDs.
 
-With no task query or file scope, startup context ranks pinned records first.
-With a task query or `--file` scope, matching text and paths rank before
-unrelated pins. Docket then adds bounded directly related records in both
-directions: grounds, prerequisites, dependents, questions, and their answers.
+Records rank by an integer score over scope match strength, query term rarity,
+position in the record sequence, pinning, and how many records point at the
+record. A scope match outranks a text match, because a scope states where a
+record applies. Each full-text record prints its score and components.
 
-At most 64 related records are admitted, and only after the selected record
-fits. Pins break ties between equally relevant records. `--all` removes
-relevance filtering while keeping the budget.
+Docket then adds related records in both directions: grounds, prerequisites,
+dependents, questions, and their answers. A related record inherits half its
+parent's score per hop, and expansion stops when that falls under the floor.
+`--all` puts every record in the full-text tier and keeps the budget.
 
-The header includes ledger identity and a deterministic revision. The footer
-reports omitted and unrelated counts, incomplete relation coverage,
+With no `--query` and no `--file`, Docket derives file scope from the working
+tree's changed and untracked files. `--no-auto-scope` disables that, and
+`--auto-scope` forces it alongside an explicit query.
+
+The header includes ledger identity, a deterministic revision, and the latest
+record ID. The footer reports tier counts, incomplete relation coverage,
 evidence-provenance limits, and a `docket show ID --json` retrieval command.
+
+Weights, budget, index detail, expansion decay, and the auto-scope cap come from
+`.docket/config.toml` when it exists. See [the annotated example](config.example.toml).
+A briefing rendered with tuned settings names them in its header, so its
+ordering stays reproducible.
 
 ```sh
 docket context
