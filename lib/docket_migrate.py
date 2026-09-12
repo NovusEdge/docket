@@ -434,10 +434,6 @@ def migrate_in_place(path: Path | str, mapping_path: Path | str | None = None,
     path = Path(path)
     backup = Path(str(path) + BACKUP_SUFFIX)
     temp = Path(str(path) + TEMP_SUFFIX)
-    if not dry_run and backup.exists():
-        raise MigrationError(
-            f"{backup} already exists; a second migration would overwrite the original"
-        )
 
     source = read_source(path)
     version = detect_version(source)
@@ -446,6 +442,13 @@ def migrate_in_place(path: Path | str, mapping_path: Path | str | None = None,
     step = STEPS.get(version)
     if step is None:
         raise MigrationError(f"no migration from schema {version} to {SCHEMA_LATEST}")
+
+    # Checked only once a conversion is actually needed: a ledger already at
+    # schema 2 must exit clean even if an earlier migration left a backup.
+    if not dry_run and backup.exists():
+        raise MigrationError(
+            f"{backup} already exists; a second migration would overwrite the original"
+        )
 
     old_ids = {raw["id"] for raw in source}
     if mapping_path is None:
