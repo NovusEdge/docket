@@ -484,7 +484,7 @@ def build_context(
         span = detail_max - detail_min
         return detail_min + (scores.get(ident, 0) * span) // top_score
 
-    def render(candidate_order, candidate_set, index_ids=None, detail=None):
+    def render(candidate_order, candidate_set, index_ids=None, detail=None, names_only=False):
         full = "\n\n".join(
             _render_record(by_id[i], labels[i], reasons.get(i, "")) for i in candidate_order
         )
@@ -494,11 +494,14 @@ def build_context(
         if full:
             parts += [full, ""]
         if deferred:
-            parts.append(f"# index: {len(deferred)} more current records")
-            parts.append("\n".join(
-                _index_line(by_id[i], detail_of(i) if detail is None else detail)
-                for i in deferred
-            ))
+            if names_only:
+                parts.append("# index: " + ", ".join(deferred))
+            else:
+                parts.append(f"# index: {len(deferred)} more current records")
+                parts.append("\n".join(
+                    _index_line(by_id[i], detail_of(i) if detail is None else detail)
+                    for i in deferred
+                ))
         return "\n".join(parts).rstrip("\n") + footer(candidate_set, len(deferred))
 
     def admit(ident, label, mandatory=False):
@@ -508,7 +511,15 @@ def build_context(
         # A task match may push past the target. Nothing may push past the
         # ceiling, which equals the target whenever the caller named one.
         limit = hard_limit if mandatory else soft_limit
-        if len(render(order + [ident], included | {ident})) > limit:
+        # Measure against the cheapest index, not the richest. A long index
+        # otherwise starves the full-text tier at a tight budget, and the
+        # briefing reports every record while explaining none of them. The
+        # first record is measured with no index at all, so the top-scoring
+        # record always renders in full when any record fits; the trim ladder
+        # then shrinks the index around it.
+        index_ids = [] if not included else None
+        trial = render(order + [ident], included | {ident}, index_ids, detail=detail_min)
+        if len(trial) > limit:
             del labels[ident]
             return False
         included.add(ident)
@@ -551,25 +562,29 @@ def build_context(
     result = render(order, included)
     if len(result) > hard_limit:
         # Degrade in order: shrink every index line to the minimum detail, then
-        # trim index lines from the low-scoring tail, then names alone.
+        # drop to bare IDs, then trim the ID list. Bare IDs come before any
+        # trimming because they cost a few characters each, so naming thirty
+        # records that way is cheaper than listing four in full.
         flat = render(order, included, detail=detail_min)
         if len(flat) <= hard_limit:
             return flat
-        keep = len(current_ids)
-        while keep > 0:
-            keep -= max(1, keep // 8)
-            candidate = render(order, included, current_ids[:keep], detail=detail_min)
-            if len(candidate) <= hard_limit:
-                return candidate
-        # No index line fits. Name the records by ID alone, which costs a few
-        # characters each and keeps every current record recoverable. The
-        # diagnostic prefix goes first when even that does not fit.
-        ids = ", ".join(i for i in current_ids if i not in included)
-        short = f"# docket: {_clip_metadata(ledger or 'ledger', 60)} | revision: {revision}"
-        for head in (prefix.rstrip("\n"), short):
-            candidate = head + f"\n\n# index: {ids}" + footer(included, 0)
-            if len(candidate) <= hard_limit:
-                return candidate
+        # Trim the deferred list, not current_ids: records already in the
+        # full-text tier occupy the head of current_ids, so trimming that list
+        # would drop index lines while appearing to keep them.
+        # Keep the full-text tier if it fits alongside bare names; drop it only
+        # when even that overruns, and report the tier counts either way.
+        short = f"# docket: {_clip_metadata(ledger or 'ledger', 60)} | revision: {revision}\n\n"
+        for head in (prefix, short):
+            prefix = head
+            for chosen_order, chosen_set in ((order, included), ([], set())):
+                deferred_ids = [i for i in current_ids if i not in chosen_set]
+                keep = len(deferred_ids)
+                while keep > 0:
+                    candidate = render(chosen_order, chosen_set, deferred_ids[:keep],
+                                       names_only=True)
+                    if len(candidate) <= hard_limit:
+                        return candidate
+                    keep = keep - max(1, keep // 8)
         result = (f"# docket revision: {revision}\n# No records fit.\n"
                   "# Retrieve full record: docket show RECORD_ID --json\n")
     return result

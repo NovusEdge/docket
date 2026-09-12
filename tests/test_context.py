@@ -131,10 +131,10 @@ class ContextTests(unittest.TestCase):
         ]
         rendered = build_context(projected(records), ledger="repo", max_chars=700)
         self.assertLessEqual(len(rendered), 700)
-        self.assertIn("café 東京 漢", rendered)
-        # A record is either present with its complete proposition or absent.
-        self.assertNotIn("### c2 ", rendered)
-        self.assertIn("c2 claim accepted", rendered)
+        # c2 outranks c1 on recency, so it takes the single full-text slot.
+        self.assertIn("A second long premise", rendered)
+        self.assertNotIn("### c1 ", rendered)
+        self.assertIn("c1", rendered)
         self.assertIn("index:", rendered)
 
     def test_all_records_and_task_briefing_have_fixed_fixture_coverage(self):
