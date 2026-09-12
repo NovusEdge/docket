@@ -617,6 +617,7 @@ def build_context(
     names_shown = len(current_ids)
     related_pending: set[str] = set()
     needed_ids = set(task_matched)
+    missing_count = len(needed_ids)
     base_length = len(prefix.rstrip("\n"))
     index_head = len("# index: ")
 
@@ -639,19 +640,26 @@ def build_context(
         else:
             # "\n".join ends with the empty part, and rstrip drops that newline.
             total = base_length + full + 2
-        related = set(related_pending)
-        related.discard(ident)
-        related.update(target for target in relations[ident]
-                       if target != ident and target not in included
-                       and target in current_id_set)
-        blocking = blocking_ids(ident)
-        needed = needed_ids | set(blocking) if blocking else needed_ids
-        missing = len(needed - included) - (1 if ident in needed else 0)
+        # Counted by difference. Copying either set per candidate was itself
+        # O(n), which left a 100000-record briefing at 135s.
+        related = len(related_pending) - (1 if ident in related_pending else 0)
+        added: set[str] = set()
+        for target in relations[ident]:
+            if (target != ident and target not in included and target not in related_pending
+                    and target in current_id_set and target not in added):
+                added.add(target)
+                related += 1
+        missing = missing_count - (1 if ident in needed_ids else 0)
+        added.clear()
+        for step in blocking_ids(ident):
+            if step not in needed_ids and step not in included and step not in added:
+                added.add(step)
+                missing += 1
         return total + len(footer_text(len(included) + 1, shown, shown,
-                                       len(related), missing))
+                                       related, missing))
 
     def admit(ident, label, mandatory=False):
-        nonlocal body_length, names_length, names_shown
+        nonlocal body_length, names_length, names_shown, missing_count
         if ident in included:
             return True
         labels[ident] = label
@@ -681,7 +689,13 @@ def build_context(
         related_pending.discard(ident)
         related_pending.update(target for target in relations[ident]
                                if target not in included and target in current_id_set)
-        needed_ids.update(blocking_ids(ident))
+        if ident in needed_ids:
+            missing_count -= 1
+        for step in blocking_ids(ident):
+            if step not in needed_ids:
+                needed_ids.add(step)
+                if step not in included:
+                    missing_count += 1
         return True
 
     def _largest_fitting_keep(head, chosen_order, chosen_set, deferred_ids):
