@@ -408,7 +408,9 @@ def _decision_applicability(
     applicable: dict[str, bool] = {}
     blocked: dict[str, list[str]] = {}
 
-    def check(entry_id: str, trail: set[str]) -> tuple[bool, list[str]]:
+    # No cycle guard: validation refuses a reference to a later id, so the
+    # prerequisite graph is acyclic by construction.
+    def check(entry_id: str) -> tuple[bool, list[str]]:
         if entry_id in applicable:
             return applicable[entry_id], blocked[entry_id]
         entry = by_id[entry_id]
@@ -422,11 +424,13 @@ def _decision_applicability(
             blocked[entry_id] = [entry_id]
             return False, [entry_id]
         blockers: list[str] = []
+        seen: set[str] = set()
         for dependency in entry["depends_on"]:
-            ok, reasons = check(dependency, trail | {entry_id})
+            ok, reasons = check(dependency)
             if not ok:
                 for reason in [dependency, *reasons]:
-                    if reason not in blockers:
+                    if reason not in seen:
+                        seen.add(reason)
                         blockers.append(reason)
         applicable[entry_id] = not blockers
         blocked[entry_id] = blockers
@@ -434,7 +438,7 @@ def _decision_applicability(
 
     for entry in entries:
         if entry["kind"] == "decision":
-            check(entry["id"], set())
+            check(entry["id"])
     return applicable, blocked
 
 

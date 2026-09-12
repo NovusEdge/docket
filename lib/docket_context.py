@@ -483,7 +483,8 @@ def build_context(
         )
         scores[ident] = score
         reasons[ident] = _selection_reason(score, components)
-        hit = bool(_scope_strength(item, file_list, weights) or text_points)
+        # _score drops zero components, so a scope entry means a scope match.
+        hit = any(name == "scope" for name, _ in components) or bool(text_points)
         if hit:
             task_matched.add(ident)
         if not task_mode or hit:
@@ -497,19 +498,16 @@ def build_context(
     root_ids = [_id(item) for item in roots]
     selected_ids = root_ids + [_id(item) for item in pins]
 
-    adjacency = {ident: [] for ident in by_id}
+    # expand() sorts each neighbour list by inherited score, so insertion order
+    # carries nothing. A set keeps the reverse edges unique without scanning.
+    adjacency: dict[str, set[str]] = {ident: set() for ident in by_id}
     for item in history:
         ident = _id(item)
         for target in relations[ident]:
             if target not in by_id:
                 continue
-            if target not in adjacency[ident]:
-                adjacency[ident].append(target)
-            if ident not in adjacency[target]:
-                adjacency[target].append(ident)
-    candidate_ids = set(selected_ids)
-    for ident in selected_ids:
-        candidate_ids.update(adjacency[ident])
+            adjacency[ident].add(target)
+            adjacency[target].add(ident)
     retired_count = sum(_is_retired(item) for item in history)
     revision = _revision(history)
     latest = max(by_id, key=lambda ident: int(ident[1:]), default="")
