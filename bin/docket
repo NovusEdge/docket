@@ -857,6 +857,45 @@ def cmd_where(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_rebase(args: argparse.Namespace) -> int:
+    """Append another branch's divergent tail under fresh IDs."""
+    from docket_rebase import RebaseError, renumber
+    path = ledger_path()
+    other = Path(args.other)
+    if not other.is_file():
+        print(f"docket: no ledger at {other}", file=sys.stderr)
+        return 1
+    try:
+        mine = read(path)
+        theirs = read(other)
+        tail, mapping = renumber(mine, theirs)
+    except (LedgerError, RebaseError, OSError) as exc:
+        print(f"docket: {exc}", file=sys.stderr)
+        return 1
+    if not tail:
+        print("docket: nothing to rebase; the histories already agree")
+        return 0
+    for old, new in mapping.items():
+        print(f"{old} -> {new}")
+    if args.dry_run:
+        print(f"\ndocket: {len(tail)} record(s) would be appended to {path}")
+        return 0
+    # append validates each record against everything already written, so a
+    # tail that would break the ledger stops partway and leaves it readable.
+    written = 0
+    try:
+        for record in tail:
+            append(path, record)
+            written += 1
+    except LedgerError as exc:
+        print(f"docket: {exc}", file=sys.stderr)
+        print(f"docket: appended {written} of {len(tail)} record(s); "
+              "run docket check", file=sys.stderr)
+        return 1
+    print(f"\ndocket: appended {written} record(s) to {path}")
+    return 0
+
+
 def cmd_check(args: argparse.Namespace) -> int:
     """Report every fault in the ledger, rather than the first one.
 
@@ -1069,8 +1108,9 @@ _COMPLETION_FLAGS = (
     "--auto-scope", "--no-auto-scope",
     "--all", "--find", "--superseded", "--oneline", "--json", "--plain", "--pretty",
     "--style", "--interactive", "--no-interactive", "--for", "--version",
+    "--dry-run",
 )
-_COMPLETION_CMDS = ("claim", "decision", "question", "list", "show", "graph", "context", "where", "check", "init", "completion")
+_COMPLETION_CMDS = ("claim", "decision", "question", "list", "show", "graph", "context", "where", "check", "rebase", "init", "completion")
 
 _BASH_COMPLETION = f"""\
 _docket() {{
@@ -1239,6 +1279,11 @@ def main(argv: list[str] | None = None) -> int:
 
     ck = sub.add_parser("check", help="report what makes the ledger unreadable")
     ck.set_defaults(func=cmd_check)
+
+    rb = sub.add_parser("rebase", help="renumber another ledger's tail onto this one")
+    rb.add_argument("other", help="path to the other branch's ledger")
+    rb.add_argument("--dry-run", action="store_true", help="print the ID map and write nothing")
+    rb.set_defaults(func=cmd_rebase)
 
     it = sub.add_parser("init", help="move this project's ledger into the repository")
     it.set_defaults(func=cmd_init)

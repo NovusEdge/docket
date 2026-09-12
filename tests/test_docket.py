@@ -374,5 +374,31 @@ class CheckTests(unittest.TestCase):
         self.assertIn("docket rebase", result.stdout)
 
 
+class RebaseCommandTests(unittest.TestCase):
+    def test_rebase_appends_a_renumbered_tail(self):
+        with tempfile.TemporaryDirectory() as home:
+            # Without init the ledger lives under DOCKET_HOME
+            # (tests/test_docket.py:22, bin/docket:160), so .docket/ledger.jsonl
+            # does not exist and read_text() raises.
+            run(home, "init")
+            run(home, "claim", "Shared premise", "--state", "accepted")
+            other = Path(home) / "other.jsonl"
+            mine = (Path(home) / ".docket" / "ledger.jsonl").read_text()
+            theirs = docket_cli.make_record("claim", "Their premise",
+                                            state="accepted", author="t",
+                                            record_id="c2")
+            other.write_text(mine + json.dumps(theirs) + "\n")
+            run(home, "claim", "My premise", "--state", "accepted")
+            preview = run(home, "rebase", str(other), "--dry-run")
+            self.assertIn("c2 -> c3", preview.stdout)
+            before = (Path(home) / ".docket" / "ledger.jsonl").read_text()
+            self.assertNotIn("Their premise", before)
+            result = run(home, "rebase", str(other))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(run(home, "check").returncode, 0)
+            after = (Path(home) / ".docket" / "ledger.jsonl").read_text()
+        self.assertIn("Their premise", after)
+
+
 if __name__ == "__main__":
     unittest.main()
