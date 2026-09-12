@@ -580,6 +580,16 @@ def build_context(
     for ident in root_ids:
         admit(ident, "selected", mandatory=ident in task_matched)
 
+    # A blocked decision's explanation inherits the decision's own budget
+    # standing, ahead of the frontier: a neighbour that scores higher would
+    # otherwise take the slot and leave the decision unexplained.
+    for ident in root_ids:
+        if ident not in included:
+            continue
+        for path in _blocking_paths(ident, by_id):
+            for step in path:
+                admit(step, "blocking prerequisite", mandatory=ident in task_matched)
+
     def expand(seeds):
         # Adjacency order is an artefact of insertion, so a flat cap on it
         # discarded neighbours by accident. Walk by inherited score instead.

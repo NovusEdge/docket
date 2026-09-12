@@ -441,6 +441,18 @@ class ContextTests(unittest.TestCase):
         by_id["d2"]["depends_on"] = ["c1", "d2"]
         self.assertEqual(_blocking_paths("d2", by_id), [["c1"]])
 
+    def test_blocking_chain_is_admitted_before_an_unrelated_neighbour(self):
+        records = [
+            entry("c1", "claim", "The cache is reliable", state="disputed"),
+            entry("c2", "claim", "An unrelated supporting premise", state="accepted"),
+            entry("d3", "decision", "Serve from the cache", choice="serve",
+                  scope=("lib/**",), depends_on=("c1",), supports=(("c2",),)),
+        ]
+        rendered = build_context(projected(records), files=("lib/cache.py",), ledger="repo")
+        self.assertIn("### c1 ", rendered)
+        self.assertLess(rendered.index("### c1 "), rendered.index("### c2 "))
+        self.assertIn("[blocking prerequisite]", rendered)
+
 
 if __name__ == "__main__":
     unittest.main()
