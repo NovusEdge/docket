@@ -17,6 +17,16 @@ from typing import Any
 _DEFAULT_BUDGET = 8000
 _MINIMUM_BUDGET = 512
 
+# A caller that names a budget gets a hard ceiling. The default is a target
+# that a task-matching record may exceed, because dropping a record the caller
+# asked for defeats the briefing. _OUTER_MULTIPLE bounds that overrun.
+_OUTER_MULTIPLE = 3
+
+# An index line's text length follows its score, so a near miss says more than
+# a distant record.
+_INDEX_TEXT_MIN = 40
+_INDEX_TEXT_MAX = 140
+
 # One table for every ordering constant. A briefing is reproducible only while
 # these never vary by caller, environment, or clock. Integers throughout: a
 # float sum reorders across platforms.
@@ -248,17 +258,14 @@ def _clip_metadata(value: str, limit: int) -> str:
     return value[: max(0, limit - 3)] + "..."
 
 
-_INDEX_TEXT = 60
-
-
-def _index_line(entry: Mapping[str, Any]) -> str:
+def _index_line(entry: Mapping[str, Any], detail: int = _INDEX_TEXT_MIN) -> str:
     """One line naming a record the briefing did not render in full."""
 
     return " ".join([
         _id(entry) or "(missing id)",
         _text(entry.get("kind") or "record").casefold(),
         _effective_state(entry),
-        " " + _clip_metadata(_text(entry.get("text")), _INDEX_TEXT),
+        " " + _clip_metadata(_text(entry.get("text")), detail),
     ])
 
 
@@ -361,18 +368,27 @@ def build_context(
     *,
     query: str = "",
     files: Iterable[str] = (),
-    max_chars: int = _DEFAULT_BUDGET,
+    max_chars: int | None = None,
     ledger: str = "",
     all_records: bool = False,
 ) -> str:
-    """Render whole records within a strict character budget.
+    """Render whole records under tiered budget rules.
 
-    Task roots have priority over neighbors and fallback pins. Related records
-    are admitted only after their root fits. Traversal is one hop in either
-    direction, with at most 64 related records admitted.
+    Every current record appears, in full text or as an index line. A record
+    that matches the task scope or query renders in full even when that
+    exceeds the default target, up to _OUTER_MULTIPLE times the target.
+    Everything else competes for the remaining target by score.
+
+    A caller that names ``max_chars`` gets a hard ceiling instead, and no rule
+    may exceed it.
     """
-    if type(max_chars) is not int or max_chars < _MINIMUM_BUDGET:
-        raise ValueError("max_chars must be an integer of at least 512")
+    if max_chars is None:
+        soft_limit = _DEFAULT_BUDGET
+        hard_limit = _DEFAULT_BUDGET * _OUTER_MULTIPLE
+    else:
+        if type(max_chars) is not int or max_chars < _MINIMUM_BUDGET:
+            raise ValueError("max_chars must be an integer of at least 512")
+        soft_limit = hard_limit = max_chars
     history = list(entries)
     if not history:
         return ""
@@ -387,6 +403,7 @@ def build_context(
     total_ranks = len(order_by_id)
     scores: dict[str, int] = {}
     reasons: dict[str, str] = {}
+    task_matched: set[str] = set()
     term_weights = _term_weights(current, query)
 
     matched = []
@@ -403,7 +420,10 @@ def build_context(
         )
         scores[ident] = score
         reasons[ident] = _selection_reason(score, components)
-        if not task_mode or _scope_strength(item, file_list) or text_points:
+        hit = bool(_scope_strength(item, file_list) or text_points)
+        if hit:
+            task_matched.add(ident)
+        if not task_mode or hit:
             matched.append(((-score, -int(ident[1:])), item))
     roots = [item for _, item in sorted(matched, key=lambda pair: pair[0])]
     matched_ids = {_id(item) for item in roots}
@@ -457,13 +477,18 @@ def build_context(
 
     # Shorten only diagnostic metadata. Propositions and relationship formulas
     # are never sliced, even when the caller supplies a giant path or query.
-    if len(prefix) + len(footer(set())) > max_chars:
+    if len(prefix) + len(footer(set())) > hard_limit:
         prefix = f"# docket: {_clip_metadata(ledger or 'ledger', 60)} | revision: {revision}\n\n"
     included: set[str] = set()
     order: list[str] = []
     labels: dict[str, str] = {}
+    top_score = max(scores.values(), default=0) or 1
 
-    def render(candidate_order, candidate_set, index_ids=None):
+    def detail_of(ident):
+        span = _INDEX_TEXT_MAX - _INDEX_TEXT_MIN
+        return _INDEX_TEXT_MIN + (scores.get(ident, 0) * span) // top_score
+
+    def render(candidate_order, candidate_set, index_ids=None, detail=None):
         full = "\n\n".join(
             _render_record(by_id[i], labels[i], reasons.get(i, "")) for i in candidate_order
         )
@@ -474,14 +499,20 @@ def build_context(
             parts += [full, ""]
         if deferred:
             parts.append(f"# index: {len(deferred)} more current records")
-            parts.append("\n".join(_index_line(by_id[i]) for i in deferred))
+            parts.append("\n".join(
+                _index_line(by_id[i], detail_of(i) if detail is None else detail)
+                for i in deferred
+            ))
         return "\n".join(parts).rstrip("\n") + footer(candidate_set, len(deferred))
 
-    def admit(ident, label):
+    def admit(ident, label, mandatory=False):
         if ident in included:
             return True
         labels[ident] = label
-        if len(render(order + [ident], included | {ident})) > max_chars:
+        # A task match may push past the target. Nothing may push past the
+        # ceiling, which equals the target whenever the caller named one.
+        limit = hard_limit if mandatory else soft_limit
+        if len(render(order + [ident], included | {ident})) > limit:
             del labels[ident]
             return False
         included.add(ident)
@@ -489,7 +520,7 @@ def build_context(
         return True
 
     for ident in root_ids:
-        admit(ident, "selected")
+        admit(ident, "selected", mandatory=ident in task_matched)
     related_admitted = 0
 
     def neighbors(ident):
@@ -512,14 +543,17 @@ def build_context(
         if admit(ident, "fallback pin"):
             neighbors(ident)
     result = render(order, included)
-    if len(result) > max_chars:
-        # The index itself overflows. Trim from the tail of current_ids. Task 2
-        # sorts that list by score, so the tail is the lowest-scoring end.
+    if len(result) > hard_limit:
+        # Degrade in order: shrink every index line to the minimum detail, then
+        # trim index lines from the low-scoring tail, then names alone.
+        flat = render(order, included, detail=_INDEX_TEXT_MIN)
+        if len(flat) <= hard_limit:
+            return flat
         keep = len(current_ids)
         while keep > 0:
             keep -= max(1, keep // 8)
-            candidate = render(order, included, current_ids[:keep])
-            if len(candidate) <= max_chars:
+            candidate = render(order, included, current_ids[:keep], detail=_INDEX_TEXT_MIN)
+            if len(candidate) <= hard_limit:
                 return candidate
         # No index line fits. Name the records by ID alone, which costs a few
         # characters each and keeps every current record recoverable. The
@@ -528,7 +562,7 @@ def build_context(
         short = f"# docket: {_clip_metadata(ledger or 'ledger', 60)} | revision: {revision}"
         for head in (prefix.rstrip("\n"), short):
             candidate = head + f"\n\n# index: {ids}" + footer(included, 0)
-            if len(candidate) <= max_chars:
+            if len(candidate) <= hard_limit:
                 return candidate
         result = (f"# docket revision: {revision}\n# No records fit.\n"
                   "# Retrieve full record: docket show RECORD_ID --json\n")

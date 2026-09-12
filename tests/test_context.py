@@ -196,9 +196,11 @@ class ContextTests(unittest.TestCase):
 
     def test_direct_api_budgets_and_large_metadata(self):
         history = projected([entry("c1", "claim", "Full Unicode café 東京", rationale="X" * 10000)])
-        for invalid in (511, 0, -1, "900", None, True, 900.5):
+        for invalid in (511, 0, -1, "900", True, 900.5):
             with self.assertRaises(ValueError):
                 build_context(history, max_chars=invalid)
+        # None asks for the default target, which task matches may exceed.
+        self.assertTrue(build_context(history, max_chars=None))
         for budget in (512, 700, 900, 1500):
             output = build_context(history, ledger="z" * 5000, query="Full " * 1000,
                                    all_records=True, max_chars=budget)
@@ -241,18 +243,27 @@ class ContextTests(unittest.TestCase):
         self.assertEqual(full | index, {"d1", "c2", "d3", "c4"})
         self.assertEqual(full & index, set())
 
-    def test_index_line_states_kind_and_state_and_clips_text(self):
-        long_text = "A premise whose text runs well past the sixty character clip point"
+    def test_index_line_states_kind_and_state(self):
         records = [
             entry("d1", "decision", "Use Postgres", choice="postgres", scope=("storage",)),
-            entry("c2", "claim", long_text, state="accepted"),
+            entry("c2", "claim", "A premise", state="accepted"),
         ]
         rendered = build_context(projected(records), query="storage", ledger="repo")
         line = next(l for l in rendered.splitlines() if l.startswith("c2 "))
-        self.assertTrue(line.startswith("c2 claim accepted  "))
-        self.assertLessEqual(len(line), 90)
-        self.assertIn("A premise whose text runs well past", line)
-        self.assertNotIn("clip point", line)
+        self.assertTrue(line.startswith("c2 claim accepted  A premise"))
+
+    def test_index_detail_follows_the_score(self):
+        long_text = "A premise whose text runs a long way past any clip point at all, going on and on"
+        records = [
+            entry("c1", "claim", long_text, state="accepted"),
+            entry("c2", "claim", long_text, state="accepted"),
+            entry("d3", "decision", "Use Postgres", choice="postgres", scope=("storage",)),
+        ]
+        rendered = build_context(projected(records), query="postgres", ledger="repo")
+        older = next(l for l in rendered.splitlines() if l.startswith("c1 "))
+        newer = next(l for l in rendered.splitlines() if l.startswith("c2 "))
+        self.assertGreater(len(newer), len(older))
+        self.assertTrue(older.endswith("..."))
 
     def test_precise_scope_outranks_a_glob_match(self):
         records = [

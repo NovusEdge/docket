@@ -898,7 +898,7 @@ CONTEXT_ENVELOPES = {
 
 
 def cmd_context(args: argparse.Namespace) -> int:
-    if args.max_chars < 512:
+    if args.max_chars is not None and args.max_chars < 512:
         print("docket: --max-chars must be at least 512", file=sys.stderr)
         return 2
     from docket_context import build_context as render_context
@@ -1080,7 +1080,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     ctx.add_argument("--query", default="")
     ctx.add_argument("--file", action="append", default=[])
-    ctx.add_argument("--max-chars", type=int, default=8000)
+    # No default: the renderer treats None as a soft target that a
+    # task-matching record may exceed. A value here is a hard ceiling.
+    ctx.add_argument("--max-chars", type=int, default=None)
     ctx.add_argument("--all", dest="all_records", action="store_true")
     ctx.set_defaults(func=cmd_context)
 
