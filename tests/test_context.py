@@ -80,7 +80,8 @@ class ContextTests(unittest.TestCase):
         rendered = build_context(projected(records), query="database", files=("app/db/models.py",), ledger="repo")
         self.assertLess(rendered.index("d3"), rendered.index("d2"))
         self.assertLess(rendered.index("d3"), rendered.index("c4") if "c4" in rendered else len(rendered))
-        self.assertNotIn("Unrelated deployment detail", rendered)
+        self.assertNotIn("### c1 ", rendered)
+        self.assertIn("c1 claim", rendered)
         self.assertIn("Choose Postgres for production", rendered)
 
     def test_related_records_keep_complete_formulas_and_warn_on_premises(self):
@@ -103,7 +104,7 @@ class ContextTests(unittest.TestCase):
         self.assertIn('["c1", "c2"]', rendered)
         self.assertIn("c1", rendered)
         self.assertIn("disputed", rendered.lower())
-        self.assertIn("omitted", rendered.lower())
+        self.assertIn("full text:", rendered.lower())
         self.assertIn("issue-7", rendered)
         self.assertIn("not freshly verified", rendered.lower())
         self.assertIn("applicable: false", rendered)
@@ -132,8 +133,9 @@ class ContextTests(unittest.TestCase):
         self.assertLessEqual(len(rendered), 700)
         self.assertIn("café 東京 漢", rendered)
         # A record is either present with its complete proposition or absent.
-        self.assertNotIn("A second long premise that should be om", rendered)
-        self.assertIn("omitted", rendered.lower())
+        self.assertNotIn("### c2 ", rendered)
+        self.assertIn("c2 claim accepted", rendered)
+        self.assertIn("index:", rendered)
 
     def test_all_records_and_task_briefing_have_fixed_fixture_coverage(self):
         records = [
@@ -147,7 +149,8 @@ class ContextTests(unittest.TestCase):
         task = build_context(projected(records), query="storage", ledger="repo")
         self.assertLess(len(task), len(full))
         self.assertIn("Use Postgres", task)
-        self.assertNotIn("email copy is approved", task)
+        self.assertNotIn("### c4 ", task)
+        self.assertIn("c4 claim", task)
         self.assertIn("Adopt API versioning", task)
         ids = lambda output: set(re.findall(r"^### ([cdq]\d+) ", output, re.M))
         self.assertEqual(ids(full), {"d1", "c2", "d3", "c4", "q5"})
@@ -160,7 +163,7 @@ class ContextTests(unittest.TestCase):
         output = build_context(projected(records), query="Unique", max_chars=900)
         self.assertNotIn("### c1", output)
         self.assertNotIn("### d2", output)
-        self.assertIn("Omitted selected IDs: d2", output)
+        self.assertIn("d2 decision", output)
         self.assertIn("docket show", output)
         self.assertLessEqual(len(output), 900)
 
@@ -222,6 +225,43 @@ class ContextTests(unittest.TestCase):
         self.assertNotIn("rationale: v2", rendered)
         self.assertNotIn("effective state:", rendered)
         self.assertTrue(rendered.endswith("\n"))
+
+
+    def test_every_current_record_appears_in_one_tier(self):
+        records = [
+            entry("d1", "decision", "Adopt API versioning", choice="v2"),
+            entry("c2", "claim", "Billing uses integer cents", scope=("billing",)),
+            entry("d3", "decision", "Use Postgres", choice="postgres", scope=("storage",)),
+            entry("c4", "claim", "The email copy is approved", scope=("marketing",)),
+        ]
+        rendered = build_context(projected(records), query="storage", ledger="repo")
+        full = set(re.findall(r"^### ([cdq]\d+) ", rendered, re.M))
+        index = set(re.findall(r"^([cdq]\d+) (?:claim|decision|question) ", rendered, re.M))
+        self.assertIn("d3", full)
+        self.assertEqual(full | index, {"d1", "c2", "d3", "c4"})
+        self.assertEqual(full & index, set())
+
+    def test_index_line_states_kind_and_state_and_clips_text(self):
+        long_text = "A premise whose text runs well past the sixty character clip point"
+        records = [
+            entry("d1", "decision", "Use Postgres", choice="postgres", scope=("storage",)),
+            entry("c2", "claim", long_text, state="accepted"),
+        ]
+        rendered = build_context(projected(records), query="storage", ledger="repo")
+        line = next(l for l in rendered.splitlines() if l.startswith("c2 "))
+        self.assertTrue(line.startswith("c2 claim accepted  "))
+        self.assertLessEqual(len(line), 90)
+        self.assertIn("A premise whose text runs well past", line)
+        self.assertNotIn("clip point", line)
+
+    def test_retired_records_stay_out_of_both_tiers(self):
+        records = [
+            entry("c1", "claim", "Old premise", state="accepted"),
+            entry("c2", "claim", "Current premise"),
+            entry("c3", "claim", "Retire old", state="accepted", supersedes=("c1",)),
+        ]
+        rendered = build_context(projected(records), query="Current", ledger="repo")
+        self.assertNotIn("Old premise", rendered)
 
 
 if __name__ == "__main__":

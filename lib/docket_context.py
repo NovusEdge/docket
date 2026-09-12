@@ -147,6 +147,20 @@ def _clip_metadata(value: str, limit: int) -> str:
     return value[: max(0, limit - 3)] + "..."
 
 
+_INDEX_TEXT = 60
+
+
+def _index_line(entry: Mapping[str, Any]) -> str:
+    """One line naming a record the briefing did not render in full."""
+
+    return " ".join([
+        _id(entry) or "(missing id)",
+        _text(entry.get("kind") or "record").casefold(),
+        _effective_state(entry),
+        " " + _clip_metadata(_text(entry.get("text")), _INDEX_TEXT),
+    ])
+
+
 def _header(
     ledger: str,
     revision: str,
@@ -289,34 +303,24 @@ def build_context(
     for ident in selected_ids:
         candidate_ids.update(adjacency[ident])
     retired_count = sum(_is_retired(item) and _id(item) not in candidate_ids for item in history)
-    unrelated_count = len(history) - len(candidate_ids) - retired_count
     revision = _revision(history)
     prefix = "\n".join(_header(ledger, revision, query, tuple(file_list), all_records)) + "\n\n"
+    current_ids = [_id(item) for item in current]
 
-    def omitted_id_text(ids):
-        chosen = []
-        for ident in ids:
-            if len(chosen) >= 8 or len(", ".join(chosen + [ident])) > 120:
-                break
-            chosen.append(ident)
-        return ", ".join(chosen) + (f" (+{len(ids) - len(chosen)} more)" if len(chosen) < len(ids) else "")
-
-    def footer(included):
-        omitted_roots = [ident for ident in selected_ids if ident not in included]
+    def footer(included, listed=None):
+        deferred = [ident for ident in current_ids if ident not in included]
+        shown = len(deferred) if listed is None else listed
         related_omitted = {target for ident in included for target in _relation_ids(by_id[ident])
                            if target not in included}
         lines = [
-            f"# Omitted: {len(candidate_ids - included)}; unrelated: {unrelated_count}; retired: {retired_count}.",
+            f"# full text: {len(included)}; index: {shown}; retired: {retired_count}.",
         ]
-        if omitted_roots:
-            lines.append("# Omitted selected IDs: " + omitted_id_text(omitted_roots))
-        pinned_missing = sum(bool(by_id[ident].get("pinned")) for ident in omitted_roots)
-        if pinned_missing:
-            lines.append(f"# Omitted pinned records: {pinned_missing}.")
+        if shown < len(deferred):
+            lines.append(f"# Not listed: {len(deferred) - shown}; the budget could not name them.")
         if related_omitted:
-            lines.append(f"# Related records omitted: {len(related_omitted)}; formulas remain complete.")
+            lines.append(f"# Related records in index only: {len(related_omitted)}; formulas remain complete.")
         if no_match:
-            lines.append("# No task matches; fallback pins and their related records may be shown.")
+            lines.append("# No task matches; the index names every current record.")
         lines.append("# Declared grounds; evidence not freshly verified.")
         lines.append("# Retrieve full record: docket show RECORD_ID --json")
         return "\n\n" + "\n".join(lines) + "\n"
@@ -325,19 +329,31 @@ def build_context(
     # are never sliced, even when the caller supplies a giant path or query.
     if len(prefix) + len(footer(set())) > max_chars:
         prefix = f"# docket: {_clip_metadata(ledger or 'ledger', 60)} | revision: {revision}\n\n"
-    included = set()
-    blocks = []
+    included: set[str] = set()
+    order: list[str] = []
+    labels: dict[str, str] = {}
+
+    def render(candidate_order, candidate_set, index_ids=None):
+        full = "\n\n".join(_render_record(by_id[i], labels[i]) for i in candidate_order)
+        pool = current_ids if index_ids is None else index_ids
+        deferred = [i for i in pool if i not in candidate_set]
+        parts = [prefix.rstrip("\n"), ""]
+        if full:
+            parts += [full, ""]
+        if deferred:
+            parts.append(f"# index: {len(deferred)} more current records")
+            parts.append("\n".join(_index_line(by_id[i]) for i in deferred))
+        return "\n".join(parts).rstrip("\n") + footer(candidate_set, len(deferred))
 
     def admit(ident, label):
         if ident in included:
             return True
-        block = _render_record(by_id[ident], label)
-        trial = included | {ident}
-        rendered = prefix + "\n\n".join([*blocks, block]) + footer(trial)
-        if len(rendered) > max_chars:
+        labels[ident] = label
+        if len(render(order + [ident], included | {ident})) > max_chars:
+            del labels[ident]
             return False
         included.add(ident)
-        blocks.append(block)
+        order.append(ident)
         return True
 
     for ident in root_ids:
@@ -363,11 +379,26 @@ def build_context(
         ident = _id(item)
         if admit(ident, "fallback pin"):
             neighbors(ident)
-    result = prefix + "\n\n".join(blocks) + footer(included)
+    result = render(order, included)
     if len(result) > max_chars:
-        # This can only be diagnostic overhead with no admitted record.
-        result = (f"# docket revision: {revision}\n# No complete records fit.\n"
-                  f"# Omitted selected IDs: {omitted_id_text(selected_ids)}\n"
+        # The index itself overflows. Trim from the tail of current_ids. Task 2
+        # sorts that list by score, so the tail is the lowest-scoring end.
+        keep = len(current_ids)
+        while keep > 0:
+            keep -= max(1, keep // 8)
+            candidate = render(order, included, current_ids[:keep])
+            if len(candidate) <= max_chars:
+                return candidate
+        # No index line fits. Name the records by ID alone, which costs a few
+        # characters each and keeps every current record recoverable. The
+        # diagnostic prefix goes first when even that does not fit.
+        ids = ", ".join(i for i in current_ids if i not in included)
+        short = f"# docket: {_clip_metadata(ledger or 'ledger', 60)} | revision: {revision}"
+        for head in (prefix.rstrip("\n"), short):
+            candidate = head + f"\n\n# index: {ids}" + footer(included, 0)
+            if len(candidate) <= max_chars:
+                return candidate
+        result = (f"# docket revision: {revision}\n# No records fit.\n"
                   "# Retrieve full record: docket show RECORD_ID --json\n")
     return result
 
