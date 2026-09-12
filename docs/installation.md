@@ -1,6 +1,6 @@
 # Installation
 
-Docket 0.8.0 requires Python 3.10 or later and has no Python package
+Docket 0.8.0 requires Python 3.11 or later and has no Python package
 dependencies. The CLI writes schema 2 records with the `claim`, `decision`, and
 `question` kinds. The pre-0.8 `add`, `open`, `ruled-out`, `--answer`, and
 `--because` interface is removed. Read [the ledger reference](ledger.md) before

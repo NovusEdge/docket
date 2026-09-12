@@ -71,7 +71,7 @@ func findPython() (string, error) {
 		if err != nil {
 			continue
 		}
-		args := []string{"-I", "-c", "import json,sys; print(json.dumps({'ok': sys.version_info >= (3,10), 'executable': sys.executable}))"}
+		args := []string{"-I", "-c", "import json,sys; print(json.dumps({'ok': sys.version_info >= (3,11), 'executable': sys.executable}))"}
 		if name == "py" {
 			args = append([]string{"-3"}, args...)
 		}
@@ -87,7 +87,7 @@ func findPython() (string, error) {
 			return result.Executable, nil
 		}
 	}
-	return "", errors.New("Python 3.10 or later is required for Docket; install Python and make python3 or python available on PATH")
+	return "", errors.New("Python 3.11 or later is required for Docket; install Python and make python3 or python available on PATH")
 }
 
 func PreparePlan(env Environment, opts Options) (Plan, error) {

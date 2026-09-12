@@ -940,13 +940,20 @@ def cmd_context(args: argparse.Namespace) -> int:
     if args.max_chars is not None and args.max_chars < 512:
         print("docket: --max-chars must be at least 512", file=sys.stderr)
         return 2
+
     from docket_context import build_context as render_context
+    from docket_config import ConfigError, load as load_settings
+    try:
+        settings, settings_id = load_settings(ledger_path().parent)
+    except ConfigError as exc:
+        print(f"docket: {exc}", file=sys.stderr)
+        return 1
     files = tuple(args.file or ())
     forced = args.auto_scope is True
     default_on = (args.auto_scope is None and not args.query
                   and not files and not args.all_records)
     if forced or default_on:
-        files = tuple(dict.fromkeys(files + auto_scope_files()))
+        files = tuple(dict.fromkeys(files + auto_scope_files(settings["auto_scope"]["limit"])))
     try:
         text = render_context(
             project(read(ledger_path())),
@@ -955,6 +962,8 @@ def cmd_context(args: argparse.Namespace) -> int:
             max_chars=args.max_chars,
             ledger=str(ledger_path()),
             all_records=args.all_records,
+            settings=settings,
+            settings_id=settings_id,
         )
     except (LedgerError, OSError) as exc:
         print(str(exc), file=sys.stderr)

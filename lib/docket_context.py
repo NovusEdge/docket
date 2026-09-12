@@ -14,41 +14,14 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 
-_DEFAULT_BUDGET = 8000
-_MINIMUM_BUDGET = 512
+try:
+    # bin/docket puts lib/ on sys.path; the tests import lib.docket_context.
+    from docket_config import DEFAULTS as _SETTINGS_DEFAULTS
+except ImportError:
+    from .docket_config import DEFAULTS as _SETTINGS_DEFAULTS
 
-# A caller that names a budget gets a hard ceiling. The default is a target
-# that a task-matching record may exceed, because dropping a record the caller
-# asked for defeats the briefing. _OUTER_MULTIPLE bounds that overrun.
-_OUTER_MULTIPLE = 3
-
-# An index line's text length follows its score, so a near miss says more than
-# a distant record.
-_INDEX_TEXT_MIN = 40
-_INDEX_TEXT_MAX = 140
-
-# One table for every ordering constant. A briefing is reproducible only while
-# these never vary by caller, environment, or clock. Integers throughout: a
-# float sum reorders across platforms.
-_WEIGHTS = {
-    "scope_exact": 1000,
-    "scope_glob": 700,
-    "scope_prefix": 500,
-    # Below scope_prefix on purpose. A scope states where a record applies; a
-    # word in common with the query is incidental, so the weakest scope match
-    # still outranks the strongest text match.
-    "text": 400,
-    "recency": 200,
-    "degree": 50,
-    "degree_cap": 10,
-    "pinned": 400,
-    # A neighbour inherits half its parent's score per hop. Expansion ends when
-    # the inherited score falls under the floor, so depth follows relevance
-    # instead of a fixed hop count.
-    "decay_numerator": 1,
-    "decay_denominator": 2,
-    "floor": 50,
-}
+_DEFAULT_BUDGET = _SETTINGS_DEFAULTS["budget"]["target"]
+_MINIMUM_BUDGET = _SETTINGS_DEFAULTS["budget"]["minimum"]
 
 
 def _list(value: Any) -> list[Any]:
@@ -126,7 +99,8 @@ def _scope_matches(entry: Mapping[str, Any], files: tuple[str, ...]) -> bool:
     return False
 
 
-def _scope_strength(entry: Mapping[str, Any], files: tuple[str, ...]) -> int:
+def _scope_strength(entry: Mapping[str, Any], files: tuple[str, ...],
+                    weights: Mapping[str, int]) -> int:
     """Strongest scope match: exact path, then glob, then directory prefix.
 
     The old sort key treated every scope match as equal, so ordering between
@@ -145,11 +119,11 @@ def _scope_strength(entry: Mapping[str, Any], files: tuple[str, ...]) -> int:
             if "/" not in scope and not any(mark in scope for mark in "*?[]"):
                 continue
             if scope == path:
-                best = max(best, _WEIGHTS["scope_exact"])
+                best = max(best, weights["scope_exact"])
             elif fnmatch.fnmatchcase(path, scope):
-                best = max(best, _WEIGHTS["scope_glob"])
+                best = max(best, weights["scope_glob"])
             elif "/" in scope and path.startswith(scope.rstrip("/") + "/"):
-                best = max(best, _WEIGHTS["scope_prefix"])
+                best = max(best, weights["scope_prefix"])
     return best
 
 
@@ -165,15 +139,16 @@ def _score(
     degree: int,
     rank: int,
     total: int,
+    weights: Mapping[str, int],
 ) -> tuple[int, list[tuple[str, int]]]:
     """Return an integer score and the components that produced it."""
 
     components = [
-        ("scope", _scope_strength(entry, files)),
-        ("text", _WEIGHTS["text"] * min(text_points, 1000) // 1000),
-        ("recency", _WEIGHTS["recency"] * rank // max(1, total - 1)),
-        ("degree", _WEIGHTS["degree"] * min(degree, _WEIGHTS["degree_cap"])),
-        ("pinned", _WEIGHTS["pinned"] if entry.get("pinned") else 0),
+        ("scope", _scope_strength(entry, files, weights)),
+        ("text", weights["text"] * min(text_points, 1000) // 1000),
+        ("recency", weights["recency"] * rank // max(1, total - 1)),
+        ("degree", weights["degree"] * min(degree, weights["degree_cap"])),
+        ("pinned", weights["pinned"] if entry.get("pinned") else 0),
     ]
     return sum(value for _, value in components), [pair for pair in components if pair[1]]
 
@@ -264,7 +239,7 @@ def _clip_metadata(value: str, limit: int) -> str:
     return value[: max(0, limit - 3)] + "..."
 
 
-def _index_line(entry: Mapping[str, Any], detail: int = _INDEX_TEXT_MIN) -> str:
+def _index_line(entry: Mapping[str, Any], detail: int = 40) -> str:
     """One line naming a record the briefing did not render in full."""
 
     return " ".join([
@@ -282,10 +257,16 @@ def _header(
     files: tuple[str, ...],
     all_records: bool,
     latest: str = "",
+    settings_id: str = "default",
 ) -> list[str]:
     identity = _clip_metadata(ledger or "ledger", 180)
     lines = [
-        f"# docket: {identity} | revision: {revision}" + (f" | latest: {latest}" if latest else ""),
+        f"# docket: {identity} | revision: {revision}"
+        + (f" | latest: {latest}" if latest else "")
+        # Tuned settings change the ordering, so a briefing names the settings
+        # that produced it. Without this the output is not reproducible from
+        # its own header.
+        + ("" if settings_id == "default" else f" | settings: {settings_id}"),
         "# Context: decisions are commitments, claims are premises, questions are inquiries; states are not truth and authors are recorders.",
     ]
     if query.strip():
@@ -377,23 +358,31 @@ def build_context(
     max_chars: int | None = None,
     ledger: str = "",
     all_records: bool = False,
+    settings: Mapping[str, Any] | None = None,
+    settings_id: str = "default",
 ) -> str:
     """Render whole records under tiered budget rules.
 
     Every current record appears, in full text or as an index line. A record
     that matches the task scope or query renders in full even when that
-    exceeds the default target, up to _OUTER_MULTIPLE times the target.
+    exceeds the default target, up to budget.outer_multiple times the target.
     Everything else competes for the remaining target by score.
 
     A caller that names ``max_chars`` gets a hard ceiling instead, and no rule
     may exceed it.
     """
+    cfg = settings if settings is not None else _SETTINGS_DEFAULTS
+    weights = cfg["weights"]
+    expansion = cfg["expansion"]
+    detail_min = cfg["index"]["detail_min"]
+    detail_max = cfg["index"]["detail_max"]
     if max_chars is None:
-        soft_limit = _DEFAULT_BUDGET
-        hard_limit = _DEFAULT_BUDGET * _OUTER_MULTIPLE
+        soft_limit = cfg["budget"]["target"]
+        hard_limit = soft_limit * cfg["budget"]["outer_multiple"]
     else:
-        if type(max_chars) is not int or max_chars < _MINIMUM_BUDGET:
-            raise ValueError("max_chars must be an integer of at least 512")
+        if type(max_chars) is not int or max_chars < cfg["budget"]["minimum"]:
+            raise ValueError(
+                f"max_chars must be an integer of at least {cfg['budget']['minimum']}")
         soft_limit = hard_limit = max_chars
     history = list(entries)
     if not history:
@@ -423,10 +412,11 @@ def build_context(
             degree=_degree(ident, history),
             rank=rank_of.get(ident, 0),
             total=total_ranks,
+            weights=weights,
         )
         scores[ident] = score
         reasons[ident] = _selection_reason(score, components)
-        hit = bool(_scope_strength(item, file_list) or text_points)
+        hit = bool(_scope_strength(item, file_list, weights) or text_points)
         if hit:
             task_matched.add(ident)
         if not task_mode or hit:
@@ -457,7 +447,7 @@ def build_context(
     revision = _revision(history)
     latest = max(by_id, key=lambda ident: int(ident[1:]), default="")
     prefix = "\n".join(
-        _header(ledger, revision, query, tuple(file_list), all_records, latest)
+        _header(ledger, revision, query, tuple(file_list), all_records, latest, settings_id)
     ) + "\n\n"
     # Score order, so the tail trim below drops the least relevant records.
     current_ids = sorted((_id(item) for item in current),
@@ -491,8 +481,8 @@ def build_context(
     top_score = max(scores.values(), default=0) or 1
 
     def detail_of(ident):
-        span = _INDEX_TEXT_MAX - _INDEX_TEXT_MIN
-        return _INDEX_TEXT_MIN + (scores.get(ident, 0) * span) // top_score
+        span = detail_max - detail_min
+        return detail_min + (scores.get(ident, 0) * span) // top_score
 
     def render(candidate_order, candidate_set, index_ids=None, detail=None):
         full = "\n\n".join(
@@ -537,9 +527,9 @@ def build_context(
         while frontier:
             frontier.sort()
             _, _, ident, parent_score = frontier.pop(0)
-            decayed = (parent_score * _WEIGHTS["decay_numerator"]
-                       // _WEIGHTS["decay_denominator"])
-            if decayed < _WEIGHTS["floor"]:
+            decayed = (parent_score * expansion["decay_numerator"]
+                       // expansion["decay_denominator"])
+            if decayed < expansion["floor"]:
                 continue
             ranked = sorted(
                 (t for t in adjacency[ident] if t not in seen),
@@ -548,7 +538,7 @@ def build_context(
             for target in ranked:
                 seen.add(target)
                 effective = min(scores.get(target, 0), decayed) or decayed
-                if effective < _WEIGHTS["floor"]:
+                if effective < expansion["floor"]:
                     continue
                 if admit(target, "related record"):
                     frontier.append((-effective, -int(target[1:]), target, effective))
@@ -562,13 +552,13 @@ def build_context(
     if len(result) > hard_limit:
         # Degrade in order: shrink every index line to the minimum detail, then
         # trim index lines from the low-scoring tail, then names alone.
-        flat = render(order, included, detail=_INDEX_TEXT_MIN)
+        flat = render(order, included, detail=detail_min)
         if len(flat) <= hard_limit:
             return flat
         keep = len(current_ids)
         while keep > 0:
             keep -= max(1, keep // 8)
-            candidate = render(order, included, current_ids[:keep], detail=_INDEX_TEXT_MIN)
+            candidate = render(order, included, current_ids[:keep], detail=detail_min)
             if len(candidate) <= hard_limit:
                 return candidate
         # No index line fits. Name the records by ID alone, which costs a few

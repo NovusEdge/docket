@@ -1,0 +1,57 @@
+# Docket renderer settings. Copy to .docket/config.toml and edit.
+#
+# Every value is an integer, and every value here is the default. Omit a key to
+# keep its default. An unknown section or key is an error, so a typo cannot
+# silently do nothing.
+#
+# Tuned settings change the order of a briefing, so the briefing header names
+# them: "settings: 7f3a9c21". A file that restates the defaults prints
+# "settings: default" and is treated as untuned.
+
+[budget]
+# Characters the briefing aims for.
+target = 8000
+# A record matching the task scope or query renders in full even past the
+# target, up to this multiple of it. Raise it for a large ledger where many
+# records share one scope.
+outer_multiple = 3
+# The smallest budget --max-chars accepts.
+minimum = 512
+
+[index]
+# Characters of record text on an index line. The line's length follows its
+# score between these two bounds, so a near miss says more than a distant
+# record.
+detail_min = 40
+detail_max = 140
+
+[weights]
+# Scope match strength, strongest first.
+scope_exact = 1000
+scope_glob = 700
+scope_prefix = 500
+# Query term match. Below scope_prefix on purpose: a scope states where a
+# record applies, and a word in common with the query is incidental. Raise it
+# above 500 to let query text outrank a directory scope.
+text = 400
+# Position in the record sequence. The newest record scores the full value.
+recency = 200
+# Points per record pointing at this one through a relation, up to degree_cap
+# relations.
+degree = 50
+degree_cap = 10
+# Added to a pinned record. Below scope_glob, so a pin no longer takes absolute
+# precedence over a better scope match.
+pinned = 400
+
+[expansion]
+# A related record inherits this fraction of its parent's score per hop.
+decay_numerator = 1
+decay_denominator = 2
+# Expansion stops when the inherited score falls under this, so depth follows
+# relevance instead of a fixed hop count.
+floor = 50
+
+[auto_scope]
+# Most paths taken from the working tree when no --query or --file is given.
+limit = 50
