@@ -134,7 +134,12 @@ where:
 release new:
     #!/usr/bin/env bash
     set -euo pipefail
-    test -z "$(git status --porcelain)" || { echo "working tree is dirty"; exit 1; }
+    # The ledger records decisions continuously and ships once per release, so
+    # it is the one path allowed to be dirty here. Every other change belongs in
+    # its own commit.
+    dirty="$(git status --porcelain -- . ':(exclude).docket')"
+    test -z "$dirty" || { echo "working tree is dirty outside .docket:"; echo "$dirty"; exit 1; }
+    ./bin/docket check
     echo "{{new}}" > VERSION
     # Rewritten as JSON, not by sed: a manifest that stops parsing takes the
     # plugin down in every harness at once.
@@ -142,7 +147,7 @@ release new:
       python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["version"]=sys.argv[2]; open(p,"w").write(json.dumps(d, indent=2)+"\n")' "$f" "{{new}}"
     done
     just test
-    git add VERSION .claude-plugin/plugin.json .codex-plugin/plugin.json
+    git add VERSION .claude-plugin/plugin.json .codex-plugin/plugin.json .docket
     git commit -s -m "release: {{new}}"
     git tag -a "v{{new}}" -m "docket {{new}}"
     echo "tagged v{{new}}; push with: git push && git push --tags"
