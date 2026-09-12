@@ -167,14 +167,7 @@ def _selection_reason(score: int, components: list[tuple[str, int]]) -> str:
     return f"selection: score {score} | {detail}"
 
 
-def _text_points(entry: Mapping[str, Any], query: str) -> int:
-    return 1000 if _text_matches(entry, query) else 0
-
-
-def _text_matches(entry: Mapping[str, Any], query: str) -> bool:
-    query = query.strip().casefold()
-    if not query:
-        return False
+def _haystack(entry: Mapping[str, Any]) -> str:
     fields = [
         entry.get("id"),
         entry.get("text"),
@@ -183,11 +176,41 @@ def _text_matches(entry: Mapping[str, Any], query: str) -> bool:
         *_list(entry.get("alternatives")),
         *_list(entry.get("scope")),
     ]
-    haystack = " ".join(_text(value) for value in fields).casefold()
-    if query in haystack:
-        return True
-    words = [word for word in query.split() if word]
-    return bool(words) and all(word in haystack for word in words)
+    return " ".join(_text(value) for value in fields).casefold()
+
+
+def _term_weights(current: list[Mapping[str, Any]], query: str) -> dict[str, int]:
+    """Weight each query term by how few records contain it.
+
+    Integer division, not a logarithm: libm results can differ between
+    platforms, and a briefing must be byte-identical at one revision.
+    """
+
+    terms = [word for word in query.strip().casefold().split() if word]
+    if not terms or not current:
+        return {}
+    haystacks = [_haystack(item) for item in current]
+    total = len(haystacks)
+    weights = {}
+    for term in terms:
+        frequency = sum(term in haystack for haystack in haystacks)
+        weight = 1000 * (total - frequency) // total
+        # A term in every record scores zero and is dropped. Keeping it at 1
+        # would make every record a task match, so one common word in the
+        # query would select the whole ledger.
+        if frequency and weight:
+            weights[term] = weight
+    return weights
+
+
+def _text_points(entry: Mapping[str, Any], query: str, weights: Mapping[str, int]) -> int:
+    if not weights:
+        return 0
+    haystack = _haystack(entry)
+    points = sum(weight for term, weight in weights.items() if term in haystack)
+    if query.strip().casefold() in haystack:
+        points += 1000
+    return points
 
 
 def _role(kind: str) -> str:
@@ -364,11 +387,12 @@ def build_context(
     total_ranks = len(order_by_id)
     scores: dict[str, int] = {}
     reasons: dict[str, str] = {}
+    term_weights = _term_weights(current, query)
 
     matched = []
     for item in current:
         ident = _id(item)
-        text_points = _text_points(item, query)
+        text_points = _text_points(item, query, term_weights)
         score, components = _score(
             item,
             files=file_list,

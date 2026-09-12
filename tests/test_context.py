@@ -1,7 +1,7 @@
 import unittest
 import re
 
-from lib.docket_context import build_context
+from lib.docket_context import build_context, _term_weights
 from lib.docket_ledger import make_record, project
 
 
@@ -275,6 +275,25 @@ class ContextTests(unittest.TestCase):
         rendered = build_context(projected(records), files=("lib/docket_context.py",), ledger="repo")
         self.assertRegex(rendered, r"selection: score \d+ \| ")
         self.assertIn("scope=", rendered)
+
+    def test_rare_term_outranks_a_term_present_in_most_records(self):
+        records = [
+            entry("d1", "decision", "decision about caching", choice="a"),
+            entry("d2", "decision", "decision about logging", choice="b"),
+            entry("d3", "decision", "decision about supersession", choice="c"),
+            entry("d4", "decision", "decision about routing", choice="d"),
+        ]
+        rendered = build_context(projected(records), query="decision supersession", ledger="repo")
+        self.assertIn("### d3 ", rendered)
+        self.assertNotIn("### d1 ", rendered)
+        self.assertIn("d1 decision", rendered)
+
+    def test_a_term_in_every_record_carries_no_weight(self):
+        records = [
+            entry("d1", "decision", "decision about caching", choice="a"),
+            entry("d2", "decision", "decision about logging", choice="b"),
+        ]
+        self.assertEqual(_term_weights(projected(records), "decision"), {})
 
     def test_same_inputs_at_one_revision_are_byte_identical(self):
         records = [
