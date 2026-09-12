@@ -1,3 +1,12 @@
 .docket/
 __pycache__/
 *.py[cod]
+/installer/docket-installer
+/installer/docket-installer.exe
+/installer/installer
+/installer/installer.exe
+/graph/docket-graph
+/graph/docket-graph.exe
+/graph/graph
+/graph/graph.exe
+/dist/

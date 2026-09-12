@@ -196,8 +196,9 @@ Nobody deletes one. Models improve and the graph does not.
 
 ## Implementation constraints
 
-The current implementation uses one Python command and an append-only ledger. It
-does not require a workflow framework.
+The ledger CLI remains a Python command over an append-only ledger. The native
+installer and graph viewer do not require a workflow framework or change the
+ledger model.
 
 The proposed action gate needs a hook before tool execution. The integration must
 map the ledger decision to the hook response for each supported harness.

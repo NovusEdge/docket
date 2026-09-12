@@ -7,6 +7,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from io import StringIO
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
@@ -20,6 +21,175 @@ docket_cli = importlib.util.module_from_spec(_spec)
 _loader.exec_module(docket_cli)
 
 
+class _TTYBuffer(StringIO):
+    def __init__(self, tty=True):
+        super().__init__()
+        self._tty = tty
+
+    @property
+    def encoding(self):
+        return "utf-8"
+
+    def isatty(self):
+        return self._tty
+
+
+def test_graph_dispatch():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        ledger = root / ".docket" / "ledger.jsonl"
+        ledger.parent.mkdir()
+        entries = [
+            {"id": "d1", "state": "settled", "question": "Root", "answer": "a",
+             "cost_if_wrong": "cost", "because": [], "supersedes": []},
+            {"id": "d2", "state": "ruled-out", "question": "Old", "answer": "b",
+             "cost_if_wrong": "", "because": [], "supersedes": []},
+            {"id": "d3", "state": "settled", "question": "Child", "answer": "c",
+             "cost_if_wrong": "", "because": [["d1", "d2"], ["d1"]], "supersedes": []},
+            {"id": "d4", "state": "settled", "question": "Retire old", "answer": "d",
+             "cost_if_wrong": "", "because": [], "supersedes": ["d2"]},
+        ]
+        ledger.write_text("\n".join(json.dumps(e) for e in entries) + "\n")
+
+        real_ledger_path = docket_cli.ledger_path
+        real_stdin, real_stdout, real_stderr = docket_cli.sys.stdin, docket_cli.sys.stdout, docket_cli.sys.stderr
+        real_viewer_path = getattr(docket_cli, "_graph_viewer_path", None)
+        real_run = docket_cli.subprocess.run
+        try:
+            docket_cli.ledger_path = lambda: ledger
+            docket_cli.sys.stdin = _TTYBuffer(True)
+            docket_cli.sys.stdout = _TTYBuffer(True)
+            docket_cli.sys.stderr = _TTYBuffer(False)
+            viewer = root / "checkout with spaces" / "graph" / "docket-graph"
+            viewer.parent.mkdir(parents=True)
+            viewer.write_text("viewer")
+            docket_cli._graph_viewer_path = lambda: viewer
+            seen = {}
+
+            def fake_run(argv, **kwargs):
+                seen["argv"] = argv
+                seen["kwargs"] = kwargs
+                seen["payload"] = json.loads(Path(argv[2]).read_text())
+                assert Path(argv[2]).exists()
+                return subprocess.CompletedProcess(argv, 7)
+
+            docket_cli.subprocess.run = fake_run
+            args = type("Args", (), {"style": None, "state": None, "find": None,
+                                      "plain": False, "pretty": False,
+                                      "interactive": False, "no_interactive": False})()
+            assert docket_cli.cmd_graph(args) == 7
+            assert seen["argv"][:2] == [str(viewer), "--data"]
+            assert Path(seen["argv"][2]).exists() is False
+            assert "stdin" not in seen["kwargs"] and "stdout" not in seen["kwargs"]
+            assert seen["payload"]["version"] == 1
+            by_id = {e["id"]: e for e in seen["payload"]["entries"]}
+            assert by_id["d3"]["sets"] == [["d1", "d2"], ["d1"]]
+            assert by_id["d3"]["supports"] == ["d1", "d2"]
+            assert by_id["d2"]["retired_by"] == "d4"
+            assert by_id["d1"]["cost"] == "cost"
+
+            pretty_args = type("Args", (), {"style": None, "state": None, "find": None,
+                                             "plain": False, "pretty": True,
+                                             "interactive": False, "no_interactive": False})()
+            assert docket_cli.cmd_graph(pretty_args) == 7
+            assert seen["argv"][3] == "--pretty"
+
+            docket_cli.sys.stdin = _TTYBuffer(True)
+            docket_cli.sys.stdout = _TTYBuffer(True)
+            docket_cli.sys.stderr = _TTYBuffer(False)
+
+            def broken_viewer(argv, **kwargs):
+                seen["broken_path"] = argv[2]
+                raise OSError("Exec format error")
+
+            docket_cli.subprocess.run = broken_viewer
+            assert docket_cli.cmd_graph(args) == 1
+            assert docket_cli.sys.stdout.getvalue() == ""
+            assert "could not start interactive viewer" in docket_cli.sys.stderr.getvalue()
+            assert "Traceback" not in docket_cli.sys.stderr.getvalue()
+            assert Path(seen["broken_path"]).exists() is False
+
+            # A pipe keeps the existing text renderer and never starts the viewer.
+            docket_cli.sys.stdin = _TTYBuffer(False)
+            docket_cli.sys.stdout = _TTYBuffer(False)
+            called = []
+            docket_cli.subprocess.run = lambda *a, **k: called.append((a, k))
+            assert docket_cli.cmd_graph(args) == 0
+            assert not called
+            assert "Root" in docket_cli.sys.stdout.getvalue()
+
+            # Auto mode falls back to compact text when the checkout binary is absent.
+            docket_cli.sys.stdin = _TTYBuffer(True)
+            docket_cli.sys.stdout = _TTYBuffer(True)
+            docket_cli.sys.stderr = _TTYBuffer(False)
+            docket_cli._graph_viewer_path = lambda: root / "missing" / "docket-graph"
+            assert docket_cli.cmd_graph(args) == 0
+            assert "Root" in docket_cli.sys.stdout.getvalue()
+            assert "build" in docket_cli.sys.stderr.getvalue().lower()
+
+            # Explicit interactive mode fails clearly when the binary is absent or the
+            # terminal boundary is missing, and Ctrl-C still removes the private file.
+            interactive = type("Args", (), {"style": None, "state": None, "find": None,
+                                             "plain": False, "pretty": False,
+                                             "interactive": True, "no_interactive": False})()
+            assert docket_cli.cmd_graph(interactive) == 1
+            docket_cli.sys.stdin = _TTYBuffer(False)
+            assert docket_cli.cmd_graph(interactive) == 1
+            docket_cli.sys.stdin = _TTYBuffer(True)
+            docket_cli._graph_viewer_path = lambda: viewer
+
+            def interrupt(*a, **k):
+                seen["interrupt_path"] = a[0][2]
+                raise KeyboardInterrupt
+
+            docket_cli.subprocess.run = interrupt
+            assert docket_cli.cmd_graph(interactive) == 130
+            assert Path(seen["interrupt_path"]).exists() is False
+        finally:
+            docket_cli.ledger_path = real_ledger_path
+            docket_cli.sys.stdin, docket_cli.sys.stdout, docket_cli.sys.stderr = real_stdin, real_stdout, real_stderr
+            docket_cli.subprocess.run = real_run
+            if real_viewer_path is not None:
+                docket_cli._graph_viewer_path = real_viewer_path
+
+
+def test_graph_flag_conflicts():
+    real_stderr = docket_cli.sys.stderr
+    docket_cli.sys.stderr = _TTYBuffer(False)
+    try:
+        for flags in (("--interactive", "--no-interactive"), ("--interactive", "--plain"),
+                      ("--interactive", "--style", "rail")):
+            try:
+                docket_cli.main(["graph", *flags])
+            except SystemExit as exc:
+                assert exc.code == 2
+            else:
+                raise AssertionError(f"expected parser error for {flags}")
+    finally:
+        docket_cli.sys.stderr = real_stderr
+
+
+def test_top_level_help():
+    release = (Path(DOCKET).parent.parent / "VERSION").read_text().strip()
+    for flags in ((), ("-h",), ("--help",)):
+        result = subprocess.run(
+            [sys.executable, DOCKET, *flags], capture_output=True, text=True,
+        )
+        assert result.returncode == 0, (flags, result.stderr)
+        assert result.stdout.startswith(f"docket {release}\n"), result.stdout
+        assert "usage: docket" in result.stdout and "graph" in result.stdout
+        assert "Record project decisions, rejected options, and open questions." in result.stdout
+        assert "browse decision support relationships" in result.stdout
+        assert "SessionStart hook" not in result.stdout
+        assert result.stderr == "", (flags, result.stderr)
+
+    result = subprocess.run(
+        [sys.executable, DOCKET, "not-a-command"], capture_output=True, text=True,
+    )
+    assert result.returncode == 2
+    assert "invalid choice" in result.stderr
+
+
 def run(cwd, *args, home=None):
     env = dict(os.environ)
     # Point the global store at a temp dir so tests never touch the real one.
@@ -31,6 +201,9 @@ def run(cwd, *args, home=None):
 
 
 def main() -> int:
+    test_graph_dispatch()
+    test_graph_flag_conflicts()
+    test_top_level_help()
     with tempfile.TemporaryDirectory() as tmp:
         d = Path(tmp)
 
