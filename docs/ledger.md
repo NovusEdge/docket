@@ -188,6 +188,45 @@ The renderer does not fetch evidence, call a tokenizer, infer truth, or
 propagate state. Re-run the briefing after compaction or resume through the
 harness's existing hook surface.
 
+## Sharing a ledger
+
+Writers on one host are safe. `append` allocates the record ID, validates, and
+writes while holding an exclusive lock on `ledger.jsonl.lock`, so two processes
+never claim the same sequence number. Readers take a shared lock on the same
+file, so a read never sees a half-written line.
+
+Two branches that both record produce a git conflict on the ledger, because
+each branch appends different records after the same last line. Resolve the
+conflict with `docket rebase`, not by hand and not with a union merge driver. A
+union merge keeps both branches' lines, which leaves two records holding one ID.
+Every command then fails, including the session hook.
+
+To repair a divergence, recover the other branch's ledger file and run:
+
+```sh
+docket rebase ../other-branch/.docket/ledger.jsonl --dry-run
+docket rebase ../other-branch/.docket/ledger.jsonl
+```
+
+Rebase finds the prefix both files share, then appends the other file's
+remaining records under fresh IDs. References inside that tail follow the
+renaming. References into the shared prefix stay valid, because prefix IDs never
+move, and no prefix record can point into the tail: validation forbids forward
+references. `--dry-run` prints the ID map and writes nothing.
+
+Hand-resolving the conflict has one silent failure. Keeping branch A's `c46` and
+branch B's `d47` leaves `d47` pointing at A's `c46`, which exists and has the
+right kind. Validation passes and the reference means something nobody chose.
+Nothing detects this afterwards. Use `docket rebase`.
+
+When a ledger stops reading, run `docket check`. It reports every malformed,
+duplicate, out-of-order, and invalid record with its line number, where a normal
+read stops at the first fault.
+
+Docket does not merge divergent decision trees semantically. Two branches that
+decided the same question differently produce two adopted decisions after a
+rebase. A person resolves that by superseding one of them.
+
 ## Explicit migration from schema 1
 
 Schema 1 reads fail with an actionable migration error. Migration is a separate

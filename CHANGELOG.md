@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `docket check` reports every fault in a ledger with its line number:
+  malformed, duplicate, out-of-order, and invalid records. A normal read stops
+  at the first fault, which hides the rest of the damage a bad merge did.
+- `docket rebase OTHER` appends the records `OTHER` holds past the shared
+  prefix, each under a fresh ID, and rewrites the references inside that tail.
+  Use it to resolve the git conflict two recording branches produce. `--dry-run`
+  prints the ID map and writes nothing.
+- `docket init` writes `.docket/.gitignore` with `*.lock`, so a team that
+  commits `.docket/` does not commit the append lock. An existing file is left
+  alone.
+
+### Fixed
+
+- Reads hold a shared lock on the ledger, so a reader no longer sees a
+  half-written line and fails on invalid JSON. Writers already held an exclusive
+  lock.
+
 ## [0.9.0] - 2026-09-12
 
 ### Added

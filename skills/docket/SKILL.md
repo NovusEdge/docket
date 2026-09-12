@@ -175,3 +175,23 @@ Schema 1 ledgers require the explicit migration tool under `scripts/`; do not
 guess record types from prose. See [the ledger reference](../../docs/ledger.md)
 for the classification map, relation treatment, and non-overwriting migration
 procedure.
+
+## Repair a shared ledger
+
+```sh
+docket check
+docket rebase ../other-branch/.docket/ledger.jsonl --dry-run
+docket rebase ../other-branch/.docket/ledger.jsonl
+```
+
+Run `check` when any command reports an unreadable ledger. It lists every fault
+with its line number, where a read stops at the first one.
+
+Run `rebase` when two branches both recorded and the ledger conflicts in git.
+It appends the other branch's records past the shared prefix under fresh IDs and
+rewrites the references inside them. Never resolve the conflict by editing the
+file: a kept record can end up pointing at a same-numbered record from the other
+branch, which validates and is wrong. `--dry-run` prints the ID map first.
+
+Two branches that decided one question differently produce two adopted decisions.
+Supersede one of them; a rebase does not choose.
