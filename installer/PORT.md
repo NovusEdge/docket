@@ -4,7 +4,7 @@ Approved scope: replace the installer with Go and Charm components, using
 `~/vms/stoat/internal/installer/tui.go` as the interaction reference. Keep all
 installer code, tests, dependencies, and build tools in `installer/`.
 
-The ledger CLI remains Python 3.10+. The installer uses an inline transcript
+The ledger CLI remains Python 3.11+. The installer uses an inline transcript
 with checks, location, harness selection, PATH consent, review, execution, and
 results. The same planner feeds interactive and unattended execution. Review
 includes filesystem changes, Codex commands, checkout updates, and registry

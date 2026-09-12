@@ -897,19 +897,91 @@ CONTEXT_ENVELOPES = {
 }
 
 
+_AUTO_SCOPE_LIMIT = 50
+
+
+def auto_scope_files(limit: int = _AUTO_SCOPE_LIMIT) -> tuple[str, ...]:
+    """Changed and untracked paths, as the working tree's proxy for a task.
+
+    Both commands run from the repository root. git ls-files lists only what
+    sits under the current directory, and git diff prints root-relative paths,
+    so running from a subdirectory would drop files and mix two path bases.
+    -z output, because a path may contain a newline.
+    """
+
+    try:
+        top = subprocess.run(["git", "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True, timeout=3)
+    except (OSError, subprocess.SubprocessError):
+        return ()
+    if top.returncode != 0:
+        return ()
+    root = top.stdout.strip()
+
+    groups: list[list[str]] = []
+    for command in (
+        ["git", "diff", "--name-only", "-z", "HEAD"],
+        ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+    ):
+        try:
+            # Bytes, not text: the locale codec decodes strictly, and a path
+            # carrying an invalid byte would raise UnicodeDecodeError, which is
+            # neither OSError nor SubprocessError and would kill every
+            # docket context in that repository.
+            done = subprocess.run(command, cwd=root, capture_output=True, timeout=3)
+        except (OSError, subprocess.SubprocessError):
+            return ()
+        # A repository with no commits has no HEAD, so the diff fails while
+        # ls-files still reports every untracked file. Skip the failed command
+        # and keep what the other one found.
+        if done.returncode != 0:
+            groups.append([])
+            continue
+        text = done.stdout.decode("utf-8", errors="surrogateescape")
+        groups.append([path for path in text.split("\0") if path])
+
+    # Interleave the two sources. Taking the head of a concatenated list let a
+    # branch with more than `limit` modified files starve every untracked one,
+    # which is the work in progress.
+    paths: list[str] = []
+    for index in range(max((len(group) for group in groups), default=0)):
+        for group in groups:
+            if index < len(group) and group[index] not in paths:
+                paths.append(group[index])
+    return tuple(paths[:limit])
+
+
 def cmd_context(args: argparse.Namespace) -> int:
-    if args.max_chars < 512:
-        print("docket: --max-chars must be at least 512", file=sys.stderr)
-        return 2
     from docket_context import build_context as render_context
+    from docket_config import ConfigError, load as load_settings
+    try:
+        settings, settings_id = load_settings(ledger_path().parent)
+    except ConfigError as exc:
+        print(f"docket: {exc}", file=sys.stderr)
+        return 1
+    # Validate against the loaded minimum, not a literal. A config that raises
+    # budget.minimum would otherwise let a too-small value through and surface
+    # as an uncaught ValueError from the renderer.
+    minimum = settings["budget"]["minimum"]
+    if args.max_chars is not None and args.max_chars < minimum:
+        print(f"docket: --max-chars must be at least {minimum}", file=sys.stderr)
+        return 2
+    files = tuple(args.file or ())
+    forced = args.auto_scope is True
+    default_on = (args.auto_scope is None and not args.query
+                  and not files and not args.all_records)
+    if forced or default_on:
+        files = tuple(dict.fromkeys(files + auto_scope_files(settings["auto_scope"]["limit"])))
     try:
         text = render_context(
             project(read(ledger_path())),
             query=args.query or "",
-            files=tuple(args.file or ()),
+            files=files,
             max_chars=args.max_chars,
             ledger=str(ledger_path()),
             all_records=args.all_records,
+            settings=settings,
+            settings_id=settings_id,
         )
     except (LedgerError, OSError) as exc:
         print(str(exc), file=sys.stderr)
@@ -927,6 +999,7 @@ _COMPLETION_FLAGS = (
     "--state", "--choice", "--alternative", "--scope", "--rationale",
     "--supports", "--depends-on", "--answers", "--supersedes", "--evidence",
     "--revisit", "--cost", "--pin", "--kind", "--query", "--file", "--max-chars",
+    "--auto-scope", "--no-auto-scope",
     "--all", "--find", "--superseded", "--oneline", "--json", "--plain", "--pretty",
     "--style", "--interactive", "--no-interactive", "--for", "--version",
 )
@@ -1080,8 +1153,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     ctx.add_argument("--query", default="")
     ctx.add_argument("--file", action="append", default=[])
-    ctx.add_argument("--max-chars", type=int, default=8000)
+    # No default: the renderer treats None as a soft target that a
+    # task-matching record may exceed. A value here is a hard ceiling.
+    ctx.add_argument("--max-chars", type=int, default=None)
     ctx.add_argument("--all", dest="all_records", action="store_true")
+    ctx.add_argument(
+        "--auto-scope", dest="auto_scope", action="store_true", default=None,
+        help="derive file scope from git, even alongside an explicit query or file",
+    )
+    ctx.add_argument(
+        "--no-auto-scope", dest="auto_scope", action="store_false",
+        help="never derive file scope from git",
+    )
     ctx.set_defaults(func=cmd_context)
 
     wh = sub.add_parser("where", help="print which ledger file is in use")

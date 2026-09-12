@@ -251,5 +251,97 @@ class GraphDispatchTests(unittest.TestCase):
                 docket_cli.sys.stdout = old_stdout
 
 
+class AutoScopeTests(unittest.TestCase):
+    def _repo(self, home):
+        for command in (["git", "init", "-q"],
+                        ["git", "config", "user.email", "t@example.com"],
+                        ["git", "config", "user.name", "t"]):
+            subprocess.run(command, cwd=home, check=True)
+        (Path(home) / "tracked.py").write_text("x = 1\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=home, check=True)
+        subprocess.run(["git", "commit", "-qm", "first"], cwd=home, check=True)
+
+    def test_auto_scope_shares_one_base_from_a_subdirectory(self):
+        with tempfile.TemporaryDirectory() as home:
+            self._repo(home)
+            (Path(home) / "tracked.py").write_text("x = 2\n", encoding="utf-8")
+            (Path(home) / "new file.py").write_text("y = 1\n", encoding="utf-8")
+            nested = Path(home) / "sub"
+            nested.mkdir()
+            (nested / "deep.py").write_text("z = 1\n", encoding="utf-8")
+            cwd = os.getcwd()
+            os.chdir(nested)
+            try:
+                paths = docket_cli.auto_scope_files()
+            finally:
+                os.chdir(cwd)
+        # git diff prints root-relative paths and ls-files --others prints
+        # cwd-relative ones, so every path must share the repository root.
+        self.assertIn("tracked.py", paths)
+        self.assertIn("new file.py", paths)
+        self.assertIn("sub/deep.py", paths)
+
+    def test_auto_scope_reports_untracked_files_before_the_first_commit(self):
+        with tempfile.TemporaryDirectory() as home:
+            subprocess.run(["git", "init", "-q"], cwd=home, check=True)
+            (Path(home) / "new.py").write_text("x = 1\n", encoding="utf-8")
+            cwd = os.getcwd()
+            os.chdir(home)
+            try:
+                paths = docket_cli.auto_scope_files()
+            finally:
+                os.chdir(cwd)
+        # There is no HEAD yet, so git diff fails. ls-files still knows.
+        self.assertEqual(paths, ("new.py",))
+
+    def test_max_chars_is_checked_against_the_configured_minimum(self):
+        with tempfile.TemporaryDirectory() as home:
+            run(home, "init")
+            run(home, "claim", "A premise", "--state", "accepted")
+            config = Path(home) / ".docket" / "config.toml"
+            config.write_text("[budget]\nminimum = 2000\n", encoding="utf-8")
+            rejected = run(home, "context", "--max-chars", "900")
+        self.assertEqual(rejected.returncode, 2)
+        self.assertIn("at least 2000", rejected.stderr)
+
+    def test_auto_scope_is_empty_outside_a_repository(self):
+        with tempfile.TemporaryDirectory() as plain:
+            cwd = os.getcwd()
+            os.chdir(plain)
+            try:
+                self.assertEqual(docket_cli.auto_scope_files(), ())
+            finally:
+                os.chdir(cwd)
+
+    def test_auto_scope_caps_the_path_list(self):
+        with tempfile.TemporaryDirectory() as home:
+            self._repo(home)
+            for index in range(6):
+                (Path(home) / f"f{index}.py").write_text("x\n", encoding="utf-8")
+            cwd = os.getcwd()
+            os.chdir(home)
+            try:
+                self.assertEqual(len(docket_cli.auto_scope_files(limit=3)), 3)
+            finally:
+                os.chdir(cwd)
+
+    def test_no_auto_scope_leaves_the_briefing_unscoped(self):
+        with tempfile.TemporaryDirectory() as home:
+            self._repo(home)
+            (Path(home) / "tracked.py").write_text("x = 3\n", encoding="utf-8")
+            run(home, "claim", "A premise", "--scope", "tracked.py")
+            self.assertNotIn("# files:", run(home, "context", "--no-auto-scope").stdout)
+            self.assertIn("# files:", run(home, "context").stdout)
+
+    def test_auto_scope_unions_git_paths_with_an_explicit_file(self):
+        with tempfile.TemporaryDirectory() as home:
+            self._repo(home)
+            (Path(home) / "tracked.py").write_text("x = 3\n", encoding="utf-8")
+            run(home, "claim", "A premise", "--scope", "tracked.py")
+            out = run(home, "context", "--auto-scope", "--file", "lib/given.py").stdout
+            self.assertIn("lib/given.py", out)
+            self.assertIn("tracked.py", out)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -14,8 +14,11 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 
-_DEFAULT_BUDGET = 8000
-_MINIMUM_BUDGET = 512
+try:
+    # bin/docket puts lib/ on sys.path; the tests import lib.docket_context.
+    from docket_config import DEFAULTS as _SETTINGS_DEFAULTS
+except ImportError:
+    from .docket_config import DEFAULTS as _SETTINGS_DEFAULTS
 
 
 def _list(value: Any) -> list[Any]:
@@ -66,19 +69,18 @@ def _normalize_path(value: Any) -> str:
     return path.casefold()
 
 
-def _scope_matches(entry: Mapping[str, Any], files: tuple[str, ...]) -> bool:
-    """Match normalized repo-relative paths against path scopes.
+def _scope_strength(entry: Mapping[str, Any], files: tuple[str, ...],
+                    weights: Mapping[str, int]) -> int:
+    """Strongest scope match: exact path, then glob, then directory prefix.
 
-    Scopes containing a slash or glob metacharacter use ``fnmatch`` and
-    literal path scopes also match descendants. Bare component scopes are
-    intentionally query-only and never match a ``--file`` value.
+    The old sort key treated every scope match as equal, so ordering between
+    two matching records fell through to their position in the file.
     """
 
     if not files:
-        return False
+        return 0
     scopes = [_normalize_path(scope) for scope in _list(entry.get("scope")) if _normalize_path(scope)]
-    if not scopes:
-        return False
+    best = 0
     for filename in files:
         path = _normalize_path(filename)
         if not path:
@@ -86,17 +88,47 @@ def _scope_matches(entry: Mapping[str, Any], files: tuple[str, ...]) -> bool:
         for scope in scopes:
             if "/" not in scope and not any(mark in scope for mark in "*?[]"):
                 continue
-            if fnmatch.fnmatchcase(path, scope):
-                return True
-            if "/" in scope and path.startswith(scope.rstrip("/") + "/"):
-                return True
-    return False
+            if scope == path:
+                best = max(best, weights["scope_exact"])
+            elif fnmatch.fnmatchcase(path, scope):
+                best = max(best, weights["scope_glob"])
+            elif "/" in scope and path.startswith(scope.rstrip("/") + "/"):
+                best = max(best, weights["scope_prefix"])
+    return best
 
 
-def _text_matches(entry: Mapping[str, Any], query: str) -> bool:
-    query = query.strip().casefold()
-    if not query:
-        return False
+def _degree(ident: str, history: list[Mapping[str, Any]]) -> int:
+    return sum(ident in _relation_ids(item) for item in history)
+
+
+def _score(
+    entry: Mapping[str, Any],
+    *,
+    files: tuple[str, ...],
+    text_points: int,
+    degree: int,
+    rank: int,
+    total: int,
+    weights: Mapping[str, int],
+) -> tuple[int, list[tuple[str, int]]]:
+    """Return an integer score and the components that produced it."""
+
+    components = [
+        ("scope", _scope_strength(entry, files, weights)),
+        ("text", weights["text"] * min(text_points, 1000) // 1000),
+        ("recency", weights["recency"] * rank // max(1, total - 1)),
+        ("degree", weights["degree"] * min(degree, weights["degree_cap"])),
+        ("pinned", weights["pinned"] if entry.get("pinned") else 0),
+    ]
+    return sum(value for _, value in components), [pair for pair in components if pair[1]]
+
+
+def _selection_reason(score: int, components: list[tuple[str, int]]) -> str:
+    detail = ", ".join(f"{name}={value}" for name, value in components)
+    return f"selection: score {score} | {detail}"
+
+
+def _haystack(entry: Mapping[str, Any]) -> str:
     fields = [
         entry.get("id"),
         entry.get("text"),
@@ -105,11 +137,45 @@ def _text_matches(entry: Mapping[str, Any], query: str) -> bool:
         *_list(entry.get("alternatives")),
         *_list(entry.get("scope")),
     ]
-    haystack = " ".join(_text(value) for value in fields).casefold()
-    if query in haystack:
-        return True
-    words = [word for word in query.split() if word]
-    return bool(words) and all(word in haystack for word in words)
+    return " ".join(_text(value) for value in fields).casefold()
+
+
+def _term_weights(current: list[Mapping[str, Any]], query: str) -> dict[str, int]:
+    """Weight each query term by how few records contain it.
+
+    Integer division, not a logarithm: libm results can differ between
+    platforms, and a briefing must be byte-identical at one revision.
+    """
+
+    terms = [word for word in query.strip().casefold().split() if word]
+    if not terms or not current:
+        return {}
+    haystacks = [_haystack(item) for item in current]
+    total = len(haystacks)
+    weights = {}
+    for term in terms:
+        frequency = sum(term in haystack for haystack in haystacks)
+        # Smoothed by one record. Without it a term present in every record
+        # scores zero, so a focused query against a focused ledger matches
+        # nothing: three records all about postgres and the query "postgres"
+        # selected none of them. The smoothing keeps a universal term worth
+        # 250 points on a three-record ledger and 3 points on a three-hundred
+        # record one, which is the discrimination the weight is there to
+        # express.
+        if frequency:
+            weights[term] = 1000 * (total + 1 - frequency) // (total + 1)
+    return weights
+
+
+def _text_points(entry: Mapping[str, Any], query: str, weights: Mapping[str, int]) -> int:
+    query = query.strip().casefold()
+    if not query:
+        return 0
+    haystack = _haystack(entry)
+    # The phrase bonus is checked before the term weights, because it earns its
+    # keep exactly when every term is common and the weights are all small.
+    points = 1000 if query in haystack else 0
+    return points + sum(weight for term, weight in weights.items() if term in haystack)
 
 
 def _role(kind: str) -> str:
@@ -147,16 +213,34 @@ def _clip_metadata(value: str, limit: int) -> str:
     return value[: max(0, limit - 3)] + "..."
 
 
+def _index_line(entry: Mapping[str, Any], detail: int = 40) -> str:
+    """One line naming a record the briefing did not render in full."""
+
+    return " ".join([
+        _id(entry) or "(missing id)",
+        _text(entry.get("kind") or "record").casefold(),
+        _effective_state(entry),
+        " " + _clip_metadata(_text(entry.get("text")), detail),
+    ])
+
+
 def _header(
     ledger: str,
     revision: str,
     query: str,
     files: tuple[str, ...],
     all_records: bool,
+    latest: str = "",
+    settings_id: str = "default",
 ) -> list[str]:
     identity = _clip_metadata(ledger or "ledger", 180)
     lines = [
-        f"# docket: {identity} | revision: {revision}",
+        f"# docket: {identity} | revision: {revision}"
+        + (f" | latest: {latest}" if latest else "")
+        # Tuned settings change the ordering, so a briefing names the settings
+        # that produced it. Without this the output is not reproducible from
+        # its own header.
+        + ("" if settings_id == "default" else f" | settings: {settings_id}"),
         "# Context: decisions are commitments, claims are premises, questions are inquiries; states are not truth and authors are recorders.",
     ]
     if query.strip():
@@ -165,12 +249,16 @@ def _header(
         lines.append(f"# files: {_clip_metadata(', '.join(files), 180)}")
     if all_records:
         lines.append("# selection: all current records")
+    elif query.strip() or files:
+        lines.append("# selection: scored by task scope and query, with related records")
     else:
-        lines.append("# selection: pinned, matching, and directly related records")
+        # In this mode every pinned record is already a root, so the old line
+        # promising "fallback pins" described a selection that never ran.
+        lines.append("# selection: scored by recency and relations; no task scope given")
     return lines
 
 
-def _render_record(entry: Mapping[str, Any], relation: str) -> str:
+def _render_record(entry: Mapping[str, Any], relation: str, reason: str = "") -> str:
     kind = _text(entry.get("kind") or "record").casefold()
     state = _effective_state(entry)
     recorded_state = _recorded_state(entry)
@@ -231,6 +319,8 @@ def _render_record(entry: Mapping[str, Any], relation: str) -> str:
         lines.append(f"warning: effective state is {state}; treat this record as unavailable current support.")
     if _list(entry.get("resolved_by")):
         lines.append(f"resolved by: {_json(_list(entry.get('resolved_by')))}")
+    if reason:
+        lines.append(reason)
     return "\n".join(lines)
 
 
@@ -239,18 +329,35 @@ def build_context(
     *,
     query: str = "",
     files: Iterable[str] = (),
-    max_chars: int = _DEFAULT_BUDGET,
+    max_chars: int | None = None,
     ledger: str = "",
     all_records: bool = False,
+    settings: Mapping[str, Any] | None = None,
+    settings_id: str = "default",
 ) -> str:
-    """Render whole records within a strict character budget.
+    """Render whole records under tiered budget rules.
 
-    Task roots have priority over neighbors and fallback pins. Related records
-    are admitted only after their root fits. Traversal is one hop in either
-    direction, with at most 64 related records admitted.
+    Every current record appears, in full text or as an index line. A record
+    that matches the task scope or query renders in full even when that
+    exceeds the default target, up to budget.outer_multiple times the target.
+    Everything else competes for the remaining target by score.
+
+    A caller that names ``max_chars`` gets a hard ceiling instead, and no rule
+    may exceed it.
     """
-    if type(max_chars) is not int or max_chars < _MINIMUM_BUDGET:
-        raise ValueError("max_chars must be an integer of at least 512")
+    cfg = settings if settings is not None else _SETTINGS_DEFAULTS
+    weights = cfg["weights"]
+    expansion = cfg["expansion"]
+    detail_min = cfg["index"]["detail_min"]
+    detail_max = cfg["index"]["detail_max"]
+    if max_chars is None:
+        soft_limit = cfg["budget"]["target"]
+        hard_limit = soft_limit * cfg["budget"]["outer_multiple"]
+    else:
+        if type(max_chars) is not int or max_chars < cfg["budget"]["minimum"]:
+            raise ValueError(
+                f"max_chars must be an integer of at least {cfg['budget']['minimum']}")
+        soft_limit = hard_limit = max_chars
     history = list(entries)
     if not history:
         return ""
@@ -260,12 +367,34 @@ def build_context(
     current = [item for item in history if not _is_retired(item)]
     task_mode = not all_records and bool(query.strip() or file_list)
 
+    order_by_id = sorted(by_id, key=lambda ident: int(ident[1:]))
+    rank_of = {ident: index for index, ident in enumerate(order_by_id)}
+    total_ranks = len(order_by_id)
+    scores: dict[str, int] = {}
+    reasons: dict[str, str] = {}
+    task_matched: set[str] = set()
+    term_weights = _term_weights(current, query)
+
     matched = []
-    for index, item in enumerate(current):
-        scope = int(_scope_matches(item, file_list))
-        text = int(_text_matches(item, query))
-        if not task_mode or scope or text:
-            matched.append(((-scope, -text, -int(bool(item.get("pinned"))), index), item))
+    for item in current:
+        ident = _id(item)
+        text_points = _text_points(item, query, term_weights)
+        score, components = _score(
+            item,
+            files=file_list,
+            text_points=text_points,
+            degree=_degree(ident, history),
+            rank=rank_of.get(ident, 0),
+            total=total_ranks,
+            weights=weights,
+        )
+        scores[ident] = score
+        reasons[ident] = _selection_reason(score, components)
+        hit = bool(_scope_strength(item, file_list, weights) or text_points)
+        if hit:
+            task_matched.add(ident)
+        if not task_mode or hit:
+            matched.append(((-score, -int(ident[1:])), item))
     roots = [item for _, item in sorted(matched, key=lambda pair: pair[0])]
     matched_ids = {_id(item) for item in roots}
     pins = [item for item in current if item.get("pinned") and _id(item) not in matched_ids]
@@ -288,86 +417,156 @@ def build_context(
     candidate_ids = set(selected_ids)
     for ident in selected_ids:
         candidate_ids.update(adjacency[ident])
-    retired_count = sum(_is_retired(item) and _id(item) not in candidate_ids for item in history)
-    unrelated_count = len(history) - len(candidate_ids) - retired_count
+    retired_count = sum(_is_retired(item) for item in history)
     revision = _revision(history)
-    prefix = "\n".join(_header(ledger, revision, query, tuple(file_list), all_records)) + "\n\n"
+    latest = max(by_id, key=lambda ident: int(ident[1:]), default="")
+    prefix = "\n".join(
+        _header(ledger, revision, query, tuple(file_list), all_records, latest, settings_id)
+    ) + "\n\n"
+    # Score order, so the tail trim below drops the least relevant records.
+    current_ids = sorted((_id(item) for item in current),
+                         key=lambda ident: (-scores.get(ident, 0), -int(ident[1:])))
 
-    def omitted_id_text(ids):
-        chosen = []
-        for ident in ids:
-            if len(chosen) >= 8 or len(", ".join(chosen + [ident])) > 120:
-                break
-            chosen.append(ident)
-        return ", ".join(chosen) + (f" (+{len(ids) - len(chosen)} more)" if len(chosen) < len(ids) else "")
-
-    def footer(included):
-        omitted_roots = [ident for ident in selected_ids if ident not in included]
+    def footer(included, listed=None):
+        deferred = [ident for ident in current_ids if ident not in included]
+        shown = len(deferred) if listed is None else listed
+        # A retired record is never in current_ids, so it can only be counted
+        # here as retired. Counting it as "in the index" would send an agent
+        # looking for an index line that does not exist.
         related_omitted = {target for ident in included for target in _relation_ids(by_id[ident])
-                           if target not in included}
+                           if target not in included and target in set(current_ids)}
         lines = [
-            f"# Omitted: {len(candidate_ids - included)}; unrelated: {unrelated_count}; retired: {retired_count}.",
+            f"# full text: {len(included)}; index: {shown}; retired: {retired_count}.",
         ]
-        if omitted_roots:
-            lines.append("# Omitted selected IDs: " + omitted_id_text(omitted_roots))
-        pinned_missing = sum(bool(by_id[ident].get("pinned")) for ident in omitted_roots)
-        if pinned_missing:
-            lines.append(f"# Omitted pinned records: {pinned_missing}.")
+        if shown < len(deferred):
+            lines.append(f"# Not listed: {len(deferred) - shown}; the budget could not name them.")
         if related_omitted:
-            lines.append(f"# Related records omitted: {len(related_omitted)}; formulas remain complete.")
+            lines.append(f"# Related records in index only: {len(related_omitted)}; formulas remain complete.")
         if no_match:
-            lines.append("# No task matches; fallback pins and their related records may be shown.")
+            lines.append("# No task matches; the index names every current record.")
         lines.append("# Declared grounds; evidence not freshly verified.")
         lines.append("# Retrieve full record: docket show RECORD_ID --json")
         return "\n\n" + "\n".join(lines) + "\n"
 
     # Shorten only diagnostic metadata. Propositions and relationship formulas
     # are never sliced, even when the caller supplies a giant path or query.
-    if len(prefix) + len(footer(set())) > max_chars:
+    if len(prefix) + len(footer(set())) > hard_limit:
         prefix = f"# docket: {_clip_metadata(ledger or 'ledger', 60)} | revision: {revision}\n\n"
-    included = set()
-    blocks = []
+    included: set[str] = set()
+    order: list[str] = []
+    labels: dict[str, str] = {}
+    top_score = max(scores.values(), default=0) or 1
 
-    def admit(ident, label):
+    def detail_of(ident):
+        span = detail_max - detail_min
+        return detail_min + (scores.get(ident, 0) * span) // top_score
+
+    def render(candidate_order, candidate_set, index_ids=None, detail=None, names_only=False):
+        full = "\n\n".join(
+            _render_record(by_id[i], labels[i], reasons.get(i, "")) for i in candidate_order
+        )
+        pool = current_ids if index_ids is None else index_ids
+        deferred = [i for i in pool if i not in candidate_set]
+        parts = [prefix.rstrip("\n"), ""]
+        if full:
+            parts += [full, ""]
+        if deferred:
+            if names_only:
+                parts.append("# index: " + ", ".join(deferred))
+            else:
+                parts.append(f"# index: {len(deferred)} more current records")
+                parts.append("\n".join(
+                    _index_line(by_id[i], detail_of(i) if detail is None else detail)
+                    for i in deferred
+                ))
+        return "\n".join(parts).rstrip("\n") + footer(candidate_set, len(deferred))
+
+    def admit(ident, label, mandatory=False):
         if ident in included:
             return True
-        block = _render_record(by_id[ident], label)
-        trial = included | {ident}
-        rendered = prefix + "\n\n".join([*blocks, block]) + footer(trial)
-        if len(rendered) > max_chars:
+        labels[ident] = label
+        # A task match may push past the target. Nothing may push past the
+        # ceiling, which equals the target whenever the caller named one.
+        limit = hard_limit if mandatory else soft_limit
+        # Price the index at what the ladder guarantees, which is one bare name
+        # per record. Charging the full index-line form here made admission
+        # collapse on a real ledger: past about 150 records the index alone
+        # exceeded the limit, so the second record and every record after it
+        # was refused while the ladder then discarded the very index the gate
+        # had charged for.
+        trial = render(order + [ident], included | {ident}, names_only=True)
+        if len(trial) > limit:
+            del labels[ident]
             return False
         included.add(ident)
-        blocks.append(block)
+        order.append(ident)
         return True
 
     for ident in root_ids:
-        admit(ident, "selected")
-    related_admitted = 0
+        admit(ident, "selected", mandatory=ident in task_matched)
 
-    def neighbors(ident):
-        nonlocal related_admitted
-        if ident not in included:
-            return
-        for target in adjacency[ident]:
-            # A selected root that did not fit cannot reappear as a neighbor.
-            if target in selected_ids or target in included:
+    def expand(seeds):
+        # Adjacency order is an artefact of insertion, so a flat cap on it
+        # discarded neighbours by accident. Walk by inherited score instead.
+        frontier = [(-scores.get(i, 0), -int(i[1:]), i, scores.get(i, 0))
+                    for i in seeds if i in included]
+        seen = set(included)
+        while frontier:
+            frontier.sort()
+            _, _, ident, parent_score = frontier.pop(0)
+            decayed = (parent_score * expansion["decay_numerator"]
+                       // expansion["decay_denominator"])
+            if decayed < expansion["floor"]:
                 continue
-            if related_admitted >= 64:
-                break
-            if admit(target, "related record"):
-                related_admitted += 1
+            ranked = sorted(
+                (t for t in adjacency[ident] if t not in seen),
+                key=lambda t: (-(decayed if t not in scores else min(scores[t], decayed)),
+                               -int(t[1:])),
+            )
+            for target in ranked:
+                seen.add(target)
+                # A retired record carries no score, because scoring runs over
+                # current records only. It inherits the parent's decayed score
+                # so a cited historical premise can still be reached. A current
+                # record that scored zero keeps its zero and is dropped.
+                effective = decayed if target not in scores else min(scores[target], decayed)
+                if effective < expansion["floor"]:
+                    continue
+                if admit(target, "related record"):
+                    frontier.append((-effective, -int(target[1:]), target, effective))
 
-    for ident in root_ids:
-        neighbors(ident)
+    expand(root_ids)
     for item in pins:
         ident = _id(item)
         if admit(ident, "fallback pin"):
-            neighbors(ident)
-    result = prefix + "\n\n".join(blocks) + footer(included)
-    if len(result) > max_chars:
-        # This can only be diagnostic overhead with no admitted record.
-        result = (f"# docket revision: {revision}\n# No complete records fit.\n"
-                  f"# Omitted selected IDs: {omitted_id_text(selected_ids)}\n"
+            expand([ident])
+    result = render(order, included)
+    if len(result) > hard_limit:
+        # Degrade in order: shrink every index line to the minimum detail, then
+        # drop to bare IDs, then trim the ID list. Bare IDs come before any
+        # trimming because they cost a few characters each, so naming thirty
+        # records that way is cheaper than listing four in full.
+        flat = render(order, included, detail=detail_min)
+        if len(flat) <= hard_limit:
+            return flat
+        # Trim the deferred list, not current_ids: records already in the
+        # full-text tier occupy the head of current_ids, so trimming that list
+        # would drop index lines while appearing to keep them.
+        # Keep the full-text tier if it fits alongside bare names; drop it only
+        # when even that overruns, and report the tier counts either way.
+        short = f"# docket: {_clip_metadata(ledger or 'ledger', 60)} | revision: {revision}\n\n"
+        for head in (prefix, short):
+            prefix = head
+            for chosen_order, chosen_set in ((order, included), ([], set())):
+                deferred_ids = [i for i in current_ids if i not in chosen_set]
+                keep = len(deferred_ids)
+                while keep > 0:
+                    candidate = render(chosen_order, chosen_set, deferred_ids[:keep],
+                                       names_only=True)
+                    if len(candidate) <= hard_limit:
+                        return candidate
+                    keep = keep - max(1, keep // 8)
+        result = (f"# docket revision: {revision}\n# No records fit.\n"
                   "# Retrieve full record: docket show RECORD_ID --json\n")
     return result
 

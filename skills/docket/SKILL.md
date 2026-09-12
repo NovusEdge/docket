@@ -117,12 +117,43 @@ docket show d2 --json
 docket graph --kind claim --state accepted
 ```
 
-`context` uses an explicit character budget, with default 8000 and minimum 512.
-With no query or file scope, pinned records rank first. For a task query,
-matching task text and scope take priority over unrelated pins. The renderer
-then includes bounded related supports, prerequisites, and answers. It keeps
-whole record blocks, shows the ledger revision, reports omissions, and prints a
-retrieval command. `--all` removes relevance filtering but keeps the budget.
+`context` renders two tiers. The full-text tier holds complete records for the
+highest scoring records. The index tier names the remaining current records on
+one line each, with ID, kind, state, and clipped text. When the budget cannot
+hold every name, the footer reports how many it left out.
+
+A record's score combines its file scope match, its query term rarity, its
+position in the record sequence, whether it is pinned, and how many records
+point at it. Each full-text record prints its score and components on a
+`selection:` line. A scope match outranks a text match, because a scope states
+where a record applies.
+
+The budget target is 8000 characters. A record matching the task scope or query
+renders in full even past the target, up to three times it. `--max-chars` sets a
+hard ceiling instead, with a minimum of 512. `--all` asks for every record in
+the full-text tier, subject to the budget; a record that does not fit falls to
+an index line.
+
+With no `--query` and no `--file`, `context` derives file scope from the working
+tree's changed and untracked files. `--no-auto-scope` disables that and
+`--auto-scope` forces it alongside an explicit query.
+
+Weights, budget, index detail, and the auto-scope cap are tunable in
+`.docket/config.toml`. See [the example](../../docs/config.example.toml). A
+tuned briefing names its settings in the header.
+
+Work with the briefing as follows:
+
+1. Read the session briefing.
+2. Identify the files the task will affect.
+3. Re-run `docket context --file PATH` for those files. The working tree reports
+   what already changed, and a task often touches files no diff mentions yet.
+4. Run `docket show ID` for any index line the work depends on. An index line
+   names a record; it does not carry the choice, scope, or rationale.
+5. Record claims, decisions, and questions as the work produces them.
+
+A delegated agent runs step 3 for its own scope and reports the revision it
+used, so the delegating agent knows which briefing the work rests on.
 
 `list` and `graph` accept `--kind` and `--state`. `show --json` exposes the
 original record with derived fields such as `recorded_state`, effective `state`,

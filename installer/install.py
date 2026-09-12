@@ -2,13 +2,13 @@
 """Compatibility launcher for docket's native Go installer.
 
 This file deliberately uses Python 3.8 syntax so an old interpreter can print
-the Python 3.10 requirement enforced by the installed docket ledger CLI.
+the Python 3.11 requirement enforced by the installed docket ledger CLI.
 """
 import sys
 
-if sys.version_info < (3, 10):
+if sys.version_info < (3, 11):
     sys.stderr.write(
-        "docket needs Python 3.10 or later; this interpreter is %d.%d.\n"
+        "docket needs Python 3.11 or later; this interpreter is %d.%d.\n"
         % sys.version_info[:2]
     )
     sys.exit(1)

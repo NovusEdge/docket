@@ -36,7 +36,7 @@ func parseOptions(args []string, out io.Writer) (Options, error) {
 	f.BoolVar(&opts.Uninstall, "uninstall", false, "remove Docket integration; keep decision ledgers")
 	f.BoolVar(&opts.Version, "version", false, "show installer version")
 	f.Usage = func() {
-		fmt.Fprintln(out, "Usage: docket-installer [options]\n\nInstall Docket and configure agent harnesses. Docket needs Python 3.10+.")
+		fmt.Fprintln(out, "Usage: docket-installer [options]\n\nInstall Docket and configure agent harnesses. Docket needs Python 3.11+.")
 		f.PrintDefaults()
 	}
 	if err := f.Parse(args); err != nil {
