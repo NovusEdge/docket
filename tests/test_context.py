@@ -1,7 +1,7 @@
 import unittest
 import re
 
-from lib.docket_context import build_context, _term_weights
+from lib.docket_context import build_context, _term_weights, _blocking_paths
 from lib.docket_ledger import make_record, project
 
 
@@ -407,6 +407,79 @@ class ContextTests(unittest.TestCase):
         ]
         rendered = build_context(projected(records), query="Current", ledger="repo")
         self.assertNotIn("Old premise", rendered)
+
+    def test_blocking_path_names_the_chain_and_the_reason(self):
+        records = [
+            entry("c1", "claim", "The premise is unproven", state="disputed"),
+            entry("d2", "decision", "Trust it", choice="trust", depends_on=("c1",)),
+            entry("d3", "decision", "Serve from it", choice="serve",
+                  scope=("lib/**",), depends_on=("d2",)),
+        ]
+        rendered = build_context(projected(records), files=("lib/cache.py",), ledger="repo")
+        self.assertIn("blocked: d2 -> c1 disputed", rendered)
+
+    def test_blocking_path_names_retirement_rather_than_recorded_state(self):
+        records = [
+            entry("c1", "claim", "Superseded premise", state="accepted"),
+            entry("c2", "claim", "Replacement", state="accepted", supersedes=("c1",)),
+            entry("d3", "decision", "Depends on the old premise", choice="x",
+                  scope=("lib/**",), depends_on=("c1",)),
+        ]
+        rendered = build_context(projected(records), files=("lib/cache.py",), ledger="repo")
+        # c1's effective state is still "accepted"; the reason it cannot be used
+        # is that c2 retired it.
+        self.assertIn("blocked: c1 retired", rendered)
+
+    def test_blocking_path_stops_on_a_cycle(self):
+        records = [
+            entry("c1", "claim", "Premise", state="disputed"),
+            entry("d2", "decision", "First", choice="a", depends_on=("c1",)),
+        ]
+        by_id = {r["id"]: dict(r) for r in projected(records)}
+        # Validation forbids a cycle, so no real ledger contains one. Build it
+        # by hand to prove the walk terminates anyway.
+        by_id["d2"]["depends_on"] = ["c1", "d2"]
+        self.assertEqual(_blocking_paths("d2", by_id), [["c1"]])
+
+    def test_blocking_chain_is_admitted_before_an_unrelated_neighbour(self):
+        records = [
+            entry("c1", "claim", "The cache is reliable", state="disputed"),
+            entry("c2", "claim", "An unrelated supporting premise", state="accepted"),
+            entry("d3", "decision", "Serve from the cache", choice="serve",
+                  scope=("lib/**",), depends_on=("c1",), supports=(("c2",),)),
+        ]
+        rendered = build_context(projected(records), files=("lib/cache.py",), ledger="repo")
+        self.assertIn("### c1 ", rendered)
+        self.assertLess(rendered.index("### c1 "), rendered.index("### c2 "))
+        self.assertIn("[blocking prerequisite]", rendered)
+
+    def test_coverage_reports_no_matches(self):
+        records = [entry("c1", "claim", "A premise", state="accepted")]
+        rendered = build_context(projected(records), query="nothing matches this",
+                                 ledger="repo")
+        self.assertIn("# Coverage: no matches found", rendered)
+
+    def test_coverage_reports_covered(self):
+        records = [
+            entry("c1", "claim", "The premise is unproven", state="disputed"),
+            entry("d2", "decision", "Serve from it", choice="serve",
+                  scope=("lib/**",), depends_on=("c1",)),
+        ]
+        rendered = build_context(projected(records), files=("lib/cache.py",), ledger="repo")
+        self.assertIn("# Coverage: task matches and their prerequisites covered", rendered)
+
+    def test_coverage_reports_partial_when_a_task_match_is_index_only(self):
+        records = [
+            entry("d1", "decision", "First", choice="a", scope=("lib/**",),
+                  rationale="x" * 900),
+            entry("d2", "decision", "Second", choice="b", scope=("lib/**",),
+                  rationale="y" * 900),
+        ]
+        # 2200 admits one 900-character record and refuses the second, so one
+        # task match reaches the index only. 1400 refuses both.
+        rendered = build_context(projected(records), files=("lib/cache.py",),
+                                 ledger="repo", max_chars=2200)
+        self.assertIn("# Coverage: partial, 1 in the index only", rendered)
 
 
 if __name__ == "__main__":
