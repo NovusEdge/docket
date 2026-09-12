@@ -42,10 +42,12 @@ DEFAULTS: dict[str, dict[str, int]] = {
         "scope_exact": 1000,
         "scope_glob": 700,
         "scope_prefix": 500,
-        # Above scope_exact. Only an explicit --query reaches this component, and
-        # a query states the task, while a file scope taken from the working
-        # tree only guesses at it.
-        "text": 1100,
+        # Only --query reaches this component. A query states the task, and a
+        # glob scope from the working tree guesses at it, so this stays above
+        # scope_glob. This value plus the full recency bonus must stay below
+        # scope_exact, or a record that merely mentions the query outranks the
+        # record scoped to the file in hand.
+        "text": 750,
         "recency": 200,
         "degree": 50,
         "degree_cap": 10,

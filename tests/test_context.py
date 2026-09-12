@@ -396,6 +396,19 @@ class ContextTests(unittest.TestCase):
                                  files=("lib/render.py",), ledger="repo")
         self.assertLess(rendered.index("### d2 "), rendered.index("### d1 "))
 
+    def test_an_exact_file_scope_outranks_an_incidental_query_word(self):
+        records = [
+            entry("d1", "decision", "Renderer budget rule", choice="x",
+                  scope=("lib/render.py",)),
+            entry("c2", "claim", "The installer mentions the cache in passing",
+                  state="accepted", scope=("installer/**",)),
+        ]
+        rendered = build_context(projected(records), query="cache",
+                                 files=("lib/render.py",), ledger="repo")
+        # The query beats a glob scope. It must not beat the record scoped to
+        # the file in hand, even with the full recency bonus added.
+        self.assertLess(rendered.index("### d1 "), rendered.index("### c2 "))
+
     def test_degree_map_counts_every_inbound_relation_once(self):
         from lib.docket_context import _degree_map
         records = [
