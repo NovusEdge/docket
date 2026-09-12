@@ -1,5 +1,6 @@
-import unittest
 import re
+import sys
+import unittest
 
 from lib.docket_context import build_context, build_delta, _term_weights, _blocking_paths
 from lib.docket_ledger import make_record, project
@@ -409,22 +410,6 @@ class ContextTests(unittest.TestCase):
         # the file in hand, even with the full recency bonus added.
         self.assertLess(rendered.index("### d1 "), rendered.index("### c2 "))
 
-    def test_degree_map_counts_every_inbound_relation_once(self):
-        from lib.docket_context import _degree_map
-        records = [
-            entry("c1", "claim", "A premise", state="accepted"),
-            entry("c2", "claim", "Another premise", state="accepted"),
-            entry("d3", "decision", "Uses both", choice="x",
-                  supports=(("c1", "c2"),), depends_on=("c1",)),
-            entry("d4", "decision", "Uses one", choice="y", supports=(("c1",),)),
-        ]
-        degrees = _degree_map(projected(records))
-        # d3 names c1 through supports and depends_on; _relation_ids
-        # de-duplicates, so it counts once.
-        self.assertEqual(degrees["c1"], 2)
-        self.assertEqual(degrees["c2"], 1)
-        self.assertEqual(degrees.get("d4", 0), 0)
-
     def test_index_caps_and_counts_the_remainder(self):
         from lib.docket_config import merge
         records = [entry(f"c{n}", "claim", f"Premise {n}", state="accepted")
@@ -558,6 +543,171 @@ class ContextTests(unittest.TestCase):
                                  ledger="repo", max_chars=2200)
         self.assertIn("# Coverage: partial, 1 in the index only", rendered)
 
+
+class GoldenBriefingTests(unittest.TestCase):
+    """Byte-for-byte output, so the budget gate can be rewritten safely.
+
+    tests/golden/regenerate.py rebuilds the file. Regenerate it only when a
+    change is meant to alter what a briefing says.
+    """
+
+    def test_briefings_match_the_recorded_output(self):
+        import importlib.util
+        import json
+        from pathlib import Path
+
+        # Loaded by path, so the test adds nothing to sys.path and claims no
+        # top-level module name.
+        spec = importlib.util.spec_from_file_location(
+            "_docket_golden", Path(__file__).parent / "golden" / "regenerate.py")
+        regenerate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(regenerate)
+
+        expected = json.loads(
+            (Path(__file__).parent / "golden" / "context_snapshots.json").read_text())
+        actual = regenerate.snapshots()
+        self.assertEqual(sorted(actual), sorted(expected))
+        for key in sorted(expected):
+            with self.subTest(case=key):
+                self.assertEqual(actual[key], expected[key])
+
+
+class LargeLedgerTests(unittest.TestCase):
+    def ledger(self, count):
+        records = []
+        for number in range(1, count + 1):
+            records.append(entry(f"d{number}", "decision", f"Question {number} about caching?",
+                                 choice="Cache it", scope=("lib/**",)))
+        return projected(records)
+
+    def test_a_large_ledger_still_renders_record_content(self):
+        # The gate charged one bare name per current record before admitting
+        # any content, so past about 1100 records the names consumed the
+        # whole budget and the briefing carried no records at all.
+        rendered = build_context(self.ledger(2000), files=("lib/cache.py",),
+                                 ledger="repo", max_chars=8000)
+        full_text = int(re.search(r"# full text: (\d+)", rendered).group(1))
+        self.assertGreater(full_text, 0)
+
+    def test_the_budget_still_binds_on_a_large_ledger(self):
+        rendered = build_context(self.ledger(2000), files=("lib/cache.py",),
+                                 ledger="repo", max_chars=8000)
+        self.assertLessEqual(len(rendered), 8000)
+
+
+class TrialLengthTests(unittest.TestCase):
+    """The admission trial computes a length it used to measure by rendering.
+
+    Its footer terms are invisible to the golden briefings, so they get a
+    differential check against the renderer itself.
+    """
+
+    def ledger(self, count):
+        """A ledger that produces both conditional footer lines under a budget.
+
+        Odd-numbered claims are unassessed premises, so the decisions that
+        depend on them are blocked and contribute prerequisites. Claims sit on
+        a scope the caller never names, so they score low enough to stay in the
+        index while an admitted decision still cites them.
+        """
+
+        records = []
+        for number in range(1, count + 1):
+            if number % 2:
+                records.append(entry(f"c{number}", "claim", f"Premise {number} on caching",
+                                     state="unassessed" if number % 4 == 1 else "accepted",
+                                     scope=("docs/notes.md",)))
+            else:
+                records.append(entry(f"d{number}", "decision", f"Choice {number} on caching",
+                                     choice=f"option {number}", scope=("lib/**",),
+                                     depends_on=(f"c{number - 1}",)))
+        return projected(records)
+
+    def test_every_trial_length_matches_the_rendered_length(self):
+        import lib.docket_context as context
+
+        context._VERIFY_TRIAL = True
+        try:
+            for count in (30, 120, 400):
+                records = self.ledger(count)
+                for query, files in (("", ()), ("caching", ()), ("", ("lib/cache.py",))):
+                    for budget in (900, 2500, 8000, None):
+                        rendered = build_context(records, query=query, files=files,
+                                                 ledger="repo", max_chars=budget)
+                        self.assertLessEqual(len(rendered), budget or 24000)
+        finally:
+            context._VERIFY_TRIAL = False
+
+    def test_related_and_missing_counts_reach_the_footer(self):
+        # Deleting either counter's increment in _trial_length left every test
+        # passing. These two footer lines are the only place they surface.
+        records = [
+            entry("c1", "claim", "A premise about caching", state="accepted",
+                  scope=("lib/cache.py",)),
+            entry("q2", "question", "Which cache?", scope=("lib/cache.py",)),
+            entry("d3", "decision", "Pick a cache", choice="redis",
+                  scope=("lib/cache.py",), supports=(("c1",),), answers=("q2",)),
+            entry("c4", "claim", "An unassessed premise", state="unassessed",
+                  scope=("lib/cache.py",)),
+            entry("d5", "decision", "Blocked choice", choice="maybe",
+                  scope=("lib/cache.py",), depends_on=("c4",)),
+        ]
+        rendered = build_context(projected(records), files=("lib/cache.py",),
+                                 ledger="repo", max_chars=900)
+        self.assertIn("# Coverage: partial,", rendered)
+        self.assertRegex(rendered, r"# full text: \d+; index: \d+")
+
+
+class DegreeTests(unittest.TestCase):
+    def test_degree_counts_every_relation_field(self):
+        records = [
+            entry("c1", "claim", "The premise", state="accepted"),
+            entry("q2", "question", "The question"),
+            # d3 names c1 twice, through supports and depends_on. _relation_ids
+            # de-duplicates, so the pair counts once.
+            entry("d3", "decision", "First", choice="a", supports=(("c1",),),
+                  depends_on=("c1",)),
+            entry("d4", "decision", "Second", choice="b", depends_on=("c1",)),
+            entry("d5", "decision", "Third", choice="c", answers=("q2",)),
+            entry("d6", "decision", "Fourth", choice="d", supersedes=("d3",)),
+        ]
+        rendered = build_context(projected(records), query="premise", ledger="repo",
+                                 all_records=True)
+        degrees = {}
+        for block in rendered.split("### ")[1:]:
+            found = re.search(r"degree=(\d+)", block)
+            degrees[block.split(" |", 1)[0]] = found.group(1) if found else "0"
+        # The line reports weighted points, at weights.degree = 50 per in-edge.
+        self.assertEqual(degrees.get("c1"), "100")
+        self.assertEqual(degrees.get("q2"), "50")
+        # supersedes is not a scoring relation, so d6 retiring d3 adds nothing.
+        self.assertEqual(degrees.get("d3"), "0")
+
+    def test_relation_scan_stays_linear_in_ledger_size(self):
+        # _degree once scanned the whole history per record, so a briefing cost
+        # n^2 relation scans: 1000 records took 5.8s and 10000 did not finish.
+        import lib.docket_context as context
+
+        records = [entry("c1", "claim", "Root premise", state="accepted")]
+        for index in range(2, 202):
+            records.append(entry(f"d{index}", "decision", f"Choice {index}",
+                                 choice="x", depends_on=("c1",)))
+
+        original = context._relation_ids
+        calls = 0
+
+        def counted(item):
+            nonlocal calls
+            calls += 1
+            return original(item)
+
+        context._relation_ids = counted
+        try:
+            build_context(projected(records), query="premise", ledger="repo")
+        finally:
+            context._relation_ids = original
+
+        self.assertLess(calls, 4 * len(records))
 
 class DeltaTests(unittest.TestCase):
     def test_delta_names_added_and_newly_unavailable_records(self):

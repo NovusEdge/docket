@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docket init` writes `.docket/.gitignore` with `*.lock`, so a team that
   commits `.docket/` does not commit the append lock. An existing file is left
   alone.
+- `docket migrate` converts a pre-0.8 ledger to schema 2. It derives the record
+  kinds from the old state field, keeps the original at `ledger.jsonl.schema1`,
+  and accepts a hand-edited classification map through `--emit-map` and `--map`.
+  It rewrites a `supersedes` edge into a question as an `answers` edge, and
+  drops a support edge into a question, warning about both on stderr.
 - `docket context` explains a blocked decision. Each chain of prerequisites
   prints as one `blocked:` line that names every step and the reason the last
   one is unavailable. `blocked_by` flattens a chain into one list, so it could
@@ -53,14 +58,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A file scope too long for the header prints as a count and a digest, so a
   briefing scoped by more than about six paths stays reproducible from its own
   header.
-- Briefing scoring counts inbound relations in one pass over the history. The
-  per-record scan made scoring quadratic in the ledger size.
 
 ### Fixed
 
+- A briefing past about 1100 records carried no record content at all. The
+  budget gate charged one bare name for every current record before admitting
+  anything, and those names exceeded the target on their own, so every record
+  was refused. A 3000-record ledger rendered 3000 IDs and no records.
 - Reads hold a shared lock on the ledger, so a reader no longer sees a
   half-written line and fails on invalid JSON. Writers already held an exclusive
   lock.
+- `docket context` is linear in ledger size. Four separate paths cost O(n
+  squared): the in-degree scan, the per-record re-derivation of the validation
+  prefix, the admission trial that rendered the whole briefing per candidate,
+  and the per-candidate copies of the footer sets. A 1000-record ledger took
+  5.8s and a 10000-record ledger did not finish inside 562s; they now take 0.3s
+  and 1.8s. `docket check` shed the same prefix rebuild.
+- Every command that meets a legacy ledger now names `docket migrate` instead
+  of a script path that an installed Docket does not ship.
 
 ## [0.9.0] - 2026-09-12
 

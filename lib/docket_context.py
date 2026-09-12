@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import fnmatch
 import hashlib
+import heapq
+import itertools
 import json
+from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
@@ -19,6 +22,11 @@ try:
     from docket_config import DEFAULTS as _SETTINGS_DEFAULTS
 except ImportError:
     from .docket_config import DEFAULTS as _SETTINGS_DEFAULTS
+
+
+# The admission gate computes the length it once measured by rendering. Tests
+# set this to check the arithmetic against the renderer on every candidate.
+_VERIFY_TRIAL = False
 
 
 def _list(value: Any) -> list[Any]:
@@ -97,18 +105,6 @@ def _scope_strength(entry: Mapping[str, Any], files: tuple[str, ...],
     return best
 
 
-def _degree_map(history: list[Mapping[str, Any]]) -> dict[str, int]:
-    """Inbound relation count per record, in one pass.
-
-    The per-record form scanned the whole history for every record, which made
-    scoring quadratic in the ledger size.
-    """
-
-    degrees: dict[str, int] = {}
-    for item in history:
-        for target in _relation_ids(item):
-            degrees[target] = degrees.get(target, 0) + 1
-    return degrees
 
 
 def _score(
@@ -249,13 +245,23 @@ def _blocking_paths(
     ident: str,
     by_id: Mapping[str, Mapping[str, Any]],
     depth: int = 8,
+    cache: dict[str, list[list[str]]] | None = None,
 ) -> list[list[str]]:
     """Each path of prerequisites from a decision to an unavailable record.
 
     The projection flattens prerequisites: `_decision_applicability` collects
     `[dependency, *reasons]` into one list, so `blocked_by` cannot tell a
     two-step chain from two direct prerequisites.
+
+    The result is fixed for the whole build, so ``cache`` lets one briefing
+    share it across the budget trial that renders a record many times.
     """
+
+    # The cache key omits depth, so a caller that changes it must not share one.
+    if cache is not None and depth != 8:
+        raise ValueError("_blocking_paths cache assumes the default depth")
+    if cache is not None and ident in cache:
+        return cache[ident]
 
     paths: list[list[str]] = []
 
@@ -278,6 +284,8 @@ def _blocking_paths(
                 paths.append(list(step[1:]))
 
     walk(ident, (ident,))
+    if cache is not None:
+        cache[ident] = paths
     return paths
 
 
@@ -345,6 +353,7 @@ def _render_record(
     relation: str,
     reason: str = "",
     by_id: Mapping[str, Mapping[str, Any]] | None = None,
+    blocking_cache: dict[str, list[list[str]]] | None = None,
 ) -> str:
     kind = _text(entry.get("kind") or "record").casefold()
     state = _effective_state(entry)
@@ -373,7 +382,7 @@ def _render_record(
         if _list(entry.get("blocked_by")):
             lines.append(f"blocked_by: {_json(_list(entry.get('blocked_by')))}")
         if by_id:
-            for path in _blocking_paths(_id(entry), by_id):
+            for path in _blocking_paths(_id(entry), by_id, cache=blocking_cache):
                 terminal = by_id.get(path[-1], {})
                 lines.append(f"blocked: {' -> '.join(path)} {_unavailable_reason(terminal)}")
         if _text(entry.get("decided_by")):
@@ -519,7 +528,12 @@ def build_context(
     reasons: dict[str, str] = {}
     task_matched: set[str] = set()
     term_weights = _term_weights(current, query)
-    degrees = _degree_map(history)
+    # One relation map serves scoring, adjacency, and the footer's related set,
+    # so _relation_ids runs once per record for the whole briefing.
+    relations = {_id(item): _relation_ids(item) for item in history}
+    in_degrees: Counter[str] = Counter()
+    for targets in relations.values():
+        in_degrees.update(targets)
 
     matched = []
     for item in current:
@@ -529,14 +543,15 @@ def build_context(
             item,
             files=file_list,
             text_points=text_points,
-            degree=degrees.get(ident, 0),
+            degree=in_degrees[ident],
             rank=rank_of.get(ident, 0),
             total=total_ranks,
             weights=weights,
         )
         scores[ident] = score
         reasons[ident] = _selection_reason(score, components)
-        hit = bool(_scope_strength(item, file_list, weights) or text_points)
+        # _score drops zero components, so a scope entry means a scope match.
+        hit = any(name == "scope" for name, _ in components) or bool(text_points)
         if hit:
             task_matched.add(ident)
         if not task_mode or hit:
@@ -550,19 +565,16 @@ def build_context(
     root_ids = [_id(item) for item in roots]
     selected_ids = root_ids + [_id(item) for item in pins]
 
-    adjacency = {ident: [] for ident in by_id}
+    # expand() sorts each neighbour list by inherited score, so insertion order
+    # carries nothing. A set keeps the reverse edges unique without scanning.
+    adjacency: dict[str, set[str]] = {ident: set() for ident in by_id}
     for item in history:
         ident = _id(item)
-        for target in _relation_ids(item):
+        for target in relations[ident]:
             if target not in by_id:
                 continue
-            if target not in adjacency[ident]:
-                adjacency[ident].append(target)
-            if ident not in adjacency[target]:
-                adjacency[target].append(ident)
-    candidate_ids = set(selected_ids)
-    for ident in selected_ids:
-        candidate_ids.update(adjacency[ident])
+            adjacency[ident].add(target)
+            adjacency[target].add(ident)
     retired_count = sum(_is_retired(item) for item in history)
     revision = _revision(history)
     latest = max(by_id, key=lambda ident: int(ident[1:]), default="")
@@ -577,22 +589,23 @@ def build_context(
     # Score order, so the tail trim below drops the least relevant records.
     current_ids = sorted((_id(item) for item in current),
                          key=lambda ident: (-scores.get(ident, 0), -int(ident[1:])))
+    current_id_set = set(current_ids)
 
-    def footer(included, listed=None):
-        deferred = [ident for ident in current_ids if ident not in included]
-        shown = len(deferred) if listed is None else listed
+    # Fixed for the whole build, so the budget trial that renders a record many
+    # times pays for its blocking paths once.
+    blocking_cache: dict[str, list[list[str]]] = {}
+
+    def footer_text(included_count, shown, deferred_count, related_count, missing_count):
         # A retired record is never in current_ids, so it can only be counted
         # here as retired. Counting it as "in the index" would send an agent
         # looking for an index line that does not exist.
-        related_omitted = {target for ident in included for target in _relation_ids(by_id[ident])
-                           if target not in included and target in set(current_ids)}
         lines = [
-            f"# full text: {len(included)}; index: {shown}; retired: {retired_count}.",
+            f"# full text: {included_count}; index: {shown}; retired: {retired_count}.",
         ]
-        if shown < len(deferred):
-            lines.append(f"# Not listed: {len(deferred) - shown}; reach them with docket list.")
-        if related_omitted:
-            lines.append(f"# Related records in index only: {len(related_omitted)}; formulas remain complete.")
+        if shown < deferred_count:
+            lines.append(f"# Not listed: {deferred_count - shown}; reach them with docket list.")
+        if related_count:
+            lines.append(f"# Related records in index only: {related_count}; formulas remain complete.")
         # The measured set is the caller's own task matches plus their
         # prerequisite closure. The closure alone reads "covered" almost always,
         # because a blocking chain is admitted right after its root; the whole
@@ -602,19 +615,29 @@ def build_context(
             lines.append("# No task matches; the index names every current record.")
             coverage = "no matches found"
         else:
-            needed = set(task_matched)
-            for ident in included:
-                if _text(by_id[ident].get("kind")).casefold() != "decision":
-                    continue
-                for path in _blocking_paths(ident, by_id):
-                    needed.update(path)
-            missing = needed - included
-            coverage = (f"partial, {len(missing)} in the index only" if missing
+            coverage = (f"partial, {missing_count} in the index only" if missing_count
                         else "task matches and their prerequisites covered")
         lines.append(f"# Coverage: {coverage}. Selected ledger data only.")
         lines.append("# Declared grounds; evidence not freshly verified.")
         lines.append("# Retrieve full record: docket show RECORD_ID --json")
         return "\n\n" + "\n".join(lines) + "\n"
+
+    def blocking_ids(ident):
+        if _text(by_id[ident].get("kind")).casefold() != "decision":
+            return ()
+        return [step for path in _blocking_paths(ident, by_id, cache=blocking_cache)
+                for step in path]
+
+    def footer(included, listed=None):
+        deferred_count = sum(1 for ident in current_ids if ident not in included)
+        shown = deferred_count if listed is None else listed
+        related = {target for ident in included for target in relations[ident]
+                   if target not in included and target in current_id_set}
+        needed = set(task_matched)
+        for ident in included:
+            needed.update(blocking_ids(ident))
+        return footer_text(len(included), shown, deferred_count, len(related),
+                           len(needed - included))
 
     # Shorten only diagnostic metadata. Propositions and relationship formulas
     # are never sliced, even when the caller supplies a giant path or query.
@@ -629,11 +652,18 @@ def build_context(
         span = detail_max - detail_min
         return detail_min + (scores.get(ident, 0) * span) // top_score
 
+    record_cache: dict[tuple[str, str], str] = {}
+
+    def rendered_record(ident):
+        key = (ident, labels[ident])
+        if key not in record_cache:
+            record_cache[key] = _render_record(
+                by_id[ident], labels[ident], reasons.get(ident, ""), by_id,
+                blocking_cache=blocking_cache)
+        return record_cache[key]
+
     def render(candidate_order, candidate_set, index_ids=None, detail=None, names_only=False):
-        full = "\n\n".join(
-            _render_record(by_id[i], labels[i], reasons.get(i, ""), by_id)
-            for i in candidate_order
-        )
+        full = "\n\n".join(rendered_record(i) for i in candidate_order)
         pool = current_ids if index_ids is None else index_ids
         deferred = [i for i in pool if i not in candidate_set]
         # Score order, so the cap keeps the records closest to the task.
@@ -654,26 +684,190 @@ def build_context(
                 parts.append(f"# and {len(deferred) - len(shown)} more; docket list")
         return "\n".join(parts).rstrip("\n") + footer(candidate_set, len(shown))
 
+    # Counters for the admission trial. Rendering the whole briefing to measure
+    # each candidate cost O(n) per admit, so a 10000-record ledger took 20s.
+    body_length = 0
+    deferred_count = len(current_ids)
+    related_pending: set[str] = set()
+    needed_ids = set(task_matched)
+    missing_count = len(needed_ids)
+    base_length = len(prefix.rstrip("\n"))
+    index_head = len("# index: ")
+    max_lines = cfg["index"]["max_lines"]
+
+    # The index names at most max_lines records, so the gate prices a sliding
+    # window over current_ids instead of the whole list. The cursor only moves
+    # forward, which keeps the whole admission pass linear.
+    window: list[str] = []
+    window_length = 0
+    cursor = 0
+
+    def _fill_window():
+        nonlocal cursor, window_length
+        while len(window) < max_lines and cursor < len(current_ids):
+            candidate = current_ids[cursor]
+            cursor += 1
+            if candidate not in included:
+                window.append(candidate)
+                window_length += len(candidate)
+
+    def _next_after_window(exclude):
+        """The name that would enter the window if one left it."""
+
+        scan = cursor
+        while scan < len(current_ids):
+            candidate = current_ids[scan]
+            if candidate not in included and candidate != exclude:
+                return candidate
+            scan += 1
+        return ""
+
+    _fill_window()
+
+    def _trial_length(ident):
+        """Length of the briefing that admitting ident would produce.
+
+        This mirrors render(order + [ident], included | {ident}, names_only=True)
+        exactly. A rendered record is never empty, so the full-text block is
+        always present and only the index part varies.
+        """
+
+        full = body_length + len(rendered_record(ident)) + 2 * len(order)
+        deferred = deferred_count - (1 if ident in current_id_set else 0)
+        length, shown = window_length, len(window)
+        if ident in window:
+            length -= len(ident)
+            shown -= 1
+            entering = _next_after_window(ident)
+            if entering:
+                length += len(entering)
+                shown += 1
+        if shown:
+            index = index_head + length + 2 * (shown - 1)
+            total = base_length + full + index + 4
+            if deferred > shown:
+                total += len(f"# and {deferred - shown} more; docket list") + 1
+        else:
+            # "\n".join ends with the empty part, and rstrip drops that newline.
+            total = base_length + full + 2
+        # Counted by difference. Copying either set per candidate was itself
+        # O(n), which left a 100000-record briefing at 135s.
+        related = len(related_pending) - (1 if ident in related_pending else 0)
+        added: set[str] = set()
+        for target in relations[ident]:
+            if (target != ident and target not in included and target not in related_pending
+                    and target in current_id_set and target not in added):
+                added.add(target)
+                related += 1
+        missing = missing_count - (1 if ident in needed_ids else 0)
+        added.clear()
+        for step in blocking_ids(ident):
+            if step not in needed_ids and step not in included and step not in added:
+                added.add(step)
+                missing += 1
+        return total + len(footer_text(len(included) + 1, shown, deferred,
+                                       related, missing))
+
     def admit(ident, label, mandatory=False):
+        nonlocal body_length, deferred_count, window_length, missing_count
         if ident in included:
             return True
         labels[ident] = label
         # A task match may push past the target. Nothing may push past the
         # ceiling, which equals the target whenever the caller named one.
         limit = hard_limit if mandatory else soft_limit
-        # Price the index at what the ladder guarantees, which is one bare name
-        # per record. Charging the full index-line form here made admission
-        # collapse on a real ledger: past about 150 records the index alone
-        # exceeded the limit, so the second record and every record after it
-        # was refused while the ladder then discarded the very index the gate
-        # had charged for.
-        trial = render(order + [ident], included | {ident}, names_only=True)
-        if len(trial) > limit:
+        if _VERIFY_TRIAL:
+            measured = len(render(order + [ident], included | {ident}, names_only=True))
+            computed = _trial_length(ident)
+            if measured != computed:
+                raise AssertionError(
+                    f"trial length for {ident}: computed {computed}, rendered {measured}")
+        if _trial_length(ident) > limit:
             del labels[ident]
+            # A refused candidate never reaches the output, so its rendered text
+            # is dead. Keeping every one cost 35 MB at 40000 records.
+            record_cache.pop((ident, label), None)
             return False
         included.add(ident)
         order.append(ident)
+        body_length += len(rendered_record(ident))
+        if ident in current_id_set:
+            deferred_count -= 1
+        if ident in window:
+            window.remove(ident)
+            window_length -= len(ident)
+            _fill_window()
+        related_pending.discard(ident)
+        related_pending.update(target for target in relations[ident]
+                               if target not in included and target in current_id_set)
+        if ident in needed_ids:
+            missing_count -= 1
+        for step in blocking_ids(ident):
+            if step not in needed_ids:
+                needed_ids.add(step)
+                if step not in included:
+                    missing_count += 1
         return True
+
+    def _largest_fitting_keep(head, chosen_order, chosen_set, deferred_ids):
+        """How many bare names fit, over the same descending sequence as before.
+
+        Length rises with the name count, so the sequence splits into a refused
+        prefix and an accepted suffix. Probing it by bisection costs a handful
+        of length computations instead of one render per step.
+        """
+
+        if not deferred_ids:
+            return 0
+        steps = []
+        count = len(deferred_ids)
+        while count > 0:
+            steps.append(count)
+            count -= max(1, count // 8)
+        sums = [0, *itertools.accumulate(len(ident) for ident in deferred_ids)]
+        body = sum(len(rendered_record(i)) for i in chosen_order)
+        full = body + 2 * (len(chosen_order) - 1) if chosen_order else 0
+        related = {target for ident in chosen_set for target in relations[ident]
+                   if target not in chosen_set and target in current_id_set}
+        needed = set(task_matched)
+        for ident in chosen_set:
+            needed.update(blocking_ids(ident))
+        missing = len(needed - chosen_set)
+        base = len(head.rstrip("\n")) + (full + 4 if chosen_order else 2)
+
+        def length(keep):
+            # render names at most max_lines of them and then says how many it
+            # left out, so trimming past the cap only changes that count.
+            shown = min(keep, max_lines)
+            index = index_head + sums[shown] + 2 * (shown - 1)
+            if keep > shown:
+                index += len(f"# and {keep - shown} more; docket list") + 1
+            tail = footer_text(len(chosen_set), shown, len(deferred_ids),
+                               len(related), missing)
+            computed = base + index + len(tail)
+            if _VERIFY_TRIAL:
+                measured = len(render(chosen_order, chosen_set, deferred_ids[:keep],
+                                      names_only=True))
+                if measured != computed:
+                    raise AssertionError(
+                        f"trim length at keep={keep}: computed {computed}, rendered {measured}")
+            return computed
+
+        # Naming every record drops the "Not listed" line, so length falls at
+        # the top of the range. Test the whole set first, then bisect the rest,
+        # where length does rise with the name count.
+        if length(steps[0]) <= hard_limit:
+            return steps[0]
+        low, high = 1, len(steps)
+        while low < high:
+            middle = (low + high) // 2
+            if length(steps[middle]) <= hard_limit:
+                high = middle
+            else:
+                low = middle + 1
+        if low == len(steps):
+            return 0
+        return steps[low]
 
     for ident in root_ids:
         admit(ident, "selected", mandatory=ident in task_matched)
@@ -684,7 +878,7 @@ def build_context(
     for ident in root_ids:
         if ident not in included:
             continue
-        for path in _blocking_paths(ident, by_id):
+        for path in _blocking_paths(ident, by_id, cache=blocking_cache):
             for step in path:
                 admit(step, "blocking prerequisite", mandatory=ident in task_matched)
 
@@ -693,10 +887,10 @@ def build_context(
         # discarded neighbours by accident. Walk by inherited score instead.
         frontier = [(-scores.get(i, 0), -int(i[1:]), i, scores.get(i, 0))
                     for i in seeds if i in included]
+        heapq.heapify(frontier)
         seen = set(included)
         while frontier:
-            frontier.sort()
-            _, _, ident, parent_score = frontier.pop(0)
+            _, _, ident, parent_score = heapq.heappop(frontier)
             decayed = (parent_score * expansion["decay_numerator"]
                        // expansion["decay_denominator"])
             if decayed < expansion["floor"]:
@@ -716,7 +910,8 @@ def build_context(
                 if effective < expansion["floor"]:
                     continue
                 if admit(target, "related record"):
-                    frontier.append((-effective, -int(target[1:]), target, effective))
+                    heapq.heappush(frontier,
+                                   (-effective, -int(target[1:]), target, effective))
 
     expand(root_ids)
     for item in pins:
@@ -742,13 +937,10 @@ def build_context(
             prefix = head
             for chosen_order, chosen_set in ((order, included), ([], set())):
                 deferred_ids = [i for i in current_ids if i not in chosen_set]
-                keep = len(deferred_ids)
-                while keep > 0:
-                    candidate = render(chosen_order, chosen_set, deferred_ids[:keep],
-                                       names_only=True)
-                    if len(candidate) <= hard_limit:
-                        return candidate
-                    keep = keep - max(1, keep // 8)
+                keep = _largest_fitting_keep(head, chosen_order, chosen_set, deferred_ids)
+                if keep:
+                    return render(chosen_order, chosen_set, deferred_ids[:keep],
+                                  names_only=True)
         result = (f"# docket revision: {revision}\n# No records fit.\n"
                   "# Retrieve full record: docket show RECORD_ID --json\n")
     return result

@@ -270,54 +270,49 @@ Docket does not merge divergent decision trees semantically. Two branches that
 decided the same question differently produce two adopted decisions after a
 rebase. A person resolves that by superseding one of them.
 
-## Explicit migration from schema 1
+## Migrating a schema-1 ledger
 
-Schema 1 reads fail with an actionable migration error. Migration is a separate
-operation. It never overwrites the source or an existing destination.
+A schema-1 ledger typed a `settled`, `ruled-out`, or `open` state instead of a
+`kind` and `state` pair. Every command that reads such a ledger fails with an
+actionable error. Run `docket migrate` to convert it in place.
 
-1. Create a classification map.
+```sh
+docket migrate
+```
 
-   The map needs one JSON entry for every source ID. Each entry must choose
-   `kind`, `state`, and `text`; Docket does not infer a type from English prose.
+The command derives a classification map from the old state field alone:
 
-   For a source ledger at `old/ledger.jsonl`, create `map.json` with entries
-   such as:
+| Schema 1 state | Kind | State |
+| --- | --- | --- |
+| `settled` | decision | adopted |
+| `ruled-out` | decision | adopted |
+| `open` | question | open |
 
-   ```json
-   {
-     "d17": {
-       "kind": "decision",
-       "state": "adopted",
-       "text": "Which database should the service use?",
-       "choice": "Postgres",
-       "alternatives": ["Postgres", "SQLite"],
-       "supports": [["d10"]],
-       "answers": [],
-       "supersedes": []
-     }
-   }
-   ```
+`ruled-out` maps to an adopted decision, not a revoked one: it commits to not
+doing something, and that commitment still applies. A revoked decision renders
+as unavailable support, which would tell an agent to ignore a live constraint.
 
-2. Run the standalone migration tool with a new destination:
+Migration keeps the original. The converted ledger replaces `ledger.jsonl`,
+and the untouched schema-1 file survives at `ledger.jsonl.schema1`. A ledger
+already at schema 2 exits clean and changes nothing. `--dry-run` prints the
+derived conversion and writes nothing.
 
-   ```sh
-   python3 scripts/migrate_ledger.py old/ledger.jsonl \
-     --map map.json \
-     --output .docket/ledger-v2.jsonl
-   ```
+Two edge shapes are common in old ledgers and get fixed automatically:
 
-   The tool validates every source relation and every mapped record before
-   opening the destination with exclusive-create semantics. It rewrites
-   relation IDs through the map, retains source text and relation treatment in
-   `legacy` metadata, and leaves the source intact. A source `because` list
-   maps to `supports` unless an explicit override is supplied. Cross-kind
-   supersession or an old line that needs to become a question answer requires
-   explicit relation overrides; the tool refuses silent edge loss. A question
-   mapping uses recorded state `open`, even when later answer links give it
-   derived state `resolved`.
+- A `supersedes` edge that points at a question becomes an `answers` edge.
+  Schema 2 does not let a question carry `answers`.
+- A `because` edge that points at a question is dropped. Schema 2 has no
+  relation for this. The old edge still shows up in `legacy` metadata.
 
-3. Review and activate the destination.
+The command prints a warning line for each fix.
 
-   Keep the original ledger and classification map with the migration review.
-   Switch the active project ledger only after the destination passes the
-   validator and its record and relation counts have been checked.
+One case still stops the migration: a `settled` or `ruled-out` record with no
+answer. There is no text to build a `choice` from. It prints the affected
+records and a recovery: derive a map to a file, edit it, then apply it
+explicitly.
+
+```sh
+docket migrate --emit-map map.json
+# edit map.json by hand
+docket migrate --map map.json
+```

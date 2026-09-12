@@ -30,6 +30,7 @@ from docket_ledger import (  # noqa: E402
     read as ledger_read,
     retired_by,
     validate_record,
+    _Prefix,
 )
 
 LEDGER = Path(".docket/ledger.jsonl")
@@ -251,7 +252,7 @@ def cmd_question(args: argparse.Namespace) -> int:
 
 
 def cmd_list(args: argparse.Namespace) -> int:
-    entries = project(read(ledger_path()))
+    entries = project(read(ledger_path()), validated=True)
     retired = retired_by(entries)
     if not args.superseded:
         entries = [e for e in entries if e.get("id") not in retired]
@@ -423,7 +424,7 @@ def _graph_entries(args: argparse.Namespace) -> tuple[list[dict], dict[str, str]
     Unlike cmd_list, retired entries stay in, or the edges a later entry drew
     to them would dangle.
     """
-    entries = project(read(ledger_path()))
+    entries = project(read(ledger_path()), validated=True)
     retired = retired_by(entries)
     if args.state:
         entries = [e for e in entries if e.get("state") == args.state]
@@ -804,7 +805,7 @@ def cmd_show(args: argparse.Namespace) -> int:
             return 1
         cutoff = int(args.at[1:])
         raw = [item for item in raw if int(item["id"][1:]) <= cutoff]
-    entries = project(raw)
+    entries = project(raw, validated=True)
     by_id = {e.get("id"): e for e in entries}
     e = by_id.get(args.id)
     if not e:
@@ -903,6 +904,52 @@ def cmd_rebase(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_migrate(args: argparse.Namespace) -> int:
+    """Convert this project's ledger to the current schema."""
+    from docket_migrate import (
+        MigrationError, derive_mapping, detect_version, migrate_in_place, read_source,
+    )
+
+    path = ledger_path()
+    if not path.exists():
+        print(f"docket: no ledger at {path}")
+        return 0
+    try:
+        if args.emit_map:
+            source = read_source(path)
+            if detect_version(source) == 2:
+                print("docket: already schema 2")
+                return 0
+            mapping = derive_mapping(source)
+            Path(args.emit_map).write_text(
+                json.dumps(mapping, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            print(f"docket: wrote {len(mapping)} mapping entr"
+                  f"{'y' if len(mapping) == 1 else 'ies'} to {args.emit_map}")
+            return 0
+        count, report, notes = migrate_in_place(path, mapping_path=args.map, dry_run=args.dry_run)
+    except MigrationError as exc:
+        print(f"docket: {exc}", file=sys.stderr)
+        print("docket: to classify records by hand, run 'docket migrate --emit-map FILE', "
+              "edit FILE, then 'docket migrate --map FILE'", file=sys.stderr)
+        return 2
+    except OSError as exc:
+        print(f"docket: {exc}", file=sys.stderr)
+        return 1
+    if not count:
+        print("docket: already schema 2")
+        return 0
+    for note in notes:
+        print(f"docket: warning: {note}", file=sys.stderr)
+    for line in report:
+        print(line)
+    if args.dry_run:
+        print(f"docket: would convert {count} record{'' if count == 1 else 's'}")
+        return 0
+    print(f"docket: converted {count} record{'' if count == 1 else 's'}; "
+          f"original kept at {path}.schema1")
+    return 0
+
+
 def cmd_check(args: argparse.Namespace) -> int:
     """Report every fault in the ledger, rather than the first one.
 
@@ -921,6 +968,10 @@ def cmd_check(args: argparse.Namespace) -> int:
 
     faults: list[str] = []
     good: list[dict] = []
+    # One index threaded through the loop. Rebuilding it per record made doctor
+    # quadratic in ledger size, which is the cost read() and validate_entries
+    # already shed.
+    prefix = _Prefix([])
     seen: dict[str, int] = {}
     highest = 0
     count = 0
@@ -952,9 +1003,12 @@ def cmd_check(args: argparse.Namespace) -> int:
         # exists and has the right kind. validate_record is what catches a
         # dangling or wrong-kind reference.
         try:
-            good.append(validate_record(record, previous=good))
+            checked = validate_record(record, prefix=prefix)
         except LedgerError as exc:
             faults.append(f"line {number}: {str(exc).removeprefix('docket: ')}")
+        else:
+            good.append(checked)
+            prefix.add(checked)
 
     if not faults:
         print(f"docket: {path} reads cleanly, {count} record{'s' if count != 1 else ''}")
@@ -1147,7 +1201,7 @@ def cmd_context(args: argparse.Namespace) -> int:
         files = tuple(dict.fromkeys(files + auto_scope_files(settings["auto_scope"]["limit"])))
     try:
         text = render_context(
-            project(read(ledger_path())),
+            project(read(ledger_path()), validated=True),
             query=args.query or "",
             files=files,
             max_chars=args.max_chars,
@@ -1171,7 +1225,7 @@ _COMPLETION_FLAGS = (
     "--style", "--interactive", "--no-interactive", "--for", "--version",
     "--dry-run",
 )
-_COMPLETION_CMDS = ("claim", "decision", "question", "list", "show", "graph", "context", "where", "check", "rebase", "init", "completion")
+_COMPLETION_CMDS = ("claim", "decision", "question", "list", "show", "graph", "context", "where", "check", "rebase", "migrate", "init", "completion")
 
 _BASH_COMPLETION = f"""\
 _docket() {{
@@ -1349,6 +1403,13 @@ def main(argv: list[str] | None = None) -> int:
     rb.add_argument("other", help="path to the other branch's ledger")
     rb.add_argument("--dry-run", action="store_true", help="print the ID map and write nothing")
     rb.set_defaults(func=cmd_rebase)
+
+    mg = sub.add_parser("migrate", help="convert a legacy ledger to the current schema")
+    source = mg.add_mutually_exclusive_group()
+    source.add_argument("--map", help="classification map to apply instead of the derived one")
+    source.add_argument("--emit-map", help="write the derived map to this path and stop")
+    mg.add_argument("--dry-run", action="store_true", help="report the conversion and stop")
+    mg.set_defaults(func=cmd_migrate)
 
     it = sub.add_parser("init", help="move this project's ledger into the repository")
     it.set_defaults(func=cmd_init)
