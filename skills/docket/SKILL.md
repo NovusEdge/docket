@@ -114,19 +114,34 @@ docket context --all --max-chars 12000
 docket list
 docket list --kind decision --state adopted --json
 docket show d2 --json
+docket show d2 --at d40
+docket context --since d40
 docket graph --kind claim --state accepted
 ```
 
 `context` renders two tiers. The full-text tier holds complete records for the
 highest scoring records. The index tier names the remaining current records on
-one line each, with ID, kind, state, and clipped text. When the budget cannot
-hold every name, the footer reports how many it left out.
+one line each, with ID, kind, state, and clipped text. The index names at most
+`index.max_lines` records, 40 by default, and closes with a count and
+`docket list` for the rest. When the budget cannot hold every name, the footer
+reports how many it left out.
+
+A blocked decision prints one `blocked:` line for each chain of prerequisites,
+which names every step and why the last one is unavailable. A record on such a
+chain enters the full-text tier directly after the decision, under the label
+`blocking prerequisite`.
+
+The footer states coverage: either the task matches and their prerequisites all
+reached the full-text tier, or how many stayed in the index. An index line is
+not a coverage gap, because it names the record and gives the command that
+fetches it.
 
 A record's score combines its file scope match, its query term rarity, its
 position in the record sequence, whether it is pinned, and how many records
 point at it. Each full-text record prints its score and components on a
-`selection:` line. A scope match outranks a text match, because a scope states
-where a record applies.
+`selection:` line. An exact path scope outranks an explicit `--query`, and a
+query outranks a glob or directory scope: a query states the task, and a scope
+derived from the working tree guesses at it.
 
 The budget target is 8000 characters. A record matching the task scope or query
 renders in full even past the target, up to three times it. `--max-chars` sets a
@@ -136,7 +151,19 @@ an index line.
 
 With no `--query` and no `--file`, `context` derives file scope from the working
 tree's changed and untracked files. `--no-auto-scope` disables that and
-`--auto-scope` forces it alongside an explicit query.
+`--auto-scope` forces it alongside an explicit query. A clean tree scopes from
+the paths the last commit touched. A repository with no commits stays unscoped.
+
+`docket context --since RECORD_ID` reports what changed after that record: the
+records added since, and the records that lost availability since. The header
+prints `latest: ID@DIGEST`, and `--since` accepts that pair. `docket rebase`
+renumbers a tail, so the digest catches a baseline ID that now names a different
+record. An unknown or stale baseline prints a note on stderr, then a full
+briefing. Nothing calls `--since` for you: the session hooks fire on startup,
+resume, clear, and compact only.
+
+`docket show ID --at RECORD_ID` prints the record as history stood at that
+record. A supersession or an answer recorded later does not appear.
 
 Weights, budget, index detail, and the auto-scope cap are tunable in
 `.docket/config.toml`. See [the example](../../docs/config.example.toml). A
