@@ -797,7 +797,14 @@ def cmd_graph(args: argparse.Namespace) -> int:
 
 
 def cmd_show(args: argparse.Namespace) -> int:
-    entries = project(read(ledger_path()))
+    raw = read(ledger_path())
+    if args.at:
+        if not any(item.get("id") == args.at for item in raw):
+            print(f"docket: unknown record {args.at}", file=sys.stderr)
+            return 1
+        cutoff = int(args.at[1:])
+        raw = [item for item in raw if int(item["id"][1:]) <= cutoff]
+    entries = project(raw)
     by_id = {e.get("id"): e for e in entries}
     e = by_id.get(args.id)
     if not e:
@@ -1139,7 +1146,7 @@ _COMPLETION_FLAGS = (
     "--state", "--choice", "--alternative", "--scope", "--rationale",
     "--supports", "--depends-on", "--answers", "--supersedes", "--evidence",
     "--revisit", "--cost", "--pin", "--kind", "--query", "--file", "--max-chars",
-    "--auto-scope", "--no-auto-scope", "--since",
+    "--auto-scope", "--no-auto-scope", "--since", "--at",
     "--all", "--find", "--superseded", "--oneline", "--json", "--plain", "--pretty",
     "--style", "--interactive", "--no-interactive", "--for", "--version",
     "--dry-run",
@@ -1285,6 +1292,8 @@ def main(argv: list[str] | None = None) -> int:
     sh = sub.add_parser("show", help="print one entry, human-readable")
     sh.add_argument("id")
     sh.add_argument("--json", action="store_true", help="print the entry as JSON")
+    sh.add_argument("--at", default="",
+                    help="print the record as history stood at this record ID")
     sh.set_defaults(func=cmd_show)
 
     ctx = sub.add_parser("context", help="print the ledger for session injection")

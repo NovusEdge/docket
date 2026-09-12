@@ -343,6 +343,29 @@ class AutoScopeTests(unittest.TestCase):
             self.assertIn("tracked.py", out)
 
 
+class ShowAtTests(unittest.TestCase):
+    def test_show_at_hides_a_later_supersession(self):
+        with tempfile.TemporaryDirectory() as home:
+            run(home, "claim", "The cache is reliable", "--state", "accepted")
+            run(home, "claim", "Replace the premise", "--state", "accepted",
+                "--supersedes", "c1")
+            early = run(home, "show", "c1", "--at", "c1", "--json")
+            now = run(home, "show", "c1", "--json")
+        # Assert the exit code first. Before the flag exists argparse rejects
+        # it, stdout is empty, and a bare assertNotIn would pass.
+        self.assertEqual(early.returncode, 0)
+        # The projection always emits retired_by, so assert the value.
+        self.assertIn('"retired_by": ""', early.stdout)
+        self.assertIn('"retired_by": "c2"', now.stdout)
+
+    def test_show_at_rejects_an_unknown_baseline(self):
+        with tempfile.TemporaryDirectory() as home:
+            run(home, "claim", "A premise", "--state", "accepted")
+            result = run(home, "show", "c1", "--at", "c99", "--json")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("unknown record", result.stderr)
+
+
 class ContextDeltaTests(unittest.TestCase):
     def test_since_prints_only_what_followed_the_baseline(self):
         with tempfile.TemporaryDirectory() as home:
