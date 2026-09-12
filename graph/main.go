@@ -56,8 +56,18 @@ func readData(path string) (GraphData, error) {
 	if err := json.Unmarshal(contents, &data); err != nil {
 		return GraphData{}, fmt.Errorf("invalid graph data: %w", err)
 	}
-	if data.Version != 1 {
-		return GraphData{}, fmt.Errorf("unsupported graph data version %d", data.Version)
+	if data.Version != 2 {
+		return GraphData{}, fmt.Errorf("unsupported graph data version %d; expected graph data version 2", data.Version)
+	}
+	seen := make(map[string]struct{}, len(data.Entries))
+	for _, entry := range data.Entries {
+		if entry.ID == "" {
+			return GraphData{}, fmt.Errorf("graph entry has an empty id")
+		}
+		if _, ok := seen[entry.ID]; ok {
+			return GraphData{}, fmt.Errorf("duplicate graph entry id %q", entry.ID)
+		}
+		seen[entry.ID] = struct{}{}
 	}
 	return data, nil
 }
@@ -67,8 +77,21 @@ func renderPlain(w io.Writer, data GraphData) error {
 	for _, row := range m.rows {
 		e := m.entries[row.id]
 		label := strings.Repeat("  ", row.depth) + sanitize(e.ID)
-		if e.State != "" || e.RetiredBy != "" {
-			label += " [" + sanitize(stateLabel(overviewState(e))) + "]"
+		displayState := overviewState(e)
+		if e.Kind != "" || displayState != "" {
+			state := sanitize(stateLabel(displayState))
+			if e.Kind != "" {
+				label += " [" + sanitize(kindLabel(e.Kind)) + ": " + state
+				if condition := decisionCondition(e); condition != "" {
+					label += ", " + condition
+					if condition == "blocked" && len(e.BlockedBy) > 0 {
+						label += " by " + strings.Join(sanitizeList(e.BlockedBy), ", ")
+					}
+				}
+				label += "]"
+			} else {
+				label += " [" + state + "]"
+			}
 		}
 		if e.Question != "" {
 			label += " " + sanitize(e.Question)

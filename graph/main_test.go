@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"unicode"
@@ -12,11 +13,11 @@ import (
 )
 
 func testData() GraphData {
-	return GraphData{Version: 1, Entries: []Entry{
-		{ID: "d1", State: "settled", Question: "Root", Answer: "Use the root", Sets: [][]string{{}}, Supports: []string{}},
-		{ID: "d2", State: "settled", Question: "Child", Answer: "Use child", Sets: [][]string{{"d1"}}, Supports: []string{"d1"}},
-		{ID: "d3", State: "ruled-out", Question: "Both", Answer: "No", Sets: [][]string{{"d1", "d2"}, {"d4"}}, Supports: []string{"d1", "d2", "d4"}, RetiredBy: "d5"},
-		{ID: "d4", State: "settled", Question: "Other", Answer: "Alternative", Sets: [][]string{{}}, Supports: []string{}},
+	return GraphData{Version: 2, Entries: []Entry{
+		{ID: "d1", Kind: "decision", State: "adopted", RecordedState: "adopted", Applicable: true, Question: "Root", Answer: "Use the root", Sets: [][]string{{}}, Supports: []string{}},
+		{ID: "d2", Kind: "decision", State: "adopted", RecordedState: "adopted", Applicable: true, Question: "Child", Answer: "Use child", Sets: [][]string{{"d1"}}, Supports: []string{"d1"}},
+		{ID: "d3", Kind: "claim", State: "rejected", RecordedState: "rejected", Question: "Both", Answer: "No", Sets: [][]string{{"d1", "d2"}, {"d4"}}, Supports: []string{"d1", "d2", "d4"}, RetiredBy: "d5"},
+		{ID: "d4", Kind: "decision", State: "adopted", RecordedState: "adopted", Question: "Other", Answer: "Alternative", Sets: [][]string{{}}, Supports: []string{}},
 	}}
 }
 
@@ -41,7 +42,7 @@ func TestBuildTreeShowsEveryEntryOnceAndKeepsGroups(t *testing.T) {
 }
 
 func TestCyclesStillProduceOneRowPerEntry(t *testing.T) {
-	d := GraphData{Version: 1, Entries: []Entry{
+	d := GraphData{Version: 2, Entries: []Entry{
 		{ID: "a", Question: "A", Sets: [][]string{{"b"}}, Supports: []string{"b"}},
 		{ID: "b", Question: "B", Sets: [][]string{{"a"}}, Supports: []string{"a"}},
 		{ID: "c", Question: "C", Sets: [][]string{{"b"}}, Supports: []string{"b"}},
@@ -95,7 +96,7 @@ func TestSearchAcceptsQAsInputAndSelectionStaysVisible(t *testing.T) {
 		t.Fatalf("search query = %q", m.query)
 	}
 
-	d := GraphData{Version: 1}
+	d := GraphData{Version: 2}
 	for i := 0; i < 14; i++ {
 		d.Entries = append(d.Entries, Entry{ID: fmt.Sprintf("d%02d", i), Question: "entry"})
 	}
@@ -118,7 +119,7 @@ func TestSearchAcceptsQAsInputAndSelectionStaysVisible(t *testing.T) {
 }
 
 func TestViewFitsNarrowUnicodeWidthAndSanitizesContent(t *testing.T) {
-	d := GraphData{Version: 1, Entries: []Entry{{ID: "日本", State: "settled", Question: "bad\x1b[2J wide", Answer: "内容"}}}
+	d := GraphData{Version: 2, Entries: []Entry{{ID: "日本", Kind: "claim", State: "accepted", RecordedState: "accepted", Question: "bad\x1b[2J wide", Answer: "内容"}}}
 	m := NewModel(d)
 	m, _ = updateModel(m, tea.WindowSizeMsg{Width: 24, Height: 12})
 	view := m.View().Content
@@ -134,7 +135,7 @@ func TestViewFitsNarrowUnicodeWidthAndSanitizesContent(t *testing.T) {
 
 func TestDetailScrollResetsOnlyWhenSelectionChanges(t *testing.T) {
 	long := strings.Repeat("x", 140) + " " + strings.Repeat("word ", 80)
-	m := NewModel(GraphData{Version: 1, Entries: []Entry{
+	m := NewModel(GraphData{Version: 2, Entries: []Entry{
 		{ID: "d1", Question: "first", Answer: long},
 		{ID: "d2", Question: "second", Answer: long},
 	}})
@@ -168,7 +169,7 @@ func TestSanitizeRemovesC0C1AndTerminalSequences(t *testing.T) {
 }
 
 func TestProjectedConnectorsAndLeafCollapse(t *testing.T) {
-	d := GraphData{Version: 1, Entries: []Entry{
+	d := GraphData{Version: 2, Entries: []Entry{
 		{ID: "a", Supports: nil},
 		{ID: "a1", Supports: []string{"a"}},
 		{ID: "a2", Supports: []string{"a1"}},
@@ -187,7 +188,7 @@ func TestProjectedConnectorsAndLeafCollapse(t *testing.T) {
 	if !strings.Contains(a2Line, "  └─") || strings.Contains(a2Line, "│ └─") {
 		t.Fatalf("rendered a2 connector = %q, want immediate-parent last-child branch", a2Line)
 	}
-	leaf := NewModel(GraphData{Version: 1, Entries: []Entry{{ID: "leaf"}}})
+	leaf := NewModel(GraphData{Version: 2, Entries: []Entry{{ID: "leaf"}}})
 	leaf, _ = updateModel(leaf, keyMsg(' '))
 	if leaf.collapsed["leaf"] || strings.Contains(ansi.Strip(leaf.View().Content), "▹") {
 		t.Fatal("leaf collapse created a false collapsed marker")
@@ -195,7 +196,7 @@ func TestProjectedConnectorsAndLeafCollapse(t *testing.T) {
 }
 
 func TestRetiredEntryIsMarkedRetiredInOverview(t *testing.T) {
-	m := NewModel(GraphData{Version: 1, Entries: []Entry{{ID: "d15", State: "open", Question: "historical", RetiredBy: "d16"}}})
+	m := NewModel(GraphData{Version: 2, Entries: []Entry{{ID: "d15", Kind: "question", State: "open", RecordedState: "open", Question: "historical", RetiredBy: "d16"}}})
 	view := ansi.Strip(m.View().Content)
 	if !strings.Contains(view, "[retired]") || strings.Contains(view, "[open]") {
 		t.Fatalf("retired overview state was ambiguous: %q", view)
@@ -231,6 +232,116 @@ func TestTinyViewsAndFooterKeepBoundsAndEssentialControls(t *testing.T) {
 		if !strings.Contains(footer, want) {
 			t.Errorf("detail footer missing %q: %q", want, footer)
 		}
+	}
+}
+
+func TestReadDataRequiresWireVersionTwo(t *testing.T) {
+	path := t.TempDir() + "/graph.json"
+	if err := os.WriteFile(path, []byte(`{"version":1,"entries":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readData(path); err == nil || !strings.Contains(err.Error(), "version 1") || !strings.Contains(err.Error(), "version 2") {
+		t.Fatalf("readData error = %v, want an actionable version 1 to version 2 refusal", err)
+	}
+}
+
+func TestReadDataDecodesTypedWireFields(t *testing.T) {
+	path := t.TempDir() + "/graph.json"
+	const payload = `{"version":2,"entries":[{"id":"d1","kind":"decision","state":"adopted","recorded_state":"adopted","question":"text","choice":"choice","answer":"choice","cost":"risk","sets":[["c1"]],"supports":["c1"],"depends_on":["c2"],"answers":["q1"],"supersedes":["d0"],"retired_by":"d2","resolved_by":["c3"],"applicable":false,"blocked_by":["c2"],"decided_by":"alice","scope":["graph"],"rationale":"why","alternatives":["choice"],"evidence":[{"ref":"README.md","checked_at":"today","commit":"abc"}],"revisit":"later","author":"bob","ts":"now","branch":"main","session":"s1","pinned":true}]}`
+	if err := os.WriteFile(path, []byte(payload), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	data, err := readData(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := data.Entries[0]
+	if e.Kind != "decision" || e.RecordedState != "adopted" || e.State != "adopted" || e.Answer != "choice" || e.Choice != "choice" || !e.Pinned || e.DecidedBy != "alice" || e.Applicable {
+		t.Fatalf("typed scalar fields decoded incorrectly: %+v", e)
+	}
+	if len(e.Supersedes) != 1 || e.Supersedes[0] != "d0" || len(e.BlockedBy) != 1 || e.BlockedBy[0] != "c2" {
+		t.Fatalf("typed relationships decoded incorrectly: %+v", e)
+	}
+	if len(e.Evidence) != 1 || e.Evidence[0].Ref != "README.md" || e.Evidence[0].CheckedAt != "today" || e.Evidence[0].Commit != "abc" {
+		t.Fatalf("typed evidence decoded incorrectly: %+v", e.Evidence)
+	}
+	detail := NewModel(data).detailText("d1")
+	if strings.Count(detail, "\nChoice\n") != 1 || strings.Contains(detail, "\nAnswer\n") || strings.Count(detail, "\nRationale\n") != 1 {
+		t.Fatalf("decision detail duplicated or mislabeled mapped fields: %s", detail)
+	}
+}
+
+func TestMappedClaimAndQuestionAnswerRendersRationaleOnce(t *testing.T) {
+	path := t.TempDir() + "/graph.json"
+	const payload = `{"version":2,"entries":[{"id":"c1","kind":"claim","state":"accepted","recorded_state":"accepted","question":"claim text","answer":"claim rationale","rationale":"claim rationale"},{"id":"q1","kind":"question","state":"open","recorded_state":"open","question":"question text","answer":"question rationale","rationale":"question rationale"}]}`
+	if err := os.WriteFile(path, []byte(payload), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	data, err := readData(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"c1", "q1"} {
+		detail := NewModel(data).detailText(id)
+		if strings.Count(detail, "\nRationale\n") != 1 || strings.Contains(detail, "\nAnswer\n") {
+			t.Errorf("%s detail duplicated or mislabeled mapped fields: %s", id, detail)
+		}
+	}
+}
+
+func TestTypedDetailShowsKindStateAndRelationshipMetadata(t *testing.T) {
+	m := NewModel(GraphData{Version: 2, Entries: []Entry{{
+		ID: "d7", Kind: "decision", State: "adopted", RecordedState: "revoked", Choice: "blue",
+		Question: "Choose a path", Answer: "blue", Cost: "restart",
+		Sets: [][]string{{"c1", "d2"}, {"q3"}}, Supports: []string{"c1", "d2", "q3"},
+		DependsOn: []string{"d4"}, Answers: []string{"q3"}, ResolvedBy: []string{"d7"},
+		Supersedes: []string{"d5"}, Applicable: false, BlockedBy: []string{"d4"}, DecidedBy: "bob", Scope: []string{"graph/*", "model"}, Rationale: "safer",
+		Alternatives: []string{"blue", "green"}, Evidence: []Evidence{{Ref: "docs/a.md", CheckedAt: "2026-09-12", Commit: "abc123"}},
+		Revisit: "after beta", Author: "alice", TS: "2026-09-12T00:00:00Z", Branch: "feature/x", Session: "s1", Pinned: true,
+	}}})
+	detail := m.detailText("d7")
+	if strings.Count(detail, "\nChoice\n") != 1 || strings.Contains(detail, "\nAnswer\n") || strings.Count(detail, "\nRationale\n") != 1 {
+		t.Fatalf("decision detail duplicated or mislabeled mapped fields: %s", detail)
+	}
+	for _, want := range []string{
+		"decision", "adopted", "Recorded state", "revoked", "Text", "blue", "restart",
+		"Supports", "Depends on", "Answers", "Resolved by", "Supersedes", "Applicable", "blocked", "Blocked by", "d4", "Decided by", "bob", "Scope",
+		"Rationale", "Alternatives", "docs/a.md", "Checked at", "Commit", "Revisit",
+		"Author", "Timestamp", "Branch", "Session", "Pinned",
+	} {
+		if !strings.Contains(detail, want) {
+			t.Errorf("typed detail missing %q: %s", want, detail)
+		}
+	}
+}
+
+func TestPlainOverviewShowsKindAndEffectiveState(t *testing.T) {
+	var b strings.Builder
+	if err := renderPlain(&b, GraphData{Version: 2, Entries: []Entry{
+		{ID: "d1", Kind: "decision", State: "adopted", RecordedState: "adopted", Applicable: false, BlockedBy: []string{"c1", "c2"}, Question: "blocked decision"},
+		{ID: "d2", Kind: "decision", State: "adopted", RecordedState: "adopted", Applicable: true, Question: "applicable decision"},
+		{ID: "c1", Kind: "claim", State: "accepted", RecordedState: "accepted", Question: "A claim"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	got := b.String()
+	for _, want := range []string{"[decision: adopted, blocked by c1, c2]", "[decision: adopted, applicable]", "[claim: accepted]"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("plain overview = %q, missing %q", got, want)
+		}
+	}
+}
+
+func TestLedgerGraphTitleAndBlockedStyle(t *testing.T) {
+	m := NewModel(testData())
+	view := ansi.Strip(m.View().Content)
+	if !strings.Contains(view, "LEDGER GRAPH") || strings.Contains(view, "DECISION GRAPH") {
+		t.Fatalf("graph title = %q", view)
+	}
+	blocked := newModel(GraphData{Version: 2, Entries: []Entry{{ID: "d1", Kind: "decision", State: "adopted", Applicable: false}}}, true).stateStyle("blocked").Render("state")
+	adopted := newModel(GraphData{Version: 2, Entries: []Entry{{ID: "d1", Kind: "decision", State: "adopted", Applicable: true}}}, true).stateStyle("adopted").Render("state")
+	if blocked == adopted {
+		t.Fatalf("blocked style reused adopted style: blocked=%q adopted=%q", blocked, adopted)
 	}
 }
 
