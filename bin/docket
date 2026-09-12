@@ -1163,7 +1163,7 @@ _COMPLETION_FLAGS = (
     "--style", "--interactive", "--no-interactive", "--for", "--version",
     "--dry-run",
 )
-_COMPLETION_CMDS = ("claim", "decision", "question", "list", "show", "graph", "context", "where", "check", "rebase", "init", "completion")
+_COMPLETION_CMDS = ("claim", "decision", "question", "list", "show", "graph", "context", "where", "check", "rebase", "migrate", "init", "completion")
 
 _BASH_COMPLETION = f"""\
 _docket() {{
