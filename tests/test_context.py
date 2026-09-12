@@ -453,6 +453,34 @@ class ContextTests(unittest.TestCase):
         self.assertLess(rendered.index("### c1 "), rendered.index("### c2 "))
         self.assertIn("[blocking prerequisite]", rendered)
 
+    def test_coverage_reports_no_matches(self):
+        records = [entry("c1", "claim", "A premise", state="accepted")]
+        rendered = build_context(projected(records), query="nothing matches this",
+                                 ledger="repo")
+        self.assertIn("# Coverage: no matches found", rendered)
+
+    def test_coverage_reports_covered(self):
+        records = [
+            entry("c1", "claim", "The premise is unproven", state="disputed"),
+            entry("d2", "decision", "Serve from it", choice="serve",
+                  scope=("lib/**",), depends_on=("c1",)),
+        ]
+        rendered = build_context(projected(records), files=("lib/cache.py",), ledger="repo")
+        self.assertIn("# Coverage: task matches and their prerequisites covered", rendered)
+
+    def test_coverage_reports_partial_when_a_task_match_is_index_only(self):
+        records = [
+            entry("d1", "decision", "First", choice="a", scope=("lib/**",),
+                  rationale="x" * 900),
+            entry("d2", "decision", "Second", choice="b", scope=("lib/**",),
+                  rationale="y" * 900),
+        ]
+        # 2200 admits one 900-character record and refuses the second, so one
+        # task match reaches the index only. 1400 refuses both.
+        rendered = build_context(projected(records), files=("lib/cache.py",),
+                                 ledger="repo", max_chars=2200)
+        self.assertIn("# Coverage: partial, 1 in the index only", rendered)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -516,8 +516,25 @@ def build_context(
             lines.append(f"# Not listed: {len(deferred) - shown}; the budget could not name them.")
         if related_omitted:
             lines.append(f"# Related records in index only: {len(related_omitted)}; formulas remain complete.")
+        # The measured set is the caller's own task matches plus their
+        # prerequisite closure. The closure alone reads "covered" almost always,
+        # because a blocking chain is admitted right after its root; the whole
+        # index reads "partial" almost always, and an index line names a record
+        # and gives the command to fetch it, so it is not a gap.
         if no_match:
             lines.append("# No task matches; the index names every current record.")
+            coverage = "no matches found"
+        else:
+            needed = set(task_matched)
+            for ident in included:
+                if _text(by_id[ident].get("kind")).casefold() != "decision":
+                    continue
+                for path in _blocking_paths(ident, by_id):
+                    needed.update(path)
+            missing = needed - included
+            coverage = (f"partial, {len(missing)} in the index only" if missing
+                        else "task matches and their prerequisites covered")
+        lines.append(f"# Coverage: {coverage}. Selected ledger data only.")
         lines.append("# Declared grounds; evidence not freshly verified.")
         lines.append("# Retrieve full record: docket show RECORD_ID --json")
         return "\n\n" + "\n".join(lines) + "\n"
