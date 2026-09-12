@@ -1,7 +1,7 @@
 {
   "name": "docket",
-  "version": "0.7.0",
-  "description": "A decision ledger for long-running work. Decisions stay made across compaction, and contradicting one requires reopening it.",
+  "version": "0.8.0",
+  "description": "A typed ledger of claims, decisions, and questions with scoped context for agents.",
   "author": {
     "name": "Aliasgar Khimani",
     "url": "https://github.com/NovusEdge"

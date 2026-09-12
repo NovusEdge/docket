@@ -26,16 +26,29 @@ there.
 
 A persistent record of decisions, stored outside any one session.
 
-Each entry contains:
+Each schema 2 record contains:
 
 - `id` - A stable identifier.
-- `question` - The question that the entry answers.
-- `state` - `settled`, `ruled-out`, or `open`.
-- `answer` - The selected answer.
-- `because` - Alternative sets of supporting entry IDs.
+- `kind` - `claim`, `decision`, or `question`.
+- `text` - The proposition, commitment prompt, or inquiry.
+- `state` - Type-specific recorded state.
+- `choice` and `alternatives` - The selected choice and options for decisions.
+- `supports` - Alternative AND sets of supporting record IDs.
+- `depends_on` - Operational prerequisites for decisions.
+- `answers` - Links from claims or decisions to questions they resolve.
 - `supersedes` - Entry IDs that this entry retires.
-- `cost_if_wrong` - The effect of a later reversal.
-- `timestamp`, `session`, `author`, and `branch` - Provenance fields.
+- `scope`, `rationale`, `evidence`, `revisit`, and `cost_if_wrong` - Context and
+  review metadata.
+- `ts`, `session`, `author`, `branch`, and `pinned` - Provenance and retrieval
+  fields.
+
+Type, state, and currentness are separate. A claim can be `accepted` without
+being true. A decision can be `adopted` without being correct. Supersession
+retires a line from current views while preserving its recorded state and
+history. A question is resolved by a current accepted claim or applicable adopted
+decision that links to it through `answers`. An adopted decision with unavailable
+prerequisites remains adopted but is derived as blocked and cannot resolve a
+question.
 
 The current command stores append-only JSONL. By default, it stores one ledger
 for each Git repository under `~/.claude/docket/`.
@@ -51,7 +64,8 @@ destroys the links that record which conclusions depend on which claim
 ### 2. Supersession and retraction
 
 The current `--supersedes` option retires an earlier entry. The history keeps the
-retired entry, but normal views omit it.
+retired entry. The current list excludes it; context can include a cited
+historical premise with a warning, while graph and show retain or retrieve it.
 
 Automatic retraction is target behavior. When an entry retires a decision, the
 system must examine each dependent justification set.
@@ -60,7 +74,8 @@ Retain a dependent decision while one complete justification set survives.
 Retract the decision when no complete justification set survives.
 
 This behavior is dependency-directed backtracking from truth maintenance systems
-(Doyle 1979). The `because` field provides the required dependency links.
+(Doyle 1979). The `supports` field provides declared support links; `depends_on`
+records operational prerequisites separately.
 
 ### 3. Outcome tracking
 
@@ -107,8 +122,8 @@ locally correct while their composition changes with the schedule (2605.30335).
 
 A `PreToolUse` hook consults the ledger before an action runs.
 
-The target hook returns `allow`, `deny`, or `ask`. These values correspond to the
-three ledger states.
+The target hook returns `allow`, `deny`, or `ask`. These values are a future
+action policy and do not correspond one-to-one with the typed ledger states.
 
 The target design adds this gate. The current Docket hook only loads the ledger
 at session start.
@@ -125,7 +140,7 @@ the expert's error rate (2006.01862).
 Replay: run the walker again and supply the logged answers instead of calling the
 model.
 
-Eval mining: export the ledger to Parquet. Use each settled decision with a known
+Eval mining: export the ledger to Parquet. Use each applicable adopted decision with a known
 outcome as a labeled example.
 
 ## Proposed delivery order
@@ -159,13 +174,14 @@ reliable support and outcome data. Add replay and evaluation exports.
 A per-call gate cannot see a plan. Most real damage comes from a sequence of
 individually harmless actions.
 
-The rate of `open` decisions must stay in a narrow band, and nothing holds it
+The rate of open questions must stay in a narrow band, and nothing holds it
 there. Too few catches nothing. Too many produces rubber-stamping, which the
 human-factors literature reports as the normal outcome (2502.10036, 2109.05067).
 
 A clean ledger resembles evidence. The reasoning that produced an entry often
 fails to reflect the computation behind it (2503.08679, 2606.13603). The ledger
-records the commitment. It does not record why.
+records declared rationale, grounds, and evidence. It does not establish the
+faithfulness of the internal computation.
 
 The ledger only grows. Every surprise adds an entry, and nobody deletes one.
 Schedule a review, the same way Anthropic recommends tearing down accumulated

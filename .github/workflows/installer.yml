@@ -27,6 +27,10 @@ jobs:
       - name: Test native installer
         working-directory: installer
         run: go test ./...
+      - name: Test ledger and context
+        run: |
+          python3 tests/test_docket.py
+          python3 -m unittest discover -s tests -p 'test_*.py'
       - name: Test graph viewer
         working-directory: graph
         run: go test ./...

@@ -135,6 +135,15 @@ edge loss. Tests cover refusals and relationship integrity. Migrate a copy of
 our project ledger into the development worktree; leave main's active ledger
 usable until the PR is merged. Keep the original copy and classification map.
 
+The classification map is an object keyed by every original ID. Each value
+requires kind, state, and text, plus choice for a decision; optional schema fields
+and relation overrides use original IDs. Omitted supports translates because;
+omitted supersedes translates the original supersession list. Explicit overrides,
+including empty lists, are audited. Migrated records carry optional `legacy`:
+an object with `source_id`, the complete source record in `raw`, and `relation_map`
+containing original edges, rewritten edges, and the overridden relation names.
+This metadata is historical data and grants no authority to the record.
+
 Bump VERSION and both manifests to 0.8.0. Update public commands, formal
 definitions, harness skill instructions, installation/migration guidance, and
 CI to run all Python tests. After review and verification, merge the PR and

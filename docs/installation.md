@@ -1,7 +1,10 @@
 # Installation
 
-Docket's ledger CLI requires Python 3.10 or later. It has no Python package
-dependencies.
+Docket 0.8.0's schema 2 ledger CLI requires Python 3.10 or later. It has no
+Python package dependencies. The 0.8.0 CLI uses `claim`, `decision`, and
+`question` records. The pre-0.8 `add`, `open`, `ruled-out`, `--answer`, and
+`--because` interface is removed. Read [the ledger reference](ledger.md) before
+migrating a schema 1 ledger.
 
 An agent harness needs two integrations:
 
@@ -10,6 +13,18 @@ An agent harness needs two integrations:
 
 All integrations use the same ledger. A project can therefore use more than one
 agent harness.
+
+After installation, verify the command and inspect the active ledger:
+
+```sh
+docket --version
+docket where
+```
+
+The session-start hook runs `docket context`. With a task query, a harness may
+pass `--query`, repeat `--file`, and set `--max-chars`; without a query, the
+briefing is startup context. The budget is in characters and has a minimum of
+512. `--all` removes relevance filtering while keeping the budget.
 
 ## The installer
 
@@ -149,7 +164,7 @@ detail pane. Use these keys:
 | `↑`/`k`, `↓`/`j` | Move through entries |
 | `space`/`enter` | Collapse or expand a branch |
 | `tab` | Switch between the tree and detail pane |
-| `/` | Search IDs, states, questions, answers, and costs |
+| `/` | Search IDs, kinds, states, text, choices, and costs |
 | `q`/`Ctrl-C` | Quit |
 
 When the detail pane is focused, `PgUp`/`Ctrl-U` and `PgDn`/`Ctrl-D` scroll it;
@@ -161,7 +176,10 @@ output, or choose `--style forest`, `--style rail`, or `--style compact`.
 `--pretty` forces colour. `--interactive` explicitly requires terminal stdin
 and stdout. The native detail pane shows every justification set. Static graph
 modes include retired entries. Forest and rail name additional supports;
-compact is a first-support tree projection.
+compact is a first-support tree projection. The native detail pane distinguishes
+complete `supports` formulas from `depends_on` prerequisites and shows derived
+decision applicability. Static output keeps support sets in its projection and
+shows `blocked_by` for unavailable decision prerequisites.
 
 The hook examples use an absolute path. They do not require `PATH`.
 

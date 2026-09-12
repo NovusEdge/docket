@@ -9,6 +9,7 @@ default:
 [group('dev')]
 test:
     python3 tests/test_docket.py
+    python3 -m unittest discover -s tests -p 'test_*.py'
     cd graph && go test ./...
     cd installer && go test ./...
     python3 -m unittest discover -s installer -p 'test_*.py'
