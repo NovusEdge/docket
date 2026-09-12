@@ -482,5 +482,52 @@ class ContextTests(unittest.TestCase):
         self.assertIn("# Coverage: partial, 1 in the index only", rendered)
 
 
+class DegreeTests(unittest.TestCase):
+    def test_degree_counts_every_relation_field(self):
+        records = [
+            entry("c1", "claim", "The premise", state="accepted"),
+            entry("q2", "question", "The question"),
+            entry("d3", "decision", "First", choice="a", supports=(("c1",),)),
+            entry("d4", "decision", "Second", choice="b", depends_on=("c1",)),
+            entry("d5", "decision", "Third", choice="c", answers=("q2",)),
+            entry("d6", "decision", "Fourth", choice="d", supersedes=("d3",)),
+        ]
+        rendered = build_context(projected(records), query="premise", ledger="repo",
+                                 all_records=True)
+        degrees = {}
+        for block in rendered.split("### ")[1:]:
+            found = re.search(r"degree=(\d+)", block)
+            degrees[block.split(" |", 1)[0]] = found.group(1) if found else "0"
+        # The line reports weighted points, at weights.degree = 50 per in-edge.
+        self.assertEqual(degrees.get("c1"), "100")
+        self.assertEqual(degrees.get("q2"), "50")
+
+    def test_relation_scan_stays_linear_in_ledger_size(self):
+        # _degree once scanned the whole history per record, so a briefing cost
+        # n^2 relation scans: 1000 records took 5.8s and 10000 did not finish.
+        import lib.docket_context as context
+
+        records = [entry("c1", "claim", "Root premise", state="accepted")]
+        for index in range(2, 202):
+            records.append(entry(f"d{index}", "decision", f"Choice {index}",
+                                 choice="x", depends_on=("c1",)))
+
+        original = context._relation_ids
+        calls = 0
+
+        def counted(item):
+            nonlocal calls
+            calls += 1
+            return original(item)
+
+        context._relation_ids = counted
+        try:
+            build_context(projected(records), query="premise", ledger="repo")
+        finally:
+            context._relation_ids = original
+
+        self.assertLess(calls, 4 * len(records))
+
+
 if __name__ == "__main__":
     unittest.main()

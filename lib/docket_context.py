@@ -10,6 +10,7 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import json
+from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
@@ -97,8 +98,6 @@ def _scope_strength(entry: Mapping[str, Any], files: tuple[str, ...],
     return best
 
 
-def _degree(ident: str, history: list[Mapping[str, Any]]) -> int:
-    return sum(ident in _relation_ids(item) for item in history)
 
 
 def _score(
@@ -449,6 +448,11 @@ def build_context(
     task_matched: set[str] = set()
     term_weights = _term_weights(current, query)
 
+    relations = {_id(item): _relation_ids(item) for item in history}
+    in_degrees: Counter[str] = Counter()
+    for targets in relations.values():
+        in_degrees.update(targets)
+
     matched = []
     for item in current:
         ident = _id(item)
@@ -457,7 +461,7 @@ def build_context(
             item,
             files=file_list,
             text_points=text_points,
-            degree=_degree(ident, history),
+            degree=in_degrees[ident],
             rank=rank_of.get(ident, 0),
             total=total_ranks,
             weights=weights,
@@ -481,7 +485,7 @@ def build_context(
     adjacency = {ident: [] for ident in by_id}
     for item in history:
         ident = _id(item)
-        for target in _relation_ids(item):
+        for target in relations[ident]:
             if target not in by_id:
                 continue
             if target not in adjacency[ident]:
@@ -500,6 +504,7 @@ def build_context(
     # Score order, so the tail trim below drops the least relevant records.
     current_ids = sorted((_id(item) for item in current),
                          key=lambda ident: (-scores.get(ident, 0), -int(ident[1:])))
+    current_id_set = set(current_ids)
 
     def footer(included, listed=None):
         deferred = [ident for ident in current_ids if ident not in included]
@@ -507,8 +512,8 @@ def build_context(
         # A retired record is never in current_ids, so it can only be counted
         # here as retired. Counting it as "in the index" would send an agent
         # looking for an index line that does not exist.
-        related_omitted = {target for ident in included for target in _relation_ids(by_id[ident])
-                           if target not in included and target in set(current_ids)}
+        related_omitted = {target for ident in included for target in relations[ident]
+                           if target not in included and target in current_id_set}
         lines = [
             f"# full text: {len(included)}; index: {shown}; retired: {retired_count}.",
         ]

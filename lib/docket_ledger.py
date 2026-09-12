@@ -143,11 +143,38 @@ def make_record(
     return record
 
 
-def validate_record(record: Any, *, previous: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+class _Prefix:
+    """The id map, sequence maximum, and retirement map of the records so far.
+
+    Validating a whole ledger walks the prefix once per record. Deriving these
+    three from the prefix list each time made a read cost O(n squared), so a
+    caller that validates in order updates one of these instead.
+    """
+
+    __slots__ = ("by_id", "max_number", "retired")
+
+    def __init__(self, entries: list[dict[str, Any]]) -> None:
+        self.by_id: dict[str, dict[str, Any]] = {}
+        self.max_number = 0
+        self.retired: dict[str, str] = {}
+        for entry in entries:
+            self.add(entry)
+
+    def add(self, entry: dict[str, Any]) -> None:
+        ident = entry["id"]
+        self.by_id[ident] = entry
+        self.max_number = max(self.max_number, int(ident[1:]))
+        for target in entry["supersedes"]:
+            self.retired[target] = ident
+
+
+def validate_record(record: Any, *, previous: list[dict[str, Any]] | None = None,
+                    prefix: _Prefix | None = None) -> dict[str, Any]:
     """Validate and return a record without mutating the caller's object.
 
     ``previous`` enables the ordering and cross-record relation checks used by
-    both reads and appends.
+    both reads and appends. ``prefix`` supplies the same information already
+    indexed, for a caller that validates many records in sequence.
     """
     if not isinstance(record, dict):
         raise _error("record", "each JSONL line must be an object")
@@ -166,9 +193,9 @@ def validate_record(record: Any, *, previous: list[dict[str, Any]] | None = None
     record_id = record.get("id")
     if not isinstance(record_id, str) or not ID_RE.fullmatch(record_id):
         raise _error("record", "id must match cN, dN, or qN with a positive sequence number")
-    prefix, number = record_id[0], int(record_id[1:])
+    id_prefix, number = record_id[0], int(record_id[1:])
     expected_prefix = {"claim": "c", "decision": "d", "question": "q"}[kind]
-    if prefix != expected_prefix or number < 1:
+    if id_prefix != expected_prefix or number < 1:
         raise _error("record", f"{kind} id {record_id!r} has the wrong prefix or sequence")
     if not isinstance(record.get("text"), str) or not record["text"].strip():
         raise _error(record_id, "text must be a non-empty string")
@@ -242,12 +269,13 @@ def validate_record(record: Any, *, previous: list[dict[str, Any]] | None = None
     if kind != "decision" and record["depends_on"]:
         raise _error(record_id, "only decisions may have depends_on")
 
-    if previous is not None:
-        known = {item["id"]: item for item in previous}
+    if prefix is None and previous is not None:
+        prefix = _Prefix(previous)
+    if prefix is not None:
+        known = prefix.by_id
         if record_id in known:
             raise _error(record_id, "duplicate ID")
-        previous_numbers = [int(item["id"][1:]) for item in previous]
-        if previous_numbers and number <= max(previous_numbers):
+        if number <= prefix.max_number:
             raise _error(record_id, "global sequence must increase monotonically; gaps are allowed")
         for field in ("supports", "depends_on", "answers", "supersedes"):
             ids = [ref for group in supports for ref in group] if field == "supports" else record[field]
@@ -265,7 +293,7 @@ def validate_record(record: Any, *, previous: list[dict[str, Any]] | None = None
                     raise _error(record_id, f"answers target {ref!r} is not a question")
                 if field == "supersedes" and target["kind"] != kind:
                     raise _error(record_id, f"supersedes target {ref!r} is a different kind")
-                if field == "supersedes" and ref in retired_by(previous):
+                if field == "supersedes" and ref in prefix.retired:
                     raise _error(record_id, f"supersedes target {ref!r} is already retired")
     return copy.deepcopy(record)
 
@@ -274,11 +302,14 @@ def validate_entries(entries: Any) -> list[dict[str, Any]]:
     if not isinstance(entries, list):
         raise _error("ledger", "entries must be a list")
     validated: list[dict[str, Any]] = []
+    prefix = _Prefix([])
     for index, entry in enumerate(entries, 1):
         try:
-            validated.append(validate_record(entry, previous=validated))
+            record = validate_record(entry, prefix=prefix)
         except LedgerError as exc:
             raise _error(f"line {index}", str(exc).removeprefix("docket: ")) from exc
+        validated.append(record)
+        prefix.add(record)
     return validated
 
 
@@ -306,6 +337,7 @@ def read(path: Path | str, lock: bool = True) -> list[dict[str, Any]]:
         raise _error("read", f"cannot read {path}: {exc}") from exc
     lines = text.splitlines()
     entries: list[dict[str, Any]] = []
+    prefix = _Prefix([])
     for line_number, line in enumerate(lines, 1):
         if not line.strip():
             continue
@@ -314,9 +346,11 @@ def read(path: Path | str, lock: bool = True) -> list[dict[str, Any]]:
         except json.JSONDecodeError as exc:
             raise _error(f"line {line_number}", f"invalid JSON: {exc.msg}") from exc
         try:
-            entries.append(validate_record(value, previous=entries))
+            record = validate_record(value, prefix=prefix)
         except LedgerError as exc:
             raise _error(f"line {line_number}", str(exc).removeprefix("docket: ")) from exc
+        entries.append(record)
+        prefix.add(record)
     return entries
 
 

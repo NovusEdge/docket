@@ -1,6 +1,7 @@
 import json
 import sys
 import tempfile
+import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -161,6 +162,29 @@ class LedgerTests(unittest.TestCase):
             ids = list(workers.map(write, range(18)))
         self.assertEqual(len(set(ids)), 18)
         self.assertEqual({int(item[1:]) for item in ids}, set(range(1, 19)))
+
+
+class ValidationScalingTests(unittest.TestCase):
+    def entries(self, count):
+        made = []
+        for number in range(1, count + 1):
+            record = ledger.make_record("claim", f"premise {number}", author="test")
+            record["id"] = f"c{number}"
+            made.append(record)
+        return made
+
+    def elapsed(self, count):
+        entries = self.entries(count)
+        start = time.perf_counter()
+        ledger.validate_entries(entries)
+        return time.perf_counter() - start
+
+    def test_validation_cost_grows_close_to_linearly(self):
+        # validate_record once rebuilt the id map, the sequence maximum, and the
+        # retirement map from the whole prefix, so reading n records cost n^2.
+        small = self.elapsed(250)
+        large = self.elapsed(1000)
+        self.assertLess(large, small * 10)
 
 
 if __name__ == "__main__":
