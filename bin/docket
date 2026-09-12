@@ -1066,6 +1066,16 @@ def auto_scope_files(limit: int = _AUTO_SCOPE_LIMIT) -> tuple[str, ...]:
     return tuple(paths[:limit])
 
 
+def _print_context(text: str, args: argparse.Namespace) -> int:
+    if not text:
+        return 0
+    if args.for_harness:
+        print(json.dumps(CONTEXT_ENVELOPES[args.for_harness](text)))
+    else:
+        print(text, end="")
+    return 0
+
+
 def cmd_context(args: argparse.Namespace) -> int:
     from docket_context import build_context as render_context
     from docket_config import ConfigError, load as load_settings
@@ -1081,6 +1091,27 @@ def cmd_context(args: argparse.Namespace) -> int:
     if args.max_chars is not None and args.max_chars < minimum:
         print(f"docket: --max-chars must be at least {minimum}", file=sys.stderr)
         return 2
+    if args.since:
+        from docket_context import build_delta
+        try:
+            raw = read(ledger_path())
+        except (LedgerError, OSError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        # Project twice. The second projection is the history as it stood at the
+        # baseline, and the renderer needs it to tell a new loss from an old one.
+        ident = args.since.partition("@")[0]
+        cutoff = int(ident[1:]) if ID_RE.fullmatch(ident) else -1
+        prefix = [item for item in raw if int(item["id"][1:]) <= cutoff]
+        delta = build_delta(project(raw), since=args.since,
+                            baseline=project(prefix),
+                            max_chars=args.max_chars, ledger=str(ledger_path()),
+                            settings=settings)
+        if delta is not None:
+            return _print_context(delta, args)
+        print(f"docket: baseline {args.since} is unknown or stale; "
+              "printing a full briefing", file=sys.stderr)
+
     files = tuple(args.file or ())
     forced = args.auto_scope is True
     default_on = (args.auto_scope is None and not args.query
@@ -1101,20 +1132,14 @@ def cmd_context(args: argparse.Namespace) -> int:
     except (LedgerError, OSError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
-    if not text:
-        return 0
-    if args.for_harness:
-        print(json.dumps(CONTEXT_ENVELOPES[args.for_harness](text)))
-    else:
-        print(text, end="")
-    return 0
+    return _print_context(text, args)
 
 
 _COMPLETION_FLAGS = (
     "--state", "--choice", "--alternative", "--scope", "--rationale",
     "--supports", "--depends-on", "--answers", "--supersedes", "--evidence",
     "--revisit", "--cost", "--pin", "--kind", "--query", "--file", "--max-chars",
-    "--auto-scope", "--no-auto-scope",
+    "--auto-scope", "--no-auto-scope", "--since",
     "--all", "--find", "--superseded", "--oneline", "--json", "--plain", "--pretty",
     "--style", "--interactive", "--no-interactive", "--for", "--version",
     "--dry-run",
@@ -1281,6 +1306,8 @@ def main(argv: list[str] | None = None) -> int:
         "--no-auto-scope", dest="auto_scope", action="store_false",
         help="never derive file scope from git",
     )
+    ctx.add_argument("--since", default="",
+                     help="report what changed after this record ID or ID@DIGEST")
     ctx.set_defaults(func=cmd_context)
 
     wh = sub.add_parser("where", help="print which ledger file is in use")

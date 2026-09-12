@@ -1,7 +1,7 @@
 import unittest
 import re
 
-from lib.docket_context import build_context, _term_weights, _blocking_paths
+from lib.docket_context import build_context, build_delta, _term_weights, _blocking_paths
 from lib.docket_ledger import make_record, project
 
 
@@ -358,7 +358,7 @@ class ContextTests(unittest.TestCase):
     def test_header_names_the_latest_record_and_the_real_selection(self):
         records = [entry("c1", "claim", "A premise", state="accepted")]
         rendered = build_context(projected(records), ledger="repo")
-        self.assertIn("| latest: c1", rendered)
+        self.assertRegex(rendered, r"\| latest: c1@[0-9a-f]{12}")
         self.assertIn("no task scope given", rendered)
 
     def test_admission_survives_a_large_ledger(self):
@@ -557,6 +557,59 @@ class ContextTests(unittest.TestCase):
         rendered = build_context(projected(records), files=("lib/cache.py",),
                                  ledger="repo", max_chars=2200)
         self.assertIn("# Coverage: partial, 1 in the index only", rendered)
+
+
+class DeltaTests(unittest.TestCase):
+    def test_delta_names_added_and_newly_unavailable_records(self):
+        records = [
+            entry("c1", "claim", "The cache is reliable", state="accepted"),
+            entry("d2", "decision", "Serve from the cache", choice="serve",
+                  depends_on=("c1",)),
+            entry("c3", "claim", "Replace the premise", state="accepted",
+                  supersedes=("c1",)),
+        ]
+        delta = build_delta(projected(records), since="d2",
+                            baseline=projected(records[:2]), ledger="repo")
+        self.assertIn("### c3 ", delta)
+        self.assertIn("since: d2", delta)
+        # c1 retired and d2 lost its prerequisite, so both changed. Assert on
+        # the record block: a bare "d2" also matches the header's "since: d2".
+        self.assertIn("### d2 ", delta)
+        self.assertIn("2 no longer available", delta)
+
+    def test_delta_omits_a_record_that_was_never_available(self):
+        records = [
+            entry("c1", "claim", "A disputed premise", state="disputed"),
+            entry("c2", "claim", "A settled premise", state="accepted"),
+            entry("c3", "claim", "A later premise", state="accepted"),
+        ]
+        delta = build_delta(projected(records), since="c2",
+                            baseline=projected(records[:2]), ledger="repo")
+        self.assertIn("c3", delta)
+        # c1 was disputed before the baseline and is disputed now. Nothing
+        # changed about it, so it is not part of the delta.
+        self.assertNotIn("### c1 ", delta)
+        self.assertIn("0 no longer available", delta)
+
+    def test_delta_is_none_for_an_unknown_baseline(self):
+        records = [entry("c1", "claim", "A premise", state="accepted")]
+        self.assertIsNone(build_delta(projected(records), since="d99",
+                                      baseline=[], ledger="repo"))
+
+    def test_delta_refuses_a_baseline_whose_digest_no_longer_matches(self):
+        records = [
+            entry("c1", "claim", "A premise", state="accepted"),
+            entry("c2", "claim", "Another premise", state="accepted"),
+        ]
+        history = projected(records)
+        rendered = build_context(history, ledger="repo")
+        token = re.search(r"latest: (c\d+@[0-9a-f]+)", rendered).group(1)
+        self.assertIsNotNone(build_delta(history, since=token,
+                                         baseline=projected(records), ledger="repo"))
+        # A rebase renumbers the tail, so the same ID covers different history.
+        stale = token.split("@")[0] + "@deadbeef"
+        self.assertIsNone(build_delta(history, since=stale,
+                                      baseline=projected(records), ledger="repo"))
 
 
 if __name__ == "__main__":

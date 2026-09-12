@@ -343,6 +343,26 @@ class AutoScopeTests(unittest.TestCase):
             self.assertIn("tracked.py", out)
 
 
+class ContextDeltaTests(unittest.TestCase):
+    def test_since_prints_only_what_followed_the_baseline(self):
+        with tempfile.TemporaryDirectory() as home:
+            run(home, "claim", "The first premise", "--state", "accepted")
+            run(home, "claim", "The second premise", "--state", "accepted")
+            result = run(home, "context", "--since", "c1")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("since: c1", result.stdout)
+        self.assertIn("### c2 ", result.stdout)
+        self.assertNotIn("### c1 ", result.stdout)
+
+    def test_an_unknown_baseline_falls_back_to_a_full_briefing(self):
+        with tempfile.TemporaryDirectory() as home:
+            run(home, "claim", "The first premise", "--state", "accepted")
+            result = run(home, "context", "--since", "c99")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("unknown or stale", result.stderr)
+        self.assertIn("### c1 ", result.stdout)
+
+
 class InitTests(unittest.TestCase):
     def test_init_ignores_the_lock_file(self):
         with tempfile.TemporaryDirectory() as home:
