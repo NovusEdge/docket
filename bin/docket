@@ -160,8 +160,8 @@ def ledger_path(start: Path | None = None) -> Path:
     return global_root() / slug(project_root(here)) / "ledger.jsonl"
 
 
-def read(path: Path) -> list[dict]:
-    return ledger_read(path)
+def read(path: Path, lock: bool = True) -> list[dict]:
+    return ledger_read(path, lock=lock)
 
 
 def next_id(entries: list[dict]) -> str:

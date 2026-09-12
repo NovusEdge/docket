@@ -104,6 +104,53 @@ class LedgerTests(unittest.TestCase):
         self.assertEqual(second["id"], "q2")
         self.assertEqual([entry["id"] for entry in ledger.read(self.path)], ["c1", "q2"])
 
+    def test_read_waits_for_an_exclusive_lock(self):
+        import threading
+        import time
+
+        with tempfile.TemporaryDirectory() as home:
+            path = Path(home) / "ledger.jsonl"
+            ledger.append(path, ledger.make_record(
+                "claim", "A premise", state="accepted", author="t"))
+            holding = threading.Event()
+            release = threading.Event()
+            observed = []
+
+            def hold():
+                with ledger._ledger_lock(path, exclusive=True):
+                    holding.set()
+                    release.wait(5)
+
+            def reader():
+                holding.wait(5)
+                start = time.monotonic()
+                ledger.read(path)
+                observed.append(time.monotonic() - start)
+
+            writer = threading.Thread(target=hold)
+            consumer = threading.Thread(target=reader)
+            writer.start()
+            consumer.start()
+            holding.wait(5)
+            time.sleep(0.3)
+            release.set()
+            writer.join(5)
+            consumer.join(5)
+
+        self.assertTrue(observed)
+        self.assertGreater(observed[0], 0.2)
+
+    def test_read_without_the_lock_does_not_wait(self):
+        with tempfile.TemporaryDirectory() as home:
+            path = Path(home) / "ledger.jsonl"
+            ledger.append(path, ledger.make_record(
+                "claim", "A premise", state="accepted", author="t"))
+            with ledger._ledger_lock(path, exclusive=True):
+                # append() calls read(lock=False) while holding this lock.
+                # flock conflicts across file descriptions in one process, so a
+                # locking read here would deadlock the writer.
+                self.assertEqual(len(ledger.read(path, lock=False)), 1)
+
     def test_concurrent_appends_keep_global_ids_unique(self):
         def write(index):
             kind = ("claim", "question", "decision")[index % 3]
