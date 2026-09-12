@@ -7,8 +7,11 @@ module, which keeps selection and rendering easy to exercise independently.
 
 from __future__ import annotations
 
+import bisect
 import fnmatch
 import hashlib
+import heapq
+import itertools
 import json
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
@@ -680,6 +683,54 @@ def build_context(
         needed_ids.update(blocking_ids(ident))
         return True
 
+    def _largest_fitting_keep(head, chosen_order, chosen_set, deferred_ids):
+        """How many bare names fit, over the same descending sequence as before.
+
+        Length rises with the name count, so the sequence splits into a refused
+        prefix and an accepted suffix. Probing it by bisection costs a handful
+        of length computations instead of one render per step.
+        """
+
+        if not deferred_ids:
+            return 0
+        steps = []
+        count = len(deferred_ids)
+        while count > 0:
+            steps.append(count)
+            count -= max(1, count // 8)
+        sums = [0, *itertools.accumulate(len(ident) for ident in deferred_ids)]
+        body = sum(len(rendered_record(i)) for i in chosen_order)
+        full = body + 2 * (len(chosen_order) - 1) if chosen_order else 0
+        related = {target for ident in chosen_set for target in relations[ident]
+                   if target not in chosen_set and target in current_id_set}
+        needed = set(task_matched)
+        for ident in chosen_set:
+            needed.update(blocking_ids(ident))
+        missing = len(needed - chosen_set)
+        base = len(head.rstrip("\n")) + (full + 4 if chosen_order else 2)
+
+        def length(keep):
+            index = index_head + sums[keep] + 2 * (keep - 1)
+            tail = footer_text(len(chosen_set), keep, len(deferred_ids),
+                               len(related), missing)
+            return base + index + len(tail)
+
+        # Naming every record drops the "Not listed" line, so length falls at
+        # the top of the range. Test the whole set first, then bisect the rest,
+        # where length does rise with the name count.
+        if length(steps[0]) <= hard_limit:
+            return steps[0]
+        low, high = 1, len(steps)
+        while low < high:
+            middle = (low + high) // 2
+            if length(steps[middle]) <= hard_limit:
+                high = middle
+            else:
+                low = middle + 1
+        if low == len(steps):
+            return 0
+        return steps[low]
+
     for ident in root_ids:
         admit(ident, "selected", mandatory=ident in task_matched)
 
@@ -698,10 +749,10 @@ def build_context(
         # discarded neighbours by accident. Walk by inherited score instead.
         frontier = [(-scores.get(i, 0), -int(i[1:]), i, scores.get(i, 0))
                     for i in seeds if i in included]
+        heapq.heapify(frontier)
         seen = set(included)
         while frontier:
-            frontier.sort()
-            _, _, ident, parent_score = frontier.pop(0)
+            _, _, ident, parent_score = heapq.heappop(frontier)
             decayed = (parent_score * expansion["decay_numerator"]
                        // expansion["decay_denominator"])
             if decayed < expansion["floor"]:
@@ -721,7 +772,8 @@ def build_context(
                 if effective < expansion["floor"]:
                     continue
                 if admit(target, "related record"):
-                    frontier.append((-effective, -int(target[1:]), target, effective))
+                    heapq.heappush(frontier,
+                                   (-effective, -int(target[1:]), target, effective))
 
     expand(root_ids)
     for item in pins:
@@ -747,13 +799,10 @@ def build_context(
             prefix = head
             for chosen_order, chosen_set in ((order, included), ([], set())):
                 deferred_ids = [i for i in current_ids if i not in chosen_set]
-                keep = len(deferred_ids)
-                while keep > 0:
-                    candidate = render(chosen_order, chosen_set, deferred_ids[:keep],
-                                       names_only=True)
-                    if len(candidate) <= hard_limit:
-                        return candidate
-                    keep = keep - max(1, keep // 8)
+                keep = _largest_fitting_keep(head, chosen_order, chosen_set, deferred_ids)
+                if keep:
+                    return render(chosen_order, chosen_set, deferred_ids[:keep],
+                                  names_only=True)
         result = (f"# docket revision: {revision}\n# No records fit.\n"
                   "# Retrieve full record: docket show RECORD_ID --json\n")
     return result
