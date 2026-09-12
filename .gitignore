@@ -1,6 +1,4 @@
 .docket/
-# For a project that shares its ledger: the append lock is local state.
-.docket/*.lock
 .superpowers/
 superpowers/
 __pycache__/

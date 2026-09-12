@@ -928,8 +928,11 @@ def auto_scope_files(limit: int = _AUTO_SCOPE_LIMIT) -> tuple[str, ...]:
                                   text=True, timeout=3)
         except (OSError, subprocess.SubprocessError):
             return ()
+        # A repository with no commits has no HEAD, so the diff fails while
+        # ls-files still reports every untracked file. Skip the failed command
+        # and keep what the other one found.
         if done.returncode != 0:
-            return ()
+            continue
         for path in done.stdout.split("\0"):
             if path and path not in paths:
                 paths.append(path)
@@ -937,10 +940,6 @@ def auto_scope_files(limit: int = _AUTO_SCOPE_LIMIT) -> tuple[str, ...]:
 
 
 def cmd_context(args: argparse.Namespace) -> int:
-    if args.max_chars is not None and args.max_chars < 512:
-        print("docket: --max-chars must be at least 512", file=sys.stderr)
-        return 2
-
     from docket_context import build_context as render_context
     from docket_config import ConfigError, load as load_settings
     try:
@@ -948,6 +947,13 @@ def cmd_context(args: argparse.Namespace) -> int:
     except ConfigError as exc:
         print(f"docket: {exc}", file=sys.stderr)
         return 1
+    # Validate against the loaded minimum, not a literal. A config that raises
+    # budget.minimum would otherwise let a too-small value through and surface
+    # as an uncaught ValueError from the renderer.
+    minimum = settings["budget"]["minimum"]
+    if args.max_chars is not None and args.max_chars < minimum:
+        print(f"docket: --max-chars must be at least {minimum}", file=sys.stderr)
+        return 2
     files = tuple(args.file or ())
     forced = args.auto_scope is True
     default_on = (args.auto_scope is None and not args.query

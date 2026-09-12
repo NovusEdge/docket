@@ -162,7 +162,8 @@ record applies. Each full-text record prints its score and components.
 Docket then adds related records in both directions: grounds, prerequisites,
 dependents, questions, and their answers. A related record inherits half its
 parent's score per hop, and expansion stops when that falls under the floor.
-`--all` puts every record in the full-text tier and keeps the budget.
+`--all` asks for every record in the full-text tier, subject to the budget. A
+record that does not fit still falls to an index line.
 
 With no `--query` and no `--file`, Docket derives file scope from the working
 tree's changed and untracked files. `--no-auto-scope` disables that, and

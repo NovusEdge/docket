@@ -14,7 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an agent sees what exists and can retrieve it by ID. A budgeted briefing
   previously reported only a count of what it dropped.
 - `docket context` derives file scope from git when you supply no `--query` and
-  no `--file`: changed files plus untracked files, capped at 50 paths. Session
+  no `--file`: changed files plus untracked files, capped at the configured
+  `auto_scope.limit` and 50 by default. Session
   hooks call `context` with no arguments, so an installed hook picks this up
   without a reinstall. `--no-auto-scope` disables it. `--auto-scope` forces it
   alongside an explicit query or file, unioning with any `--file` values.
@@ -40,10 +41,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The default character budget is a target. A record that matches the task scope
   or query renders in full past the target, bounded at three times it. An
   explicit `--max-chars` remains a hard ceiling.
-- No current record disappears at any budget. Over the ceiling the briefing
+- The briefing keeps naming records as the budget tightens. Over the ceiling it
   degrades in order: flat minimum index detail, then bare record names, then
   fewer names. The top-scoring record renders in full whenever any record fits.
   A ledger of 34 records is still named in full at the 512-character minimum.
+  A budget below what the names alone cost drops the lowest-scoring ones, and
+  the footer reports how many.
 - Index lines carry between 40 and 140 characters of record text in proportion
   to the record's score, so a near miss says more than a distant record.
 - Related-record expansion follows the score. A neighbour inherits half its

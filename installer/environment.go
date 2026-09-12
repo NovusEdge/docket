@@ -87,7 +87,7 @@ func findPython() (string, error) {
 			return result.Executable, nil
 		}
 	}
-	return "", errors.New("Python 3.11 or later is required for Docket; install Python and make python3 or python available on PATH")
+	return "", errors.New("Python 3.11 or later is required for Docket; install Python and make python3, python, or the py launcher available on PATH")
 }
 
 func PreparePlan(env Environment, opts Options) (Plan, error) {

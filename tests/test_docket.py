@@ -281,6 +281,29 @@ class AutoScopeTests(unittest.TestCase):
         self.assertIn("new file.py", paths)
         self.assertIn("sub/deep.py", paths)
 
+    def test_auto_scope_reports_untracked_files_before_the_first_commit(self):
+        with tempfile.TemporaryDirectory() as home:
+            subprocess.run(["git", "init", "-q"], cwd=home, check=True)
+            (Path(home) / "new.py").write_text("x = 1\n", encoding="utf-8")
+            cwd = os.getcwd()
+            os.chdir(home)
+            try:
+                paths = docket_cli.auto_scope_files()
+            finally:
+                os.chdir(cwd)
+        # There is no HEAD yet, so git diff fails. ls-files still knows.
+        self.assertEqual(paths, ("new.py",))
+
+    def test_max_chars_is_checked_against_the_configured_minimum(self):
+        with tempfile.TemporaryDirectory() as home:
+            run(home, "init")
+            run(home, "claim", "A premise", "--state", "accepted")
+            config = Path(home) / ".docket" / "config.toml"
+            config.write_text("[budget]\nminimum = 2000\n", encoding="utf-8")
+            rejected = run(home, "context", "--max-chars", "900")
+        self.assertEqual(rejected.returncode, 2)
+        self.assertIn("at least 2000", rejected.stderr)
+
     def test_auto_scope_is_empty_outside_a_repository(self):
         with tempfile.TemporaryDirectory() as plain:
             cwd = os.getcwd()
