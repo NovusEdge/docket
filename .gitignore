@@ -1,4 +1,6 @@
 .docket/
+.superpowers/
+superpowers/
 __pycache__/
 *.py[cod]
 /installer/docket-installer
