@@ -438,9 +438,15 @@ def _decision_applicability(
     return applicable, blocked
 
 
-def project(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Add derived retirement/resolution fields while preserving history."""
-    entries = validate_entries(entries)
+def project(entries: list[dict[str, Any]], *, validated: bool = False) -> list[dict[str, Any]]:
+    """Add derived retirement/resolution fields while preserving history.
+
+    Pass ``validated`` for a list that came straight from ``read``, which has
+    already crossed the validation boundary. Re-validating it doubled the cost
+    of every CLI command.
+    """
+    if not validated:
+        entries = validate_entries(entries)
     retired = retired_by(entries)
     answers = resolved_by(entries)
     applicability, blocked = _decision_applicability(entries, retired)

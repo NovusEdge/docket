@@ -644,10 +644,11 @@ def build_context(
         related.update(target for target in relations[ident]
                        if target != ident and target not in included
                        and target in current_id_set)
-        needed = needed_ids | set(blocking_ids(ident))
-        missing = needed - included - {ident}
+        blocking = blocking_ids(ident)
+        needed = needed_ids | set(blocking) if blocking else needed_ids
+        missing = len(needed - included) - (1 if ident in needed else 0)
         return total + len(footer_text(len(included) + 1, shown, shown,
-                                       len(related), len(missing)))
+                                       len(related), missing))
 
     def admit(ident, label, mandatory=False):
         nonlocal body_length, names_length, names_shown

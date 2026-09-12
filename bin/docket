@@ -251,7 +251,7 @@ def cmd_question(args: argparse.Namespace) -> int:
 
 
 def cmd_list(args: argparse.Namespace) -> int:
-    entries = project(read(ledger_path()))
+    entries = project(read(ledger_path()), validated=True)
     retired = retired_by(entries)
     if not args.superseded:
         entries = [e for e in entries if e.get("id") not in retired]
@@ -423,7 +423,7 @@ def _graph_entries(args: argparse.Namespace) -> tuple[list[dict], dict[str, str]
     Unlike cmd_list, retired entries stay in, or the edges a later entry drew
     to them would dangle.
     """
-    entries = project(read(ledger_path()))
+    entries = project(read(ledger_path()), validated=True)
     retired = retired_by(entries)
     if args.state:
         entries = [e for e in entries if e.get("state") == args.state]
@@ -797,7 +797,7 @@ def cmd_graph(args: argparse.Namespace) -> int:
 
 
 def cmd_show(args: argparse.Namespace) -> int:
-    entries = project(read(ledger_path()))
+    entries = project(read(ledger_path()), validated=True)
     by_id = {e.get("id"): e for e in entries}
     e = by_id.get(args.id)
     if not e:
@@ -1089,7 +1089,7 @@ def cmd_context(args: argparse.Namespace) -> int:
         files = tuple(dict.fromkeys(files + auto_scope_files(settings["auto_scope"]["limit"])))
     try:
         text = render_context(
-            project(read(ledger_path())),
+            project(read(ledger_path()), validated=True),
             query=args.query or "",
             files=files,
             max_chars=args.max_chars,
