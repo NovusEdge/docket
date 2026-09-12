@@ -54,7 +54,8 @@ Leave a question for later:
 docket question "Which async driver should we use?"
 ```
 
-Claims start as `unassessed`. Accepting one records a judgment, not proof.
+Claims start as `unassessed`. Accepting a claim records a workflow assessment.
+Verification of the claim and its evidence happens outside Docket.
 You can also link records to evidence, prerequisites, answers, and earlier
 choices they replace. See the [ledger reference](docs/ledger.md).
 
@@ -84,8 +85,8 @@ select relevant records by topic and file:
 docket context --query "database" --file src/db.py --max-chars 4000
 ```
 
-The budget is in **characters**, not tokens. Docket keeps whole records, reports
-what was omitted, and includes a command to retrieve more.
+Docket measures budget in **characters** instead of tokens. It keeps whole
+records, reports what was omitted, and includes a command to retrieve more.
 
 ## Learn more
 

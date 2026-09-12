@@ -1,180 +1,229 @@
 # A formalism for outcomes, chains, and claims
 
-September 2026. These working notes define the formalism for a proposed paper.
-They also identify required prior art and unresolved claims.
+September 2026. These working notes define a formalism for a proposed paper.
+They identify prior art the paper must cite and claims that remain unresolved.
 
-## Objects
+## Core objects
 
-Let `S` be a set of steps. Let `O` be a set of outcomes. Let `Γ` be a set of
-claims.
+| Symbol | Meaning |
+| --- | --- |
+| `S` | Set of steps. |
+| `O` | Set of outcomes. |
+| `Γ` | Set of claims. |
+| `C` | Set of finite chains. |
+| `R` | Relation between chains and outcomes. |
+| `ι` | Outcomes a chain aimed at. |
 
-A chain is a finite sequence of steps. Write `C ⊆ S*` for the set of chains.
+A chain is a finite sequence of steps:
 
-The realization relation is `R ⊆ C × O`. The pair `(c, o) ∈ R` means the chain
-`c` realizes the outcome `o`.
+```math
+C \subseteq S^*
+```
 
-Write `R(c) = { o ∈ O : (c, o) ∈ R }` for the outcomes a chain realizes.
+The realization relation connects chains to outcomes. The pair `(c, o) ∈ R`
+means that chain `c` realizes outcome `o`:
 
-Write `R⁻¹(o) = { c ∈ C : (c, o) ∈ R }` for the chains that realize an outcome.
+```math
+R \subseteq C \times O
+```
 
-## The taxonomy reduces to `R` and `ι`
+For a chain `c` and an outcome `o`, define:
 
-`R` is a relation, not a function. The proposed distinctions describe its
-cardinality and one labeling function.
+```math
+R(c) = \{o \in O : (c,o) \in R\}
+```
 
-**Many-to-one.** `|R⁻¹(o)| > 1`. Several chains realize the same outcome. This is
-outcome non-uniqueness.
+```math
+R^{-1}(o) = \{c \in C : (c,o) \in R\}
+```
 
-**One-to-many.** `|R(c)| > 1`. One chain realizes several outcomes. This is where
-side effects live.
+`R` is a relation. `R(c)` is the set of outcomes realized by one chain, and
+`R⁻¹(o)` is the set of chains that realize one outcome.
 
-**Intent.** Define `ι : C → 2^O`, the outcomes a chain aimed at. Then:
+## Outcome taxonomy
 
-- Intentional outcomes of `c` are `R(c) ∩ ι(c)`.
-- Unintentional outcomes of `c` are `R(c) \ ι(c)`.
+The proposed distinctions describe the cardinality of `R` and one labeling
+function. They do not add independent structural axes.
 
-Intentional and unintentional outcomes do not form a third structural axis. The
-classification follows from `R` and `ι`.
+| Distinction | Condition | Interpretation |
+| --- | --- | --- |
+| Many-to-one | `|R⁻¹(o)| > 1` | Several chains realize the same outcome. This is outcome non-uniqueness. |
+| One-to-many | `|R(c)| > 1` | One chain realizes several outcomes. Side effects live here. |
+| Intentional | `R(c) ∩ ι(c)` | Realized outcomes the chain aimed at. |
+| Unintentional | `R(c) \ ι(c)` | Realized outcomes outside the chain's aim. |
+| Direct | `R(c)` | Outcomes directly realized by the chain. |
+| Indirect | `Cl(R(c)) \ R(c)` | Consequences added by the specified consequence operator. |
 
-This representation is complete for each exhaustive and disjoint binary
-partition of `R(c)`. Choose the intended class as `ι(c)` to reconstruct both
-classes. This result does not derive `ι` from `R`.
+Define intent as the outcomes a chain aimed at:
 
-**Direct and indirect.** Let `Cl : 2^O → 2^O` be a consequence operator. Then:
+```math
+ι : C \to 2^O
+```
 
-- Direct outcomes of `c` are `R(c)`.
-- Indirect outcomes of `c` are `Cl(R(c)) \ R(c)`.
+Then the intentional and unintentional sets are:
 
-Generic closure laws do not give this distinction a fixed meaning. Extensivity,
-monotonicity, idempotence, and preservation of the empty set are insufficient.
+```math
+\operatorname{Intentional}(c) = R(c) \cap ι(c)
+```
 
-Specify `Cl` independently through a fixed logical, causal, or transition
-relation. Require a consequence path from a direct outcome to each indirect
+```math
+\operatorname{Unintentional}(c) = R(c) \setminus ι(c)
+```
+
+For every exhaustive and disjoint binary partition of `R(c)`, choosing the
+intended class as `ι(c)` reconstructs both classes. The result does not derive
+`ι` from `R`.
+
+Direct and indirect outcomes require a separately specified consequence
+operator:
+
+```math
+Cl : 2^O \to 2^O
+```
+
+Generic closure laws do not determine the meaning of the indirect set.
+Extensivity, monotonicity, idempotence, and preservation of the empty set are
+insufficient. Specify `Cl` through a fixed logical, causal, or transition
+relation, and require a consequence path from a direct outcome to each indirect
 outcome.
 
 ## Claims and justification
 
-Each step has supporting claims. Define a justification function
-`j : Γ → 2^(2^Γ)`.
+Each step has supporting claims. Each claim can have several alternative
+justification sets. Every inner set is one complete support for the claim:
 
-The function maps each claim to alternative justification sets. Each inner set
-is one complete support for the claim.
+```math
+j : \Gamma \to 2^{2^\Gamma}
+```
+
+The claim classifications are:
 
 - A claim `γ` is **atomic** when `j(γ) = ∅`.
-- A claim `γ` is **reasoned** when it has a non-empty justification set.
+- A claim `γ` is **reasoned** when it has at least one non-empty justification
+  set.
+
+These definitions leave the empty-support case
+$j(\gamma) = \{\varnothing\}$ unclassified.
 
 This structure extends a truth maintenance system with alternative support
-(Doyle 1979; de Kleer 1986).
+(Doyle 1979; de Kleer 1986). When an atomic premise becomes unavailable,
+propagate that change through the support relation. Retain a reasoned claim
+while one complete justification set survives. Retain other atomic claims until
+the work withdraws them explicitly.
 
-When an atomic premise becomes unavailable, propagate that change through the
-support relation. Retain each reasoned claim while one complete justification
-set survives. Retain other atomic claims unless the work withdraws them explicitly.
-
-The regress problem applies. Every reasoned claim needs support. That support
-needs support. The chain terminates at atomic claims, loops, or continues without
-end. Treating atomic claims as self-evident is foundationalism, and it is an
-assumption, not a result. State it as one.
+The regress problem remains. Every reasoned claim needs support, and that support
+needs support. The chain terminates at atomic claims, loops, or continues
+without end. Treating atomic claims as self-evident is foundationalism. It is an
+assumption that the formalism does not establish, and the paper should state it
+as one.
 
 ## Decomposition
 
-Let `k ⊆ { 1, ..., n }` index the steps of a chain that require reasoning.
+Let `k` index the steps that require reasoning, and let `d` be a decomposition
+limit:
 
-Let `d` be a decomposition limit. Each step indexed by `k` expands into at most
-`d` sub-steps.
+```math
+k \subseteq \{1, \ldots, n\}
+```
 
-Two consequences follow.
+Each step indexed by `k` expands into at most `d` sub-steps. The user's intent
+and effort level set `d`, so it is a budget and a practical stopping rule.
 
-**A decomposed chain is no longer a sequence.** Expansion produces a tree. It
-produces a directed acyclic graph when sub-steps share support.
+A decomposed chain has a tree structure. Shared support can turn that tree into
+a directed acyclic graph. The sequence notation is therefore too weak when
+`d > 1`:
 
-The notation must admit this structure. `C ⊆ S*` is too weak when `d > 1`.
+```math
+C \subseteq S^*
+```
 
-**`d` is a budget, not a constant.** The user's intent and effort level set this
-budget. It gives a practical stopping rule.
-
-A value-of-information test gives a stronger rule. Expand a step only when a
-different answer can change the final outcome.
+A value-of-information test gives a stronger stopping rule: expand a step only
+when a different answer can change the final outcome.
 
 ## Sections and parallelism
 
-Let `≺` be a dependency relation on steps. Read `s_i ≺ s_j` as "step `s_j`
-depends on step `s_i`". Assume `≺` is a strict partial order.
+Let `≺` be a strict partial order on steps. Read `sᵢ ≺ sⱼ` as “step `sⱼ`
+depends on step `sᵢ`.” A section is a contiguous subsequence of a chain. A
+partition is **parallel-valid** when every pair of section transformations
+commutes.
 
-A section is a contiguous subsequence of the chain. A partition is
-**parallel-valid** when every pair of section transformations commutes.
-
-An absent crossing edge does not prove this property. The dependency relation
-must include every pair of steps that do not commute.
-
-Step-level commutativity is sufficient. If all cross-section step pairs commute,
-the complete section transformations also commute.
+An absent crossing edge does not establish parallel validity. The dependency
+relation must include every pair of steps that do not commute. Step-level
+commutativity is sufficient: if all cross-section step pairs commute, the
+complete section transformations commute.
 
 When transformations do not commute, each section can be locally correct while
-their composition changes with the schedule. This is compositional incoherence
+the composition changes with the schedule. This is compositional incoherence
 (2605.30335).
 
 One result argues against wide parallelism. A single long chain can search an
 exponentially larger space than the same compute spent on many short parallel
-chains (2505.21825). The paper must address this.
+chains (2505.21825). The paper must address this result.
 
 ## Prior art the paper must cite
 
-**Intention.** Ward, MacDermott, Belardinelli, Toni, and Everitt, "The Reasons
-that Agents Act: Intention and Instrumental Goals" (2402.07221, AAMAS 2024). This
+**Intention.** Ward, MacDermott, Belardinelli, Toni, and Everitt, “The Reasons
+that Agents Act: Intention and Instrumental Goals” (2402.07221, AAMAS 2024)
 defines intention formally in structural causal influence models. It separates
 intended outcomes from foreseen but unintended ones by a counterfactual
-criterion. Read it in full. If the definition here does not diverge mechanically
-from theirs, this section renames their work.
+criterion. Read it in full. If this definition does not mechanically diverge
+from theirs, rename this section's contribution.
 
-Philosophical sources: Anscombe on intention and foresight, Bratman's planning
-theory, and the doctrine of double effect. "On Automating the Doctrine of Double
-Effect" (IJCAI 2017) gives a computational treatment.
+Philosophical sources include Anscombe on intention and foresight, Bratman's
+planning theory, and the doctrine of double effect. “On Automating the Doctrine
+of Double Effect” (IJCAI 2017) gives a computational treatment.
 
-**Side effects.** The impact-measure literature already separates
-objective-relevant impact from side effect. This is the direct and indirect
-distinction under other names. See Krakovna et al. on stepwise relative
-reachability (1806.01186) and on future tasks (2010.07877), and Turner et al. on
-attainable utility preservation (1902.09725). The critique is 2101.12509.
+**Side effects.** Impact-measure research provides related prior art for
+studying the effects of an agent's actions. Compare its definitions directly
+with the direct/indirect and intentional/unintentional classifications here.
+See Krakovna et al. on stepwise relative reachability (1806.01186) and future
+tasks (2010.07877), and Turner et al. on attainable utility preservation
+(1902.09725). The critique is 2101.12509.
 
-This work is native to reinforcement learning and gridworlds. No formal treatment
-of impact measures exists for LLM and tool-using agents. That absence is where a
-novelty claim survives. Claim the application, not the concept.
+Review how these impact measures have already been applied to LLM and
+tool-using agents before claiming a contribution in that setting. The current
+source review leaves that question open.
 
-**Outcome multiplicity.** Self-consistency (2203.11171) exploits many-to-one as a
-confidence signal and is the paper a reviewer raises first. Argumentation theory
-calls the structure convergent arguments and argument accrual. Classical planning
-calls it top-k and top-quality planning (2404.01503), with plan equivalence as the
-formal apparatus. No work treats multiplicity as a named taxonomic axis. This is
-the strongest novelty claim of the three, and it still requires citing and
-distinguishing self-consistency.
+**Outcome multiplicity.** Self-consistency (2203.11171) exploits many-to-one as
+a confidence signal and is the paper a reviewer is likely to raise first.
+Argumentation theory calls the structure convergent arguments and argument
+accrual. Classical planning calls it top-k and top-quality planning (2404.01503),
+with plan equivalence as the formal apparatus. Whether prior work treats
+multiplicity as a named taxonomic axis remains an open literature question.
+Any novelty claim requires citing and distinguishing self-consistency.
 
-**Adjacent and easily confused.** Instrumental and terminal goals classify desired
-outcomes. Direct and indirect outcomes classify realized outcomes. Readers can
-conflate them. Add a footnote.
+**Adjacent concepts.** Instrumental and terminal goals classify desired
+outcomes. Direct and indirect outcomes classify realized outcomes. Add a
+footnote so readers do not conflate them.
 
 **Evaluation precedent.** Agent benchmark surveys already separate outcome-level
 success from step-level process metrics, and some score trajectory harms
-alongside task success (2507.21504, 2605.16282). This is the applied form of the
-taxonomy, implemented as two scores rather than stated as a formalism.
+alongside task success (2507.21504, 2605.16282). This is the applied form of
+the taxonomy, implemented as two scores rather than stated as a formalism.
 
-## Open problems this formalism does not solve
+## Open problems
 
-Answer order is irrelevant when all answer transformations commute. For two
-transformations, order invariance holds exactly when they commute.
+The formalism leaves these questions open:
 
-Real systems do not always satisfy this condition. Option order changes some
-benchmark results by up to 75 percent (2308.11483). Premise order also changes
-results on deductive tasks (2502.04134).
+1. Answer order is irrelevant when all answer transformations commute. For two
+   transformations, order invariance holds exactly when they commute:
 
-Deciding that a claim is atomic is itself a reasoning step, and it can be wrong.
-There is no ground truth for self-evidence.
+   ```math
+   f_2 \circ f_1 = f_1 \circ f_2
+   ```
 
-A visible chain often fails to reflect the computation that produced the answer
-(2503.08679, 2606.13603). A formalism over stated chains therefore describes what
-the system reports, not what it computed.
+   Real systems do not always satisfy this condition. Option order changes some
+   benchmark results by up to 75 percent (2308.11483), and premise order changes
+   results on deductive tasks (2502.04134).
+2. Deciding that a claim is atomic is itself a reasoning step and can be wrong.
+   There is no ground truth for self-evidence.
+3. A visible chain often fails to reflect the computation that produced the
+   answer (2503.08679, 2606.13603). A formalism over stated chains therefore
+   describes what the system reports; the underlying computation remains
+   unverified.
 
 ## Verification limits
 
-Several citations here came from search summaries, not from direct paper reads.
-Check any citation before it carries weight. Read 2402.07221 directly, because
-the novelty claim for the intention section depends on its exact definition.
+Several citations came from search summaries rather than direct paper reads.
+Check each citation before it carries weight. Read 2402.07221 directly because
+the intention-section novelty claim depends on its exact definition.

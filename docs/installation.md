@@ -1,86 +1,115 @@
 # Installation
 
-Docket 0.8.0's schema 2 ledger CLI requires Python 3.10 or later. It has no
-Python package dependencies. The 0.8.0 CLI uses `claim`, `decision`, and
-`question` records. The pre-0.8 `add`, `open`, `ruled-out`, `--answer`, and
+Docket 0.8.0 requires Python 3.10 or later and has no Python package
+dependencies. The CLI writes schema 2 records with the `claim`, `decision`, and
+`question` kinds. The pre-0.8 `add`, `open`, `ruled-out`, `--answer`, and
 `--because` interface is removed. Read [the ledger reference](ledger.md) before
 migrating a schema 1 ledger.
 
 An agent harness needs two integrations:
 
-1. A session-start hook runs `docket context` and adds its output to the model context.
+1. A session-start hook runs `docket context` and adds its output to the model
+   context.
 2. An instruction document tells the model when to record a decision.
 
-All integrations use the same ledger. A project can therefore use more than one
-agent harness.
+Every integration reads the same ledger, so a project can use more than one
+harness.
 
-After installation, verify the command and inspect the active ledger:
+Use these links to jump to a task:
+
+- [Install with the installer](#the-installer)
+- [Install from a checkout](#manual-installation)
+- [Configure a harness](#configure-an-agent-harness)
+- [Browse the decision graph](#browse-the-decision-graph)
+- [Check verification limits](#verification-limits)
+
+## The installer
+
+### Choose an installer path
+
+- Download and run the compatibility launcher:
+
+   ```sh
+   curl -fsSLO https://raw.githubusercontent.com/NovusEdge/docket/main/installer/install.py
+   python3 install.py
+   ```
+
+   `curl -O` saves the file as `install.py` in the current directory. Outside a
+   checkout, the launcher downloads a native installer and verifies it against
+   the release's `SHA256SUMS` file before running it. Release recipes build
+   Linux, macOS, and Windows assets for amd64 and arm64. The matching asset must
+   be published for the launcher to use it. Set `DOCKET_INSTALLER_VERSION` to
+   select a published release tag.
+
+- Run from an existing source checkout:
+
+   ```sh
+   python3 installer/install.py
+   ```
+
+   This builds the native installer locally with Go 1.26 or later and runs it
+   against that checkout. Use `just installer-build` to build it without
+   running it. The Go module, installer code, and installer tests live in
+   `installer/`.
+
+The installer clones the repository when you run it outside a checkout. It
+adds the command to `PATH` and, by default, configures Claude Code and any
+other harnesses it detects.
+
+### Verify the installation
+
+After installation, check the version and active ledger:
 
 ```sh
 docket --version
 docket where
 ```
 
-The session-start hook runs `docket context`. With a task query, a harness may
-pass `--query`, repeat `--file`, and set `--max-chars`; without a query, the
-briefing is startup context. The budget is in characters and has a minimum of
-512. `--all` removes relevance filtering while keeping the budget.
+The session-start hook runs `docket context`. A harness can pass `--query`,
+repeat `--file`, and set `--max-chars` for a task. Without a query, the output
+serves as startup context. Docket measures the budget in characters and accepts
+budgets from 512 characters upward. `--all` removes relevance filtering while
+keeping the budget.
 
-## The installer
+### Managed checkout behavior
 
-```sh
-curl -fsSLO https://raw.githubusercontent.com/NovusEdge/docket/main/installer/install.py
-python3 install.py
-```
-
-`curl -O` saves the file as `install.py` in the current directory. Outside a
-checkout, this compatibility launcher downloads a native installer and verifies
-it against the release's `SHA256SUMS` file before running it. The release
-recipes build Linux, macOS, and Windows assets for amd64 and arm64; a matching
-published asset must exist for the launcher to use it. Set
-`DOCKET_INSTALLER_VERSION` to select a published release tag.
-
-From a checkout, run `python3 installer/install.py`. This builds the native
-installer locally with Go 1.26 or later and runs it against that checkout. To
-build it without running it, use `just installer-build`. The Go module,
-installer code, and installer tests live in `installer/`.
-
-The installer clones the repository when you do not run it from a checkout. It
-adds the command to `PATH`, and by default configures Claude Code plus any other
-harnesses it detects.
-
-Installing or re-running the normal managed flow clones into a temporary
-directory and swaps the result into place. It preserves a `.docket` ledger
-inside the managed checkout; other local changes in that checkout are replaced.
-An unrelated nonempty directory is rejected. Running from an existing source
-checkout installs that checkout without replacing it.
+The normal managed flow clones into a temporary directory and swaps the result
+into place. It preserves a `.docket` ledger inside the managed checkout and
+replaces other local changes in that checkout. An unrelated nonempty directory
+is rejected. Running from an existing source checkout installs that checkout
+without replacing it.
 
 The native installer uses Bubble Tea, Bubbles, and Lip Gloss for its guided
 flow and prepares the native `docket-graph` viewer. It builds the viewer from
 the checkout when Go is available. Without Go, it fetches the matching viewer
-asset and verifies `GRAPH-SHA256SUMS`; this requires that the asset has been
-published for the checked-out version. The repository contains release recipes
-for these assets, but building them does not publish a release.
+asset and verifies `GRAPH-SHA256SUMS`; the asset must be published for the
+checked-out version. The repository contains release recipes for these assets,
+but building them does not publish a release.
 
-In a terminal, and without `--yes`, `--no-tty`, `--dry-run`, or `--harness`,
-the installer runs a guided flow instead of taking every default silently.
+In a terminal, the installer uses a guided flow unless you pass `--yes`,
+`--no-tty`, `--dry-run`, or `--harness`. It runs inline on an interactive
+terminal and leaves the result in scrollback. Unattended runs use plain output.
+The launcher creates no Python environment and installs no Python packages.
 
-The installer runs inline on an interactive terminal and leaves the result in
-scrollback. Unattended runs use plain output. The launcher creates no Python
-environment and installs no Python packages.
+### Guided flow
 
-The guided flow asks for:
+For an installation, the guided flow proceeds through these steps:
 
-1. Where to put the `docket` command and, for a downloaded installer, its checkout.
-2. Which harnesses to configure, each with its detection result. Detected
-   ones start selected. An undetected harness can still be selected, for a
-   tool you are about to install.
-3. If the chosen location is not already on `PATH`, it shows the exact line
-   and file and asks before appending.
-4. The full plan, including checkout updates and external commands, before applying it.
+1. Choose where to put the `docket` command and, for a downloaded installer,
+   its checkout.
+2. Select the harnesses to configure. Each shows its detection result, and
+   detected harnesses start selected. You can also select a harness you plan
+   to install later.
+3. If the chosen location needs a `PATH` change, review the exact change and
+   confirm whether to apply it. Unix installations show the shell line and
+   destination file; Windows installations show the User PATH directory.
+4. Review the full plan, including checkout updates and external commands,
+   then confirm installation.
 
 Cancelling before confirmation leaves the installation unchanged. Cancelling
 during installation stops further actions; completed actions remain applied.
+
+### Installer options
 
 | Option | Effect |
 |---|---|
@@ -91,14 +120,14 @@ during installation stops further actions; completed actions remain applied.
 | `--dir DIR` | Put the managed checkout in `DIR` |
 | `--checkout DIR` | Use an existing source checkout without replacing it |
 | `--yes` | Take every default and do not prompt |
-| `--no-tty` | Treat stdin as non-interactive, same effect as `--yes` on prompting |
+| `--no-tty` | Treat stdin as non-interactive and apply the same prompt defaults as `--yes` |
 | `--update` | Refresh the existing Docket checkout and native graph viewer; keep harness and PATH configuration unchanged |
 | `--uninstall` | Remove what the installer wrote |
 | `--version` | Print the installer version |
 
-`--yes` and non-interactive runs apply defaults, including a needed PATH change.
-Use `--dry-run` to inspect those changes first. `just verify` tests installation
-and removal in a temporary home.
+`--yes` and non-interactive runs apply defaults, including a needed `PATH`
+change. Use `--dry-run` to inspect those changes first. `just verify` tests
+installation and removal in a temporary home.
 
 The uninstall keeps every ledger.
 
@@ -106,11 +135,13 @@ After installation, `docket`, `docket -h`, and `docket --help` print the version
 and full top-level command help. Use `docket --version` for the concise version
 only.
 
+### Update, uninstall, and cleanup
+
 For a managed install, run the downloaded launcher with `--update` to
 fast-forward the managed checkout and refresh its viewer. The command must
-already be installed; this mode does not add PATH entries or change harness
-configuration. Add `--dry-run` to review the checkout and viewer operations
-first. It cannot be combined with `--harness`, `--project`, or `--uninstall`.
+already be installed. This mode leaves `PATH` entries and harness configuration
+unchanged. Add `--dry-run` to review the checkout and viewer operations first.
+It cannot be combined with `--harness`, `--project`, or `--uninstall`.
 
 From a source checkout, `python3 installer/install.py --update` uses that
 checkout and does not fetch Git. It refreshes the viewer when Go is available.
@@ -122,33 +153,35 @@ caches. It preserves source files, `.docket` ledgers, configuration, and shared
 Go caches.
 
 Installing a Claude or Codex plugin from this repository does not download a
-compiled viewer. For a source checkout with Go installed, run `just graph-build`,
+compiled viewer. For a source checkout with Go installed, run `just graph-build`
 or run the installer against that checkout. If no viewer is available,
 `docket graph` uses its compact text fallback in automatic terminal mode and
-prints installation guidance. It does not access the network or invoke Go while
-displaying a graph.
+prints installation guidance. It does not access the network or invoke Go
+while displaying a graph.
 
 ## Manual installation
 
-Clone the repository:
+Use this path when you want to manage the checkout yourself:
 
-```sh
-git clone https://github.com/NovusEdge/docket.git ~/Projects/docket
-```
+1. Clone the repository:
 
-Add the command to `PATH` if you want to use it in a shell:
+   ```sh
+   git clone https://github.com/NovusEdge/docket.git ~/Projects/docket
+   ```
 
-```sh
-mkdir -p ~/.local/bin
-ln -s ~/Projects/docket/bin/docket ~/.local/bin/docket
-```
+2. Add the command to `PATH` if you want to use it in a shell:
 
-To enable the interactive graph viewer in a source checkout, install Go 1.26
-or later and run:
+   ```sh
+   mkdir -p ~/.local/bin
+   ln -s ~/Projects/docket/bin/docket ~/.local/bin/docket
+   ```
 
-```sh
-just graph-build
-```
+3. To enable the interactive graph viewer, install Go 1.26 or later and run
+   this from the source checkout:
+
+   ```sh
+   just graph-build
+   ```
 
 The viewer is written to `graph/docket-graph`. Plugin files alone do not
 include this compiled executable.
@@ -181,13 +214,16 @@ complete `supports` formulas from `depends_on` prerequisites and shows derived
 decision applicability. Static output keeps support sets in its projection and
 shows `blocked_by` for unavailable decision prerequisites.
 
-The hook examples use an absolute path. They do not require `PATH`.
+## Configure an agent harness
 
-`docket context --for gemini|copilot|cursor` prints the ledger inside that
-harness's hook envelope. The examples below use it, so a hook needs no shell
+Each section below gives the hook and instruction files for one harness. The
+hook examples use an absolute path, so they do not require `PATH`.
+
+`docket context --for gemini|copilot|cursor` wraps the ledger in the selected
+harness's hook envelope. The examples use this form, so a hook needs no shell
 pipe.
 
-## Claude Code
+### Claude Code
 
 Add the marketplace and install Docket:
 
@@ -199,7 +235,7 @@ Add the marketplace and install Docket:
 Start a new session after installation. The plugin loads `hooks/hooks.json` and
 the Docket skill.
 
-## OpenAI Codex CLI
+### OpenAI Codex CLI
 
 The repository contains `.codex-plugin/plugin.json`. Add the marketplace and
 install Docket:
@@ -216,7 +252,7 @@ Set `DOCKET_AUTHOR=codex` in the hook environment when you require this author
 name.
 Docket uses automatic detection when the variable is absent.
 
-## OpenCode
+### OpenCode
 
 Create `~/.config/opencode/plugins/docket/index.ts`, or
 `.opencode/plugins/docket/index.ts` for one project:
@@ -253,7 +289,7 @@ released.
 Copy `skills/docket/SKILL.md` to `.opencode/skills/docket/SKILL.md`.
 OpenCode also finds skills in `.agents/skills/`.
 
-## Gemini CLI
+### Gemini CLI
 
 Put this in `~/.gemini/settings.json`, or in `.gemini/settings.json` for one
 project:
@@ -287,7 +323,7 @@ hook again after the command changes.
 
 Copy `skills/docket/SKILL.md` to `.gemini/skills/docket/SKILL.md`.
 
-## GitHub Copilot CLI
+### GitHub Copilot CLI
 
 Put this in `.github/hooks/sessionStart.json` for a repository, or
 `~/.copilot/hooks/sessionStart.json` for yourself:
@@ -318,7 +354,7 @@ path.
 For instructions, Copilot reads `.github/copilot-instructions.md`. Copy the body
 of `skills/docket/SKILL.md` into it.
 
-## Cursor
+### Cursor
 
 Use two files to install Docket for Cursor.
 
@@ -349,17 +385,18 @@ alwaysApply: true
 ---
 ```
 
-## A harness with no hooks
+### A harness with no hooks
 
 Without a session-start hook, the harness cannot run a command for each session.
-Write a current ledger snapshot to the instruction file:
 
-```sh
-docket context > DOCKET_CONTEXT.md
-```
+1. Write a current ledger snapshot to the instruction file:
 
-Configure the harness to load `DOCKET_CONTEXT.md`. Regenerate the file after each
-decision.
+   ```sh
+   docket context > DOCKET_CONTEXT.md
+   ```
+
+2. Configure the harness to load `DOCKET_CONTEXT.md`.
+3. Regenerate the file after each decision.
 
 ## Which instruction file each harness reads
 
