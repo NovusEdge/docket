@@ -918,24 +918,36 @@ def auto_scope_files(limit: int = _AUTO_SCOPE_LIMIT) -> tuple[str, ...]:
         return ()
     root = top.stdout.strip()
 
-    paths: list[str] = []
+    groups: list[list[str]] = []
     for command in (
         ["git", "diff", "--name-only", "-z", "HEAD"],
         ["git", "ls-files", "--others", "--exclude-standard", "-z"],
     ):
         try:
-            done = subprocess.run(command, cwd=root, capture_output=True,
-                                  text=True, timeout=3)
+            # Bytes, not text: the locale codec decodes strictly, and a path
+            # carrying an invalid byte would raise UnicodeDecodeError, which is
+            # neither OSError nor SubprocessError and would kill every
+            # docket context in that repository.
+            done = subprocess.run(command, cwd=root, capture_output=True, timeout=3)
         except (OSError, subprocess.SubprocessError):
             return ()
         # A repository with no commits has no HEAD, so the diff fails while
         # ls-files still reports every untracked file. Skip the failed command
         # and keep what the other one found.
         if done.returncode != 0:
+            groups.append([])
             continue
-        for path in done.stdout.split("\0"):
-            if path and path not in paths:
-                paths.append(path)
+        text = done.stdout.decode("utf-8", errors="surrogateescape")
+        groups.append([path for path in text.split("\0") if path])
+
+    # Interleave the two sources. Taking the head of a concatenated list let a
+    # branch with more than `limit` modified files starve every untracked one,
+    # which is the work in progress.
+    paths: list[str] = []
+    for index in range(max((len(group) for group in groups), default=0)):
+        for group in groups:
+            if index < len(group) and group[index] not in paths:
+                paths.append(group[index])
     return tuple(paths[:limit])
 
 

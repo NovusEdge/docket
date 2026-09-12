@@ -295,16 +295,31 @@ class ContextTests(unittest.TestCase):
             entry("d4", "decision", "decision about routing", choice="d"),
         ]
         rendered = build_context(projected(records), query="decision supersession", ledger="repo")
-        self.assertIn("### d3 ", rendered)
-        self.assertNotIn("### d1 ", rendered)
-        self.assertIn("d1 decision", rendered)
+        # d3 holds the rare term; the others share only the common one.
+        self.assertLess(rendered.index("### d3 "), rendered.index("### d1 "))
+        self.assertLess(rendered.index("### d3 "), rendered.index("### d2 "))
 
-    def test_a_term_in_every_record_carries_no_weight(self):
-        records = [
+    def test_a_term_in_every_record_carries_little_weight(self):
+        common = [
             entry("d1", "decision", "decision about caching", choice="a"),
             entry("d2", "decision", "decision about logging", choice="b"),
         ]
-        self.assertEqual(_term_weights(projected(records), "decision"), {})
+        rare = common + [entry("c3", "claim", "supersession", state="accepted")]
+        # Present everywhere: worth something on a tiny ledger, and less as the
+        # ledger grows. Zero would make a focused query match nothing.
+        self.assertEqual(_term_weights(projected(common), "decision"), {"decision": 333})
+        weights = _term_weights(projected(rare), "decision supersession")
+        self.assertLess(weights["decision"], weights["supersession"])
+
+    def test_a_focused_query_matches_a_focused_ledger(self):
+        records = [
+            entry("c1", "claim", "Postgres handles the write path", state="accepted"),
+            entry("c2", "claim", "Postgres holds the billing rows", state="accepted"),
+            entry("d3", "decision", "Use Postgres everywhere", choice="postgres"),
+        ]
+        rendered = build_context(projected(records), query="postgres", ledger="repo")
+        self.assertEqual(rendered.count("### "), 3)
+        self.assertNotIn("No task matches", rendered)
 
     def test_expansion_admits_neighbours_in_score_order(self):
         records = [
@@ -342,6 +357,47 @@ class ContextTests(unittest.TestCase):
         rendered = build_context(projected(records), ledger="repo")
         self.assertIn("| latest: c1", rendered)
         self.assertIn("no task scope given", rendered)
+
+    def test_admission_survives_a_large_ledger(self):
+        # Every context fixture here holds a handful of records, which hid a
+        # collapse: the admission gate charged the full index against each
+        # candidate, so past about 150 records nothing after the first was
+        # admitted.
+        records = [entry(f"c{n}", "claim", f"Premise {n} about area{n % 6}",
+                         state="accepted", scope=(f"area{n % 6}/**",))
+                   for n in range(1, 201)]
+        history = projected(records)
+        self.assertGreater(build_context(history, all_records=True,
+                                         ledger="repo").count("### "), 20)
+        self.assertGreater(build_context(history, files=("area1/x.py",),
+                                         ledger="repo").count("### "), 20)
+
+    def test_every_record_is_accounted_for_in_the_footer(self):
+        records = [
+            entry("c1", "claim", "Old premise", state="accepted"),
+            entry("c2", "claim", "Current premise", state="accepted"),
+            entry("c3", "claim", "Retire old", state="accepted", supersedes=("c1",)),
+            entry("d4", "decision", "Uses the old premise", choice="x",
+                  depends_on=("c1",)),
+        ]
+        rendered = build_context(projected(records), query="premise",
+                                 ledger="repo", max_chars=900)
+        counts = re.search(r"full text: (\d+); index: (\d+); retired: (\d+)", rendered)
+        self.assertIsNotNone(counts)
+        self.assertEqual(sum(int(value) for value in counts.groups()), 4)
+
+    def test_a_cited_retired_record_still_reaches_the_briefing(self):
+        records = [
+            entry("c1", "claim", "Old premise", state="accepted"),
+            entry("c2", "claim", "Replacement", state="accepted", supersedes=("c1",)),
+            entry("d3", "decision", "Cites the old premise", choice="x",
+                  scope=("lib/**",), supports=(("c1",),)),
+        ]
+        rendered = build_context(projected(records), files=("lib/x.py",), ledger="repo")
+        # A retired record carries no score, so expansion must reach it through
+        # the parent's decayed score.
+        self.assertIn("### c1 ", rendered)
+        self.assertIn("historical", rendered)
 
     def test_retired_records_stay_out_of_both_tiers(self):
         records = [

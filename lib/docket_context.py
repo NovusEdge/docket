@@ -20,9 +20,6 @@ try:
 except ImportError:
     from .docket_config import DEFAULTS as _SETTINGS_DEFAULTS
 
-_DEFAULT_BUDGET = _SETTINGS_DEFAULTS["budget"]["target"]
-_MINIMUM_BUDGET = _SETTINGS_DEFAULTS["budget"]["minimum"]
-
 
 def _list(value: Any) -> list[Any]:
     if value is None or isinstance(value, (str, bytes)):
@@ -70,33 +67,6 @@ def _normalize_path(value: Any) -> str:
     while path.startswith("./"):
         path = path[2:]
     return path.casefold()
-
-
-def _scope_matches(entry: Mapping[str, Any], files: tuple[str, ...]) -> bool:
-    """Match normalized repo-relative paths against path scopes.
-
-    Scopes containing a slash or glob metacharacter use ``fnmatch`` and
-    literal path scopes also match descendants. Bare component scopes are
-    intentionally query-only and never match a ``--file`` value.
-    """
-
-    if not files:
-        return False
-    scopes = [_normalize_path(scope) for scope in _list(entry.get("scope")) if _normalize_path(scope)]
-    if not scopes:
-        return False
-    for filename in files:
-        path = _normalize_path(filename)
-        if not path:
-            continue
-        for scope in scopes:
-            if "/" not in scope and not any(mark in scope for mark in "*?[]"):
-                continue
-            if fnmatch.fnmatchcase(path, scope):
-                return True
-            if "/" in scope and path.startswith(scope.rstrip("/") + "/"):
-                return True
-    return False
 
 
 def _scope_strength(entry: Mapping[str, Any], files: tuple[str, ...],
@@ -185,23 +155,27 @@ def _term_weights(current: list[Mapping[str, Any]], query: str) -> dict[str, int
     weights = {}
     for term in terms:
         frequency = sum(term in haystack for haystack in haystacks)
-        weight = 1000 * (total - frequency) // total
-        # A term in every record scores zero and is dropped. Keeping it at 1
-        # would make every record a task match, so one common word in the
-        # query would select the whole ledger.
-        if frequency and weight:
-            weights[term] = weight
+        # Smoothed by one record. Without it a term present in every record
+        # scores zero, so a focused query against a focused ledger matches
+        # nothing: three records all about postgres and the query "postgres"
+        # selected none of them. The smoothing keeps a universal term worth
+        # 250 points on a three-record ledger and 3 points on a three-hundred
+        # record one, which is the discrimination the weight is there to
+        # express.
+        if frequency:
+            weights[term] = 1000 * (total + 1 - frequency) // (total + 1)
     return weights
 
 
 def _text_points(entry: Mapping[str, Any], query: str, weights: Mapping[str, int]) -> int:
-    if not weights:
+    query = query.strip().casefold()
+    if not query:
         return 0
     haystack = _haystack(entry)
-    points = sum(weight for term, weight in weights.items() if term in haystack)
-    if query.strip().casefold() in haystack:
-        points += 1000
-    return points
+    # The phrase bonus is checked before the term weights, because it earns its
+    # keep exactly when every term is common and the weights are all small.
+    points = 1000 if query in haystack else 0
+    return points + sum(weight for term, weight in weights.items() if term in haystack)
 
 
 def _role(kind: str) -> str:
@@ -443,7 +417,7 @@ def build_context(
     candidate_ids = set(selected_ids)
     for ident in selected_ids:
         candidate_ids.update(adjacency[ident])
-    retired_count = sum(_is_retired(item) and _id(item) not in candidate_ids for item in history)
+    retired_count = sum(_is_retired(item) for item in history)
     revision = _revision(history)
     latest = max(by_id, key=lambda ident: int(ident[1:]), default="")
     prefix = "\n".join(
@@ -456,8 +430,11 @@ def build_context(
     def footer(included, listed=None):
         deferred = [ident for ident in current_ids if ident not in included]
         shown = len(deferred) if listed is None else listed
+        # A retired record is never in current_ids, so it can only be counted
+        # here as retired. Counting it as "in the index" would send an agent
+        # looking for an index line that does not exist.
         related_omitted = {target for ident in included for target in _relation_ids(by_id[ident])
-                           if target not in included}
+                           if target not in included and target in set(current_ids)}
         lines = [
             f"# full text: {len(included)}; index: {shown}; retired: {retired_count}.",
         ]
@@ -511,14 +488,13 @@ def build_context(
         # A task match may push past the target. Nothing may push past the
         # ceiling, which equals the target whenever the caller named one.
         limit = hard_limit if mandatory else soft_limit
-        # Measure against the cheapest index, not the richest. A long index
-        # otherwise starves the full-text tier at a tight budget, and the
-        # briefing reports every record while explaining none of them. The
-        # first record is measured with no index at all, so the top-scoring
-        # record always renders in full when any record fits; the trim ladder
-        # then shrinks the index around it.
-        index_ids = [] if not included else None
-        trial = render(order + [ident], included | {ident}, index_ids, detail=detail_min)
+        # Price the index at what the ladder guarantees, which is one bare name
+        # per record. Charging the full index-line form here made admission
+        # collapse on a real ledger: past about 150 records the index alone
+        # exceeded the limit, so the second record and every record after it
+        # was refused while the ladder then discarded the very index the gate
+        # had charged for.
+        trial = render(order + [ident], included | {ident}, names_only=True)
         if len(trial) > limit:
             del labels[ident]
             return False
@@ -544,11 +520,16 @@ def build_context(
                 continue
             ranked = sorted(
                 (t for t in adjacency[ident] if t not in seen),
-                key=lambda t: (-min(scores.get(t, 0), decayed), -int(t[1:])),
+                key=lambda t: (-(decayed if t not in scores else min(scores[t], decayed)),
+                               -int(t[1:])),
             )
             for target in ranked:
                 seen.add(target)
-                effective = min(scores.get(target, 0), decayed) or decayed
+                # A retired record carries no score, because scoring runs over
+                # current records only. It inherits the parent's decayed score
+                # so a cited historical premise can still be reached. A current
+                # record that scored zero keeps its zero and is dropped.
+                effective = decayed if target not in scores else min(scores[target], decayed)
                 if effective < expansion["floor"]:
                     continue
                 if admit(target, "related record"):

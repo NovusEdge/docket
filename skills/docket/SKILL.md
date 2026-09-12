@@ -118,9 +118,9 @@ docket graph --kind claim --state accepted
 ```
 
 `context` renders two tiers. The full-text tier holds complete records for the
-highest scoring records. The index tier names every other current record on one
-line with its ID, kind, state, and clipped text. No current record is dropped
-silently.
+highest scoring records. The index tier names the remaining current records on
+one line each, with ID, kind, state, and clipped text. When the budget cannot
+hold every name, the footer reports how many it left out.
 
 A record's score combines its file scope match, its query term rarity, its
 position in the record sequence, whether it is pinned, and how many records
@@ -130,8 +130,9 @@ where a record applies.
 
 The budget target is 8000 characters. A record matching the task scope or query
 renders in full even past the target, up to three times it. `--max-chars` sets a
-hard ceiling instead, with a minimum of 512. `--all` puts every record in the
-full-text tier and keeps the budget.
+hard ceiling instead, with a minimum of 512. `--all` asks for every record in
+the full-text tier, subject to the budget; a record that does not fit falls to
+an index line.
 
 With no `--query` and no `--file`, `context` derives file scope from the working
 tree's changed and untracked files. `--no-auto-scope` disables that and
