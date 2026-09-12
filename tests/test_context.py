@@ -78,8 +78,8 @@ class ContextTests(unittest.TestCase):
             entry("c4", "claim", "The database backup is encrypted", scope=("ops/backup",)),
         ]
         rendered = build_context(projected(records), query="database", files=("app/db/models.py",), ledger="repo")
-        self.assertLess(rendered.index("d3"), rendered.index("d2"))
-        self.assertLess(rendered.index("d3"), rendered.index("c4") if "c4" in rendered else len(rendered))
+        self.assertLess(rendered.index("### d3 "), rendered.index("### d2 "))
+        self.assertLess(rendered.index("### d3 "), rendered.index("### c4 "))
         self.assertNotIn("### c1 ", rendered)
         self.assertIn("c1 claim", rendered)
         self.assertIn("Choose Postgres for production", rendered)
@@ -253,6 +253,44 @@ class ContextTests(unittest.TestCase):
         self.assertLessEqual(len(line), 90)
         self.assertIn("A premise whose text runs well past", line)
         self.assertNotIn("clip point", line)
+
+    def test_precise_scope_outranks_a_glob_match(self):
+        records = [
+            entry("d1", "decision", "Old storage decision", choice="x", scope=("storage/**",)),
+            entry("d2", "decision", "Recent storage decision", choice="y", scope=("storage/db.py",)),
+        ]
+        rendered = build_context(projected(records), files=("storage/db.py",), ledger="repo")
+        self.assertLess(rendered.index("### d2 "), rendered.index("### d1 "))
+
+    def test_recency_orders_records_of_equal_scope_strength(self):
+        records = [
+            entry("d1", "decision", "Older renderer decision", choice="x", scope=("lib/**",)),
+            entry("d2", "decision", "Newer renderer decision", choice="y", scope=("lib/**",)),
+        ]
+        rendered = build_context(projected(records), files=("lib/docket_context.py",), ledger="repo")
+        self.assertLess(rendered.index("### d2 "), rendered.index("### d1 "))
+
+    def test_selection_reason_names_the_score_and_components(self):
+        records = [entry("d1", "decision", "Renderer budget", choice="y", scope=("lib/**",))]
+        rendered = build_context(projected(records), files=("lib/docket_context.py",), ledger="repo")
+        self.assertRegex(rendered, r"selection: score \d+ \| ")
+        self.assertIn("scope=", rendered)
+
+    def test_same_inputs_at_one_revision_are_byte_identical(self):
+        records = [
+            entry("d1", "decision", "Renderer budget", choice="y", scope=("lib/**",)),
+            entry("c2", "claim", "A premise", state="accepted"),
+        ]
+        history = projected(records)
+        first = build_context(history, files=("lib/x.py",), ledger="repo")
+        second = build_context(history, files=("lib/x.py",), ledger="repo")
+        self.assertEqual(first, second)
+
+    def test_header_names_the_latest_record_and_the_real_selection(self):
+        records = [entry("c1", "claim", "A premise", state="accepted")]
+        rendered = build_context(projected(records), ledger="repo")
+        self.assertIn("| latest: c1", rendered)
+        self.assertIn("no task scope given", rendered)
 
     def test_retired_records_stay_out_of_both_tiers(self):
         records = [

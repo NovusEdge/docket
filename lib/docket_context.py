@@ -17,6 +17,23 @@ from typing import Any
 _DEFAULT_BUDGET = 8000
 _MINIMUM_BUDGET = 512
 
+# One table for every ordering constant. A briefing is reproducible only while
+# these never vary by caller, environment, or clock. Integers throughout: a
+# float sum reorders across platforms.
+_WEIGHTS = {
+    "scope_exact": 1000,
+    "scope_glob": 700,
+    "scope_prefix": 500,
+    # Below scope_prefix on purpose. A scope states where a record applies; a
+    # word in common with the query is incidental, so the weakest scope match
+    # still outranks the strongest text match.
+    "text": 400,
+    "recency": 200,
+    "degree": 50,
+    "degree_cap": 10,
+    "pinned": 400,
+}
+
 
 def _list(value: Any) -> list[Any]:
     if value is None or isinstance(value, (str, bytes)):
@@ -93,6 +110,67 @@ def _scope_matches(entry: Mapping[str, Any], files: tuple[str, ...]) -> bool:
     return False
 
 
+def _scope_strength(entry: Mapping[str, Any], files: tuple[str, ...]) -> int:
+    """Strongest scope match: exact path, then glob, then directory prefix.
+
+    The old sort key treated every scope match as equal, so ordering between
+    two matching records fell through to their position in the file.
+    """
+
+    if not files:
+        return 0
+    scopes = [_normalize_path(scope) for scope in _list(entry.get("scope")) if _normalize_path(scope)]
+    best = 0
+    for filename in files:
+        path = _normalize_path(filename)
+        if not path:
+            continue
+        for scope in scopes:
+            if "/" not in scope and not any(mark in scope for mark in "*?[]"):
+                continue
+            if scope == path:
+                best = max(best, _WEIGHTS["scope_exact"])
+            elif fnmatch.fnmatchcase(path, scope):
+                best = max(best, _WEIGHTS["scope_glob"])
+            elif "/" in scope and path.startswith(scope.rstrip("/") + "/"):
+                best = max(best, _WEIGHTS["scope_prefix"])
+    return best
+
+
+def _degree(ident: str, history: list[Mapping[str, Any]]) -> int:
+    return sum(ident in _relation_ids(item) for item in history)
+
+
+def _score(
+    entry: Mapping[str, Any],
+    *,
+    files: tuple[str, ...],
+    text_points: int,
+    degree: int,
+    rank: int,
+    total: int,
+) -> tuple[int, list[tuple[str, int]]]:
+    """Return an integer score and the components that produced it."""
+
+    components = [
+        ("scope", _scope_strength(entry, files)),
+        ("text", _WEIGHTS["text"] * min(text_points, 1000) // 1000),
+        ("recency", _WEIGHTS["recency"] * rank // max(1, total - 1)),
+        ("degree", _WEIGHTS["degree"] * min(degree, _WEIGHTS["degree_cap"])),
+        ("pinned", _WEIGHTS["pinned"] if entry.get("pinned") else 0),
+    ]
+    return sum(value for _, value in components), [pair for pair in components if pair[1]]
+
+
+def _selection_reason(score: int, components: list[tuple[str, int]]) -> str:
+    detail = ", ".join(f"{name}={value}" for name, value in components)
+    return f"selection: score {score} | {detail}"
+
+
+def _text_points(entry: Mapping[str, Any], query: str) -> int:
+    return 1000 if _text_matches(entry, query) else 0
+
+
 def _text_matches(entry: Mapping[str, Any], query: str) -> bool:
     query = query.strip().casefold()
     if not query:
@@ -167,10 +245,11 @@ def _header(
     query: str,
     files: tuple[str, ...],
     all_records: bool,
+    latest: str = "",
 ) -> list[str]:
     identity = _clip_metadata(ledger or "ledger", 180)
     lines = [
-        f"# docket: {identity} | revision: {revision}",
+        f"# docket: {identity} | revision: {revision}" + (f" | latest: {latest}" if latest else ""),
         "# Context: decisions are commitments, claims are premises, questions are inquiries; states are not truth and authors are recorders.",
     ]
     if query.strip():
@@ -179,12 +258,16 @@ def _header(
         lines.append(f"# files: {_clip_metadata(', '.join(files), 180)}")
     if all_records:
         lines.append("# selection: all current records")
+    elif query.strip() or files:
+        lines.append("# selection: scored by task scope and query, with related records")
     else:
-        lines.append("# selection: pinned, matching, and directly related records")
+        # In this mode every pinned record is already a root, so the old line
+        # promising "fallback pins" described a selection that never ran.
+        lines.append("# selection: scored by recency and relations; no task scope given")
     return lines
 
 
-def _render_record(entry: Mapping[str, Any], relation: str) -> str:
+def _render_record(entry: Mapping[str, Any], relation: str, reason: str = "") -> str:
     kind = _text(entry.get("kind") or "record").casefold()
     state = _effective_state(entry)
     recorded_state = _recorded_state(entry)
@@ -245,6 +328,8 @@ def _render_record(entry: Mapping[str, Any], relation: str) -> str:
         lines.append(f"warning: effective state is {state}; treat this record as unavailable current support.")
     if _list(entry.get("resolved_by")):
         lines.append(f"resolved by: {_json(_list(entry.get('resolved_by')))}")
+    if reason:
+        lines.append(reason)
     return "\n".join(lines)
 
 
@@ -274,12 +359,28 @@ def build_context(
     current = [item for item in history if not _is_retired(item)]
     task_mode = not all_records and bool(query.strip() or file_list)
 
+    order_by_id = sorted(by_id, key=lambda ident: int(ident[1:]))
+    rank_of = {ident: index for index, ident in enumerate(order_by_id)}
+    total_ranks = len(order_by_id)
+    scores: dict[str, int] = {}
+    reasons: dict[str, str] = {}
+
     matched = []
-    for index, item in enumerate(current):
-        scope = int(_scope_matches(item, file_list))
-        text = int(_text_matches(item, query))
-        if not task_mode or scope or text:
-            matched.append(((-scope, -text, -int(bool(item.get("pinned"))), index), item))
+    for item in current:
+        ident = _id(item)
+        text_points = _text_points(item, query)
+        score, components = _score(
+            item,
+            files=file_list,
+            text_points=text_points,
+            degree=_degree(ident, history),
+            rank=rank_of.get(ident, 0),
+            total=total_ranks,
+        )
+        scores[ident] = score
+        reasons[ident] = _selection_reason(score, components)
+        if not task_mode or _scope_strength(item, file_list) or text_points:
+            matched.append(((-score, -int(ident[1:])), item))
     roots = [item for _, item in sorted(matched, key=lambda pair: pair[0])]
     matched_ids = {_id(item) for item in roots}
     pins = [item for item in current if item.get("pinned") and _id(item) not in matched_ids]
@@ -304,8 +405,13 @@ def build_context(
         candidate_ids.update(adjacency[ident])
     retired_count = sum(_is_retired(item) and _id(item) not in candidate_ids for item in history)
     revision = _revision(history)
-    prefix = "\n".join(_header(ledger, revision, query, tuple(file_list), all_records)) + "\n\n"
-    current_ids = [_id(item) for item in current]
+    latest = max(by_id, key=lambda ident: int(ident[1:]), default="")
+    prefix = "\n".join(
+        _header(ledger, revision, query, tuple(file_list), all_records, latest)
+    ) + "\n\n"
+    # Score order, so the tail trim below drops the least relevant records.
+    current_ids = sorted((_id(item) for item in current),
+                         key=lambda ident: (-scores.get(ident, 0), -int(ident[1:])))
 
     def footer(included, listed=None):
         deferred = [ident for ident in current_ids if ident not in included]
@@ -334,7 +440,9 @@ def build_context(
     labels: dict[str, str] = {}
 
     def render(candidate_order, candidate_set, index_ids=None):
-        full = "\n\n".join(_render_record(by_id[i], labels[i]) for i in candidate_order)
+        full = "\n\n".join(
+            _render_record(by_id[i], labels[i], reasons.get(i, "")) for i in candidate_order
+        )
         pool = current_ids if index_ids is None else index_ids
         deferred = [i for i in pool if i not in candidate_set]
         parts = [prefix.rstrip("\n"), ""]
