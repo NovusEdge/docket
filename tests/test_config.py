@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from lib.docket_config import DEFAULTS, ConfigError, load, merge
+from docket.config import DEFAULTS, ConfigError, load, merge
 
 
 def write(directory, text):
@@ -75,7 +75,7 @@ class ConfigTests(unittest.TestCase):
                 load(home)
 
     def test_settings_change_the_briefing_and_the_header(self):
-        from lib.docket_context import build_context
+        from docket.context import build_context
         from tests.test_context import entry, projected
 
         records = [

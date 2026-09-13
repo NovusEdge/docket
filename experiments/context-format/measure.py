@@ -9,11 +9,11 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "lib"))
+sys.path.insert(0, str(ROOT))
 
-from docket_config import DEFAULTS, merge
-from docket_context import build_context
-from docket_ledger import project, read
+from docket.config import DEFAULTS, merge
+from docket.context import build_context
+from docket.ledger import project, read
 
 
 def tokens(text: str) -> str:
@@ -32,8 +32,8 @@ def main() -> int:
         return 1
     tight = merge({"budget": {"target": DEFAULTS["budget"]["target"] // 2}})
     variants = {
-        "scoped": {"files": ("lib/docket_context.py",)},
-        "scoped tight": {"files": ("lib/docket_context.py",), "settings": tight},
+        "scoped": {"files": ("docket/context.py",)},
+        "scoped tight": {"files": ("docket/context.py",), "settings": tight},
         "unscoped": {},
         "all": {"all_records": True},
     }

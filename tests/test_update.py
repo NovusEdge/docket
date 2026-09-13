@@ -1,6 +1,5 @@
 import argparse
 import contextlib
-import importlib.util
 import io
 import json
 import os
@@ -8,12 +7,11 @@ import sys
 import tempfile
 import unittest
 import unittest.mock
-from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import docket_update as up
+import docket.update as up
 
 
 class VersionCompare(unittest.TestCase):
@@ -285,10 +283,8 @@ class UpdateLine(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         os.environ["XDG_STATE_HOME"] = self.tmp.name
         self.addCleanup(os.environ.pop, "XDG_STATE_HOME", None)
-        loader = SourceFileLoader("docket_cli_update_line", str(DOCKET))
-        spec = importlib.util.spec_from_loader("docket_cli_update_line", loader)
-        self.docket_cli = importlib.util.module_from_spec(spec)
-        loader.exec_module(self.docket_cli)
+        from docket.cli import query
+        self.docket_cli = query
 
     def test_due_check_forks_instead_of_fetching_inline(self):
         def boom(url=up.RELEASES_URL):
@@ -413,10 +409,8 @@ class UpdateCommandBranches(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         os.environ["XDG_STATE_HOME"] = self.tmp.name
         self.addCleanup(os.environ.pop, "XDG_STATE_HOME", None)
-        loader = SourceFileLoader("docket_cli_update", str(DOCKET))
-        spec = importlib.util.spec_from_loader("docket_cli_update", loader)
-        self.docket_cli = importlib.util.module_from_spec(spec)
-        loader.exec_module(self.docket_cli)
+        from docket.cli import admin
+        self.docket_cli = admin
         original_call = self.docket_cli.subprocess.call
         self.addCleanup(setattr, self.docket_cli.subprocess, "call", original_call)
 
@@ -455,7 +449,9 @@ class UpdateCommandBranches(unittest.TestCase):
         self.docket_cli.subprocess.call = lambda command, **k: recorded.append(command) or 0
         rc = self.docket_cli.cmd_update(self.args())
         self.assertEqual(rc, 0)
-        root = self.docket_cli.Path(self.docket_cli.__file__).resolve().parent.parent
+        # docket.ROOT, never __file__: cmd_update lives two levels below the
+        # checkout now, so parent.parent from here names docket/.
+        root = self.docket_cli.ROOT
         self.assertEqual(recorded, [[
             self.docket_cli.sys.executable, str(root / "installer" / "install.py"),
             "--checkout", str(root), "--update",

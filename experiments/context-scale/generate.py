@@ -10,10 +10,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "lib"))
+sys.path.insert(0, str(ROOT))
 
-from docket_context import build_context
-from docket_ledger import make_record, project
+from docket.context import build_context
+from docket.ledger import make_record, project
 
 AREAS = ("lib", "bin", "docs", "installer", "graph", "tests")
 

@@ -6,8 +6,8 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
-import docket_ledger as ledger
+sys.path.insert(0, str(Path(__file__).parent.parent))
+import docket.ledger as ledger
 
 
 class LedgerTests(unittest.TestCase):
