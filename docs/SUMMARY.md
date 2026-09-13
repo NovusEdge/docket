@@ -1,7 +1,22 @@
 # Table of contents
 
 * [Docket](README.md)
+
+## Getting started
+
+* [Quickstart](quickstart.md)
 * [Installation](installation.md)
+
+## Guides
+
+* [Recording](recording.md)
+* [Reading your ledger](reading.md)
+* [Working with your agent](agents.md)
+* [Maintenance](maintenance.md)
+
+## Reference
+
+* [Command reference](commands.md)
 * [Ledger reference](ledger.md)
 * [Definitions](definitions.md)
 

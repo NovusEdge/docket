@@ -1,29 +1,52 @@
 # Docket
 
-Docket is a decision ledger for coding agents. It keeps track of what was
-decided, why, and what is still open, then gives an agent that context when a
-conversation resumes or gets compacted.
+Docket is a decision ledger for coding agents. You record what you decided and
+why. Docket hands it back to your agent when it becomes relevant again.
 
-Records live in an append-only JSONL ledger. When a choice changes, the old
-reasoning stays available.
+Agents forget. A long session gets compacted, a new session starts clean, and a
+choice you settled on Tuesday gets argued again on Thursday. Docket is the memory
+that survives that.
+
+```sh
+docket decision "Which database should the billing service use?" \
+  --choice "Postgres" \
+  --rationale "We already run Postgres, so we add no new operational burden" \
+  --scope "billing/**"
+```
+
+Records live in an append-only file. Nothing is ever edited, so when you change
+your mind, the old reasoning stays readable next to the new one.
 
 ## Start here
 
-- [Installation](installation.md) covers install, update, and uninstall.
-- [Ledger reference](ledger.md) describes the record types, states, relations,
-  and file format.
-- [Definitions](definitions.md) holds the formal vocabulary that the other
-  documents use.
+New to Docket? The [quickstart](quickstart.md) gets you from nothing to a working
+ledger in about five minutes.
 
-## Design notes
+After that, [Recording](recording.md) covers the day to day habit, and
+[Reading](reading.md) shows the four ways to get your records back.
 
-These documents describe the reasoning behind Docket and its proposed
-direction. They are not usage instructions.
+## Guides
 
-- [Decision chains](decision-chains.md) reviews the problem and the design that
-  answers it.
-- [Outcome formalism](outcome-formalism.md) defines outcomes, chains, and
-  claims for a proposed paper.
-- [Agent context goals](agent-context-goals.md) lists future goals and open
-  questions for the context a Docket agent receives.
-- [North star](north-star.md) gives the target system and its build order.
+| Page | What it covers |
+|---|---|
+| [Quickstart](quickstart.md) | Install, create a ledger, record your first decision |
+| [Recording](recording.md) | Claims, decisions, questions, and how to link them |
+| [Reading](reading.md) | `list`, `show`, `graph`, and the briefing your agent reads |
+| [Working with your agent](agents.md) | How Docket plugs into your agent and what it sees |
+| [Installation](installation.md) | Every install path, agent setup, updates, uninstall |
+| [Maintenance](maintenance.md) | Merge conflicts, broken ledgers, tuning, completion |
+| [Command reference](commands.md) | Every command and flag |
+
+## Going deeper
+
+These pages are for readers who want the detail behind the design. You do not
+need them to use Docket.
+
+| Page | What it covers |
+|---|---|
+| [Ledger reference](ledger.md) | Record types, states, relations, file format, scoring |
+| [Definitions](definitions.md) | The formal vocabulary the design documents use |
+| [Decision chains](decision-chains.md) | The problem, the research, and the resulting design |
+| [Outcome formalism](outcome-formalism.md) | Outcomes, chains, and claims as a formalism |
+| [Agent context goals](agent-context-goals.md) | Where agent context is heading, and what is still open |
+| [North star](north-star.md) | The target system and its build order |
