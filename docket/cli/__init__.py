@@ -5,6 +5,7 @@ import sys
 
 from docket import version
 from docket.ledger import KINDS, STATES, LedgerError
+from docket.cli.construct import cmd_construct
 from docket.cli.record import cmd_claim, cmd_decision, cmd_question
 from docket.cli.query import CONTEXT_ENVELOPES, cmd_context, cmd_list, cmd_show, cmd_where
 from docket.cli.graph import cmd_graph
@@ -153,6 +154,18 @@ def main(argv: list[str] | None = None) -> int:
 
     it = sub.add_parser("init", help="move this project's ledger into the repository")
     it.set_defaults(func=cmd_init)
+
+    cs = sub.add_parser("construct", help="stage ledger proposals from written history")
+    cs.add_argument("paths", nargs="*", help="documents or directories to read")
+    cs.add_argument("--review", action="store_true",
+                    help="print staged proposals with their source anchors")
+    cs.add_argument("--accept", action="store_true",
+                    help="append accepted proposals to the ledger")
+    cs.add_argument("--source", help="with --accept, take only this document's records")
+    cs.add_argument("--jobs", type=int, default=8, help="concurrent extraction calls")
+    cs.add_argument("--dry-run", action="store_true",
+                    help="list the documents that would be read; call nothing")
+    cs.set_defaults(func=cmd_construct)
 
     co = sub.add_parser("completion", help="print a shell completion script")
     co.add_argument("shell", choices=("bash", "zsh", "fish"))
