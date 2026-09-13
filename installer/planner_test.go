@@ -584,6 +584,36 @@ func TestUpdateReinstallsTheCodexPluginUnderItsOwnMarketplaceName(t *testing.T) 
 	}
 }
 
+func TestOpenCodePluginLandsWhereTheLoaderGlobLooks(t *testing.T) {
+	env := testEnv(nil)
+	plan, err := BuildPlan(env, Options{Harness: []string{"opencode"}, Prefix: "/home/a/.local/bin"})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	// The loader globs {plugin,plugins}/*.{ts,js} with include:"file", so a
+	// nested docket/index.ts is never discovered.
+	if _, ok := findAction(plan.Actions, "write", "/home/a/.config/opencode/plugins/docket.ts"); !ok {
+		t.Fatalf("no write to plugins/docket.ts: %#v", plan.Actions)
+	}
+	for _, action := range plan.Actions {
+		if strings.HasSuffix(action.Path, "/docket/index.ts") && action.Kind == "write" {
+			t.Fatalf("still writing the nested path: %#v", action)
+		}
+	}
+}
+
+func TestOpenCodeInstallRemovesTheUndiscoverableNestedPlugin(t *testing.T) {
+	nested := "/home/a/.config/opencode/plugins/docket/index.ts"
+	env := testEnv(map[string]string{nested: openCodeSource(testEnv(nil))}, nested)
+	plan, err := BuildPlan(env, Options{Harness: []string{"opencode"}, Prefix: "/home/a/.local/bin"})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	if _, ok := findAction(plan.Actions, "remove", nested); !ok {
+		t.Fatalf("pre-0.11.0 plugin not removed: %#v", plan.Actions)
+	}
+}
+
 func TestUpdatePrefersTheCodexPluginActuallyInstalled(t *testing.T) {
 	env := testEnv(map[string]string{
 		"/home/a/.local/bin/.docket-codex.json":        codexReceipt(testEnv(nil)),
