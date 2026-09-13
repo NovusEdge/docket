@@ -440,3 +440,89 @@ func TestShellHelpersQuoteSpacesAndComparePathEntries(t *testing.T) {
 	}
 }
 
+func TestUpdateRefreshesAClaudePluginInstall(t *testing.T) {
+	env := testEnv(map[string]string{
+		"/home/a/.claude/plugins/installed_plugins.json": `{"plugins":{"docket@NovusEdge":[{"version":"0.8.0"}]}}`,
+		"/home/a/.claude/plugins/known_marketplaces.json": `{"NovusEdge":{"source":{"source":"github","repo":"NovusEdge/docket"}}}`,
+	})
+	env.Path = []string{"/usr/bin"}
+	env.Exists = func(p string) bool { return p == "/usr/bin/claude" }
+	plan, err := BuildPlan(env, Options{Update: true, Prefix: "/home/a/.local/bin"})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	got := commandArgs(plan)
+	want := [][]string{
+		{"claude", "plugin", "marketplace", "update", "NovusEdge"},
+		{"claude", "plugin", "update", "docket@NovusEdge", "-y"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("actions = %#v", got)
+	}
+	for i := range want {
+		if strings.Join(got[i], " ") != strings.Join(want[i], " ") {
+			t.Fatalf("action %d = %v, want %v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestUpdateReinstallsTheCodexPlugin(t *testing.T) {
+	env := testEnv(map[string]string{
+		"/home/a/.local/bin/.docket-codex.json": codexReceipt(testEnv(nil)),
+	}, "/home/a/.local/bin/.docket-codex.json", "/usr/bin/codex")
+	plan, err := BuildPlan(env, Options{Update: true, Prefix: "/home/a/.local/bin"})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	got := commandArgs(plan)
+	if len(got) != 2 ||
+		strings.Join(got[0], " ") != "codex plugin remove docket@NovusEdge" ||
+		strings.Join(got[1], " ") != "codex plugin add docket@NovusEdge" {
+		t.Fatalf("actions = %#v", got)
+	}
+}
+
+func TestUpdateLeavesASymlinkInstallAlone(t *testing.T) {
+	env := testEnv(nil)
+	env.Readlink = func(p string) (string, error) {
+		if p == "/home/a/.claude/skills/docket" {
+			return "/src/docket", nil
+		}
+		return "", fs.ErrNotExist
+	}
+	plan, err := BuildPlan(env, Options{Update: true, Prefix: "/home/a/.local/bin"})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	if len(plan.Actions) != 0 {
+		t.Fatalf("symlink install got actions: %#v", plan.Actions)
+	}
+}
+
+func TestUpdateNotesAnAbsentHarnessCommand(t *testing.T) {
+	env := testEnv(map[string]string{
+		"/home/a/.claude/plugins/installed_plugins.json": `{"plugins":{"docket@NovusEdge":[{"version":"0.8.0"}]}}`,
+		"/home/a/.claude/plugins/known_marketplaces.json": `{"NovusEdge":{"source":{"source":"github","repo":"NovusEdge/docket"}}}`,
+	})
+	plan, err := BuildPlan(env, Options{Update: true, Prefix: "/home/a/.local/bin"})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	if len(plan.Actions) != 0 {
+		t.Fatalf("actions without claude on PATH: %#v", plan.Actions)
+	}
+	if len(plan.Notes) != 1 || !strings.Contains(plan.Notes[0], "claude") {
+		t.Fatalf("notes = %#v", plan.Notes)
+	}
+}
+
+func commandArgs(p Plan) [][]string {
+	var out [][]string
+	for _, action := range p.Actions {
+		if action.Kind == "command" {
+			out = append(out, action.Args)
+		}
+	}
+	return out
+}
+

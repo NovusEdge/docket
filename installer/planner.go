@@ -84,7 +84,7 @@ func buildPlan(env Environment, opts Options) (Plan, error) {
 		return buildUninstall(env, prefix, opts.Project)
 	}
 	if opts.Update {
-		return Plan{}, nil
+		return buildUpdate(env, prefix)
 	}
 
 	plan := Plan{}
@@ -343,6 +343,69 @@ func planOpenCode(env Environment) []Action {
 		return nil
 	}
 	return []Action{{Kind: "write", Path: p, Text: text, Label: "opencode"}}
+}
+
+func buildUpdate(env Environment, prefix string) (Plan, error) {
+	plan := Plan{}
+	actions, notes, err := updateClaude(env)
+	if err != nil {
+		return Plan{}, err
+	}
+	plan.Actions = append(plan.Actions, actions...)
+	plan.Notes = append(plan.Notes, notes...)
+	actions, notes = updateCodex(env, prefix)
+	plan.Actions = append(plan.Actions, actions...)
+	plan.Notes = append(plan.Notes, notes...)
+	return plan, nil
+}
+
+func updateClaude(env Environment) ([]Action, []string, error) {
+	installed := join(env, env.Home, ".claude", "plugins", "installed_plugins.json")
+	text, ok := readText(env, installed)
+	if !ok {
+		return nil, nil, nil
+	}
+	data, err := parseObject(installed, text)
+	if err != nil {
+		return nil, nil, err
+	}
+	entries, _ := data["plugins"].(map[string]any)
+	marketplace := ""
+	for key := range entries {
+		name, _, found := strings.Cut(key, "@")
+		if name == "docket" && found {
+			marketplace = key[len(name)+1:]
+		}
+	}
+	if marketplace == "" {
+		return nil, nil, nil
+	}
+	if !commandPresent(env, "claude") {
+		return nil, []string{"claude is not on PATH; its plugin was left unchanged."}, nil
+	}
+	// -y because the installer runs commands through CombinedOutput, which is
+	// never a TTY, and claude plugin update requires it there.
+	return []Action{
+		{Kind: "command", Args: []string{"claude", "plugin", "marketplace", "update", marketplace}, Label: "claude-code"},
+		{Kind: "command", Args: []string{"claude", "plugin", "update", "docket@" + marketplace, "-y"}, Label: "claude-code"},
+	}, nil, nil
+}
+
+func updateCodex(env Environment, prefix string) ([]Action, []string) {
+	receiptPath := join(env, prefix, ".docket-codex.json")
+	if _, ok := readText(env, receiptPath); !ok {
+		return nil, nil
+	}
+	if !commandPresent(env, "codex") {
+		return nil, []string{"Codex is not on PATH; its plugin was left unchanged."}
+	}
+	// Codex caches every plugin into a version-stamped directory, including
+	// one from a local-path marketplace, so an upgrade of the marketplace
+	// alone leaves the cached copy at its old version.
+	return []Action{
+		{Kind: "command", Args: []string{"codex", "plugin", "remove", "docket@NovusEdge"}, Label: "codex"},
+		{Kind: "command", Args: []string{"codex", "plugin", "add", "docket@NovusEdge"}, Label: "codex"},
+	}, nil
 }
 
 func buildUninstall(env Environment, prefix string, project bool) (Plan, error) {
