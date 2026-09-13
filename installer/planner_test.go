@@ -584,6 +584,25 @@ func TestUpdateReinstallsTheCodexPluginUnderItsOwnMarketplaceName(t *testing.T) 
 	}
 }
 
+func TestUpdatePrefersTheCodexPluginActuallyInstalled(t *testing.T) {
+	env := testEnv(map[string]string{
+		"/home/a/.local/bin/.docket-codex.json":        codexReceipt(testEnv(nil)),
+		"/src/docket/.agents/plugins/marketplace.json": `{"name":"NovusEdge"}`,
+		"/home/a/.codex/config.toml": "[plugins.\"codex-rg-guard@local-personal\"]\nenabled = true\n\n" +
+			"[plugins.\"docket@local-personal\"]\nenabled = true\n",
+	}, "/home/a/.local/bin/.docket-codex.json", "/usr/bin/codex")
+	plan, err := BuildPlan(env, Options{Update: true, Prefix: "/home/a/.local/bin"})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	got := commandArgs(plan)
+	if len(got) != 2 ||
+		strings.Join(got[0], " ") != "codex plugin remove docket@local-personal" ||
+		strings.Join(got[1], " ") != "codex plugin add docket@local-personal" {
+		t.Fatalf("actions = %#v", got)
+	}
+}
+
 func TestUpdateSkipsMarketplaceUpdateForLocalSource(t *testing.T) {
 	env := testEnv(map[string]string{
 		"/home/a/.claude/plugins/installed_plugins.json":  `{"plugins":{"docket@local-personal":[{"version":"0.8.0"}]}}`,

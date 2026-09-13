@@ -434,9 +434,16 @@ func updateCodex(env Environment, prefix string) ([]Action, []string) {
 	if err := json.Unmarshal([]byte(receiptText), &receipt); err != nil || receipt.Checkout == "" {
 		return nil, nil
 	}
-	marketplace := codexMarketplaceName(env, receipt.Checkout)
-	if marketplace == "" {
-		return nil, []string{"Codex marketplace manifest at " + receipt.Checkout + " has no name; its plugin was left unchanged."}
+	// What Codex has installed wins over what the installer registered. A user
+	// can install docket from their own marketplace, and refreshing the
+	// registered one would add a second copy and leave the stale one enabled.
+	marketplaces := codexInstalledMarketplaces(env)
+	if len(marketplaces) == 0 {
+		marketplace := codexMarketplaceName(env, receipt.Checkout)
+		if marketplace == "" {
+			return nil, []string{"Codex marketplace manifest at " + receipt.Checkout + " has no name; its plugin was left unchanged."}
+		}
+		marketplaces = []string{marketplace}
 	}
 	if !commandPresent(env, "codex") {
 		return nil, []string{"Codex is not on PATH; its plugin was left unchanged."}
@@ -444,10 +451,40 @@ func updateCodex(env Environment, prefix string) ([]Action, []string) {
 	// Codex caches every plugin into a version-stamped directory, including
 	// one from a local-path marketplace, so an upgrade of the marketplace
 	// alone leaves the cached copy at its old version.
-	return []Action{
-		{Kind: "command", Args: []string{"codex", "plugin", "remove", "docket@" + marketplace}, Label: "codex"},
-		{Kind: "command", Args: []string{"codex", "plugin", "add", "docket@" + marketplace}, Label: "codex"},
-	}, nil
+	var actions []Action
+	for _, marketplace := range marketplaces {
+		actions = append(actions,
+			Action{Kind: "command", Args: []string{"codex", "plugin", "remove", "docket@" + marketplace}, Label: "codex"},
+			Action{Kind: "command", Args: []string{"codex", "plugin", "add", "docket@" + marketplace}, Label: "codex"})
+	}
+	return actions, nil
+}
+
+// codexInstalledMarketplaces reads the docket entries out of Codex's own
+// config. Codex writes one [plugins."<plugin>@<marketplace>"] table per
+// installed plugin, and a line scan reads it without a TOML parser or a
+// codex subprocess.
+func codexInstalledMarketplaces(env Environment) []string {
+	text, ok := readText(env, join(env, env.Home, ".codex", "config.toml"))
+	if !ok {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, line := range strings.Split(text, "\n") {
+		rest, found := strings.CutPrefix(strings.TrimSpace(line), `[plugins."docket@`)
+		if !found {
+			continue
+		}
+		name, found := strings.CutSuffix(rest, `"]`)
+		if !found || name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // The name comes from the marketplace's own manifest rather than being
