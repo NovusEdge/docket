@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-09-14
+
+### Added
+
+- `docket construct PATHS` reads a project's written history and stages ledger
+  proposals from it, so a project with years of documents does not start from an
+  empty ledger. It never writes to the ledger: `--review` prints the proposals
+  with the source line each one quotes, and `--accept` appends the ones marked
+  accepted. Acceptance is the approval the ledger records.
+  Every record carries a verbatim anchor, which keys it across runs and gives a
+  reviewer a line to open. Scope and dates resolve locally, and a date comes from
+  the document, then its filename, then git. A second pass proposes support,
+  supersession and contradiction between records; a contradiction becomes a
+  question naming both, never a silent supersession.
+  The command needs the `openai` SDK and an `OPENROUTER_API_KEY` or
+  `GEMINI_API_KEY`. It is the only command with a dependency: every other
+  command, and the SessionStart hook, run without one.
+
+### Changed
+
+- The modules under `lib/` are now the `docket` package, and `bin/docket` is a
+  launcher. Every import is absolute against one canonical name, which removed
+  two `try/except ImportError` pairs and two runtime `importlib` calls that
+  mutated `sys.path`. Code importing `lib.docket_ledger` or `docket_ledger`
+  imports `docket.ledger` instead.
+
+## [0.11.0] - 2026-09-13
+
 ### Added
 
 - `docket update` refreshes an installer-managed checkout, or prints the
@@ -312,7 +340,9 @@ the breaking-change notes before upgrading.
 
 Versions before 0.6.1 carry no git tag. Their history is in the commit log.
 
-[Unreleased]: https://github.com/NovusEdge/docket/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/NovusEdge/docket/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/NovusEdge/docket/compare/v0.11.0...v0.12.0
+[0.11.0]: https://github.com/NovusEdge/docket/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/NovusEdge/docket/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/NovusEdge/docket/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/NovusEdge/docket/compare/v0.8.0...v0.8.1
