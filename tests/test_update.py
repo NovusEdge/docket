@@ -129,5 +129,100 @@ class Notice(unittest.TestCase):
         self.assertIn("github.com/NovusEdge/docket", up.notice("0.8.0", "0.11.0", bare))
 
 
+class Due(unittest.TestCase):
+    def test_absent_state_is_due(self):
+        self.assertTrue(up.due({}, now=1000.0))
+
+    def test_future_next_check_is_not_due(self):
+        self.assertFalse(up.due({"next_check_at": 2000.0}, now=1000.0))
+
+    def test_past_next_check_is_due(self):
+        self.assertTrue(up.due({"next_check_at": 500.0}, now=1000.0))
+
+    def test_malformed_next_check_is_due(self):
+        self.assertTrue(up.due({"next_check_at": "soon"}, now=1000.0))
+
+
+class RunFetch(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        os.environ["XDG_STATE_HOME"] = self.tmp.name
+        self.addCleanup(os.environ.pop, "XDG_STATE_HOME", None)
+        self.real = up.fetch_latest
+        self.addCleanup(setattr, up, "fetch_latest", self.real)
+
+    def test_lease_is_written_before_the_request(self):
+        seen = {}
+
+        def fetch(url=up.RELEASES_URL):
+            seen["at_request"] = up.read_state().get("next_check_at")
+            return "v0.11.0"
+
+        up.fetch_latest = fetch
+        up.run_fetch(now=1000.0)
+        self.assertEqual(seen["at_request"], 1000.0 + up.LEASE_SECONDS)
+
+    def test_success_records_latest_and_a_day_of_quiet(self):
+        up.fetch_latest = lambda url=up.RELEASES_URL: "v0.11.0"
+        self.assertEqual(up.run_fetch(now=1000.0), 0)
+        state = up.read_state()
+        self.assertEqual(state["latest"], "v0.11.0")
+        self.assertEqual(state["checked_at"], 1000.0)
+        self.assertEqual(state["next_check_at"], 1000.0 + up.SUCCESS_SECONDS)
+        self.assertEqual(state["failures"], 0)
+
+    def test_failure_backs_off_and_doubles(self):
+        def boom(url=up.RELEASES_URL):
+            raise OSError("no network")
+
+        up.fetch_latest = boom
+        up.run_fetch(now=1000.0)
+        self.assertEqual(up.read_state()["next_check_at"], 1000.0 + up.FAILURE_SECONDS)
+        up.run_fetch(now=2000.0)
+        self.assertEqual(up.read_state()["next_check_at"], 2000.0 + 2 * up.FAILURE_SECONDS)
+
+    def test_backoff_is_capped(self):
+        up.write_state({"failures": 20})
+        up.fetch_latest = lambda url=up.RELEASES_URL: (_ for _ in ()).throw(OSError())
+        up.run_fetch(now=1000.0)
+        self.assertEqual(up.read_state()["next_check_at"], 1000.0 + up.FAILURE_CAP)
+
+    def test_failure_keeps_the_previous_latest(self):
+        up.write_state({"latest": "v0.11.0"})
+        up.fetch_latest = lambda url=up.RELEASES_URL: (_ for _ in ()).throw(OSError())
+        up.run_fetch(now=1000.0)
+        self.assertEqual(up.read_state()["latest"], "v0.11.0")
+
+
+class SpawnFetch(unittest.TestCase):
+    def test_child_gets_no_inherited_streams(self):
+        recorded = {}
+
+        class FakePopen:
+            def __init__(self, argv, **kwargs):
+                recorded["argv"] = argv
+                recorded["kwargs"] = kwargs
+
+        original = up.subprocess.Popen
+        up.subprocess.Popen = FakePopen
+        self.addCleanup(setattr, up.subprocess, "Popen", original)
+        up.spawn_fetch(Path("/src/docket/bin/docket"))
+        self.assertIn("_update-fetch", recorded["argv"])
+        devnull = up.subprocess.DEVNULL
+        self.assertEqual(recorded["kwargs"]["stdin"], devnull)
+        self.assertEqual(recorded["kwargs"]["stdout"], devnull)
+        self.assertEqual(recorded["kwargs"]["stderr"], devnull)
+
+    def test_spawn_failure_is_swallowed(self):
+        def boom(*a, **k):
+            raise OSError("fork failed")
+
+        original = up.subprocess.Popen
+        up.subprocess.Popen = boom
+        self.addCleanup(setattr, up.subprocess, "Popen", original)
+        up.spawn_fetch(Path("/src/docket/bin/docket"))
+
+
 if __name__ == "__main__":
     unittest.main()

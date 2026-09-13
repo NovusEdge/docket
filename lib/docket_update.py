@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -133,3 +134,76 @@ def notice(running: str, latest: str, root: Path) -> str | None:
     tag = latest.lstrip("v")
     return (f"# docket: {tag} is available (running {running}). "
             f"Run: {update_command(root)}")
+
+
+RELEASES_URL = "https://api.github.com/repos/NovusEdge/docket/releases/latest"
+FETCH_TIMEOUT = 5.0
+DISABLE_ENV = "DOCKET_NO_UPDATE_CHECK"
+
+
+def disabled() -> bool:
+    return os.environ.get(DISABLE_ENV, "") not in ("", "0")
+
+
+def due(state: dict, now: float) -> bool:
+    try:
+        return now >= float(state.get("next_check_at", 0))
+    except (TypeError, ValueError):
+        return True
+
+
+def fetch_latest(url: str = RELEASES_URL) -> str:
+    from urllib.request import urlopen
+
+    with urlopen(url, timeout=FETCH_TIMEOUT) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    tag = payload.get("tag_name", "")
+    if not isinstance(tag, str) or not tag:
+        raise ValueError("release payload carries no tag_name")
+    return tag
+
+
+def run_fetch(now: float) -> int:
+    state = read_state()
+    # The lease lands before the request, so a second session starting while
+    # this one waits on the network sees a future next_check_at and does not
+    # fork a second fetcher.
+    write_state({**state, "next_check_at": now + LEASE_SECONDS})
+    try:
+        latest = fetch_latest()
+    except Exception:
+        failures = int(state.get("failures", 0) or 0) + 1
+        delay = min(FAILURE_SECONDS * (2 ** (failures - 1)), FAILURE_CAP)
+        write_state({**state, "failures": failures, "next_check_at": now + delay})
+        return 1
+    write_state({"latest": latest, "checked_at": now, "failures": 0,
+                 "next_check_at": now + SUCCESS_SECONDS})
+    return 0
+
+
+def spawn_fetch(script: Path) -> None:
+    """Start the refresh and return. The parent never waits.
+
+    Every stream goes to devnull. A child that inherits the hook's stdout
+    holds the pipe open after the hook exits, so the harness reads to EOF and
+    stalls for the whole hook timeout, and anything the child prints lands in
+    the session context outside the JSON envelope.
+    """
+    kwargs = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "close_fds": True,
+    }
+    if sys.platform == "win32":
+        kwargs["creationflags"] = (
+            subprocess.DETACHED_PROCESS
+            | subprocess.CREATE_NEW_PROCESS_GROUP
+            | subprocess.CREATE_NO_WINDOW
+        )
+    else:
+        kwargs["start_new_session"] = True
+    try:
+        subprocess.Popen([sys.executable, str(script), "_update-fetch"], **kwargs)
+    except OSError:
+        return

@@ -1294,6 +1294,14 @@ def cmd_completion(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_update_fetch(args: argparse.Namespace) -> int:
+    import time
+
+    from docket_update import run_fetch
+
+    return run_fetch(time.time())
+
+
 def _add_shared_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--scope", action="append", default=[])
     p.add_argument("--rationale", default="")
@@ -1417,6 +1425,8 @@ def main(argv: list[str] | None = None) -> int:
     co = sub.add_parser("completion", help="print a shell completion script")
     co.add_argument("shell", choices=("bash", "zsh", "fish"))
     co.set_defaults(func=cmd_completion)
+
+    sub.add_parser("_update-fetch").set_defaults(func=cmd_update_fetch)
 
     args = p.parse_args(argv)
     if args.cmd is None:
