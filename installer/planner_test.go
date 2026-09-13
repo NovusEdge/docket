@@ -25,6 +25,75 @@ func testEnv(files map[string]string, existing ...string) Environment {
 			return nil, fs.ErrNotExist
 		},
 		Readlink: func(p string) (string, error) { return "", fs.ErrNotExist },
+		Getenv:   func(string) string { return "" },
+	}
+}
+
+func TestInstallWritesTheManagedMarker(t *testing.T) {
+	env := testEnv(nil)
+	plan, err := BuildPlan(env, Options{Harness: []string{}, Prefix: "/home/a/.local/bin"})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	var found bool
+	for _, action := range plan.Actions {
+		if action.Path == "/src/docket/.docket-managed" {
+			found = true
+			if !strings.Contains(action.Text, "/home/a/.local/bin") {
+				t.Fatalf("marker omits the prefix: %q", action.Text)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("no marker action in plan: %#v", plan.Actions)
+	}
+}
+
+func TestUninstallRemovesTheManagedMarker(t *testing.T) {
+	env := testEnv(map[string]string{
+		"/src/docket/.docket-managed": `{"prefix":"/home/a/.local/bin"}`,
+	}, "/src/docket/.docket-managed")
+	plan, err := BuildPlan(env, Options{Uninstall: true, Prefix: "/home/a/.local/bin"})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	var found bool
+	for _, action := range plan.Actions {
+		if action.Kind == "remove" && action.Path == "/src/docket/.docket-managed" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("marker not removed: %#v", plan.Actions)
+	}
+}
+
+func TestUninstallRemovesTheStateDirectoryAsATree(t *testing.T) {
+	env := testEnv(nil)
+	plan, err := BuildPlan(env, Options{Uninstall: true, Prefix: "/home/a/.local/bin"})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	action, ok := findAction(plan.Actions, "remove-tree", "/home/a/.local/state/docket")
+	if !ok {
+		t.Fatalf("no state removal in plan: %#v", plan.Actions)
+	}
+	if action.Kind != "remove-tree" {
+		t.Fatalf("state removal uses %q, which fails on a non-empty directory", action.Kind)
+	}
+}
+
+func TestSourceModeInstallWritesNoManagedMarker(t *testing.T) {
+	env := testEnv(nil)
+	env.Checkout = ""
+	plan, err := BuildPlan(env, Options{Harness: []string{}, Prefix: "/home/a/.local/bin", Checkout: "/src/docket"})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	for _, action := range plan.Actions {
+		if strings.HasSuffix(action.Path, ".docket-managed") {
+			t.Fatalf("source-mode install wrote a managed marker: %#v", action)
+		}
 	}
 }
 
@@ -398,4 +467,203 @@ func TestShellHelpersQuoteSpacesAndComparePathEntries(t *testing.T) {
 	if !PathContains([]string{`c:\TOOLS\`}, `C:\Tools`, "windows") {
 		t.Fatal("Windows comparison should fold case")
 	}
+}
+
+func TestUpdateRefreshesAClaudePluginInstall(t *testing.T) {
+	env := testEnv(map[string]string{
+		"/home/a/.claude/plugins/installed_plugins.json":  `{"plugins":{"docket@NovusEdge":[{"version":"0.8.0"}]}}`,
+		"/home/a/.claude/plugins/known_marketplaces.json": `{"NovusEdge":{"source":{"source":"github","repo":"NovusEdge/docket"}}}`,
+	})
+	env.Path = []string{"/usr/bin"}
+	env.Exists = func(p string) bool { return p == "/usr/bin/claude" }
+	plan, err := BuildPlan(env, Options{Update: true, Prefix: "/home/a/.local/bin"})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	got := commandArgs(plan)
+	want := [][]string{
+		{"claude", "plugin", "marketplace", "update", "NovusEdge"},
+		{"claude", "plugin", "update", "docket@NovusEdge", "-y"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("actions = %#v", got)
+	}
+	for i := range want {
+		if strings.Join(got[i], " ") != strings.Join(want[i], " ") {
+			t.Fatalf("action %d = %v, want %v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestUpdateRefreshesEveryClaudeMarketplaceInOrder(t *testing.T) {
+	env := testEnv(map[string]string{
+		"/home/a/.claude/plugins/installed_plugins.json":  `{"plugins":{"docket@NovusEdge":[{"version":"0.8.0"}],"docket@dev":[{"version":"0.9.0"}],"docket@":[{"version":"0.1.0"}]}}`,
+		"/home/a/.claude/plugins/known_marketplaces.json": `{"NovusEdge":{"source":{"source":"github","repo":"NovusEdge/docket"}}}`,
+	})
+	env.Path = []string{"/usr/bin"}
+	env.Exists = func(p string) bool { return p == "/usr/bin/claude" }
+	// Map iteration is randomized, so the same input must plan the same way
+	// every run. A degenerate "docket@" key names no marketplace and is dropped.
+	for i := 0; i < 20; i++ {
+		plan, err := BuildPlan(env, Options{Update: true, Prefix: "/home/a/.local/bin"})
+		if err != nil {
+			t.Fatalf("BuildPlan: %v", err)
+		}
+		want := []string{
+			"claude plugin marketplace update NovusEdge",
+			"claude plugin update docket@NovusEdge -y",
+			"claude plugin update docket@dev -y",
+		}
+		got := commandArgs(plan)
+		if len(got) != len(want) {
+			t.Fatalf("actions = %#v", got)
+		}
+		for j := range want {
+			if strings.Join(got[j], " ") != want[j] {
+				t.Fatalf("action %d = %v, want %q", j, got[j], want[j])
+			}
+		}
+	}
+}
+
+func TestUpdateWritesTheManagedMarker(t *testing.T) {
+	env := testEnv(nil)
+	plan, err := BuildPlan(env, Options{Update: true, Prefix: "/home/a/.local/bin"})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	if _, ok := findAction(plan.Actions, "write", "/src/docket/.docket-managed"); !ok {
+		t.Fatalf("no marker action in update plan: %#v", plan.Actions)
+	}
+}
+
+func TestUpdateInSourceModeWritesNoManagedMarker(t *testing.T) {
+	env := testEnv(nil)
+	plan, err := BuildPlan(env, Options{Update: true, Prefix: "/home/a/.local/bin", Checkout: "/src/docket"})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	for _, action := range plan.Actions {
+		if strings.HasSuffix(action.Path, ".docket-managed") {
+			t.Fatalf("source-mode update wrote a managed marker: %#v", action)
+		}
+	}
+}
+
+func TestUpdateReinstallsTheCodexPlugin(t *testing.T) {
+	env := testEnv(map[string]string{
+		"/home/a/.local/bin/.docket-codex.json":        codexReceipt(testEnv(nil)),
+		"/src/docket/.agents/plugins/marketplace.json": `{"name":"NovusEdge"}`,
+	}, "/home/a/.local/bin/.docket-codex.json", "/usr/bin/codex")
+	plan, err := BuildPlan(env, Options{Update: true, Prefix: "/home/a/.local/bin"})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	got := commandArgs(plan)
+	if len(got) != 2 ||
+		strings.Join(got[0], " ") != "codex plugin remove docket@NovusEdge" ||
+		strings.Join(got[1], " ") != "codex plugin add docket@NovusEdge" {
+		t.Fatalf("actions = %#v", got)
+	}
+}
+
+func TestUpdateReinstallsTheCodexPluginUnderItsOwnMarketplaceName(t *testing.T) {
+	env := testEnv(map[string]string{
+		"/home/a/.local/bin/.docket-codex.json":                `{"checkout":"/opt/local-personal"}`,
+		"/opt/local-personal/.agents/plugins/marketplace.json": `{"name":"local-personal"}`,
+	}, "/home/a/.local/bin/.docket-codex.json", "/usr/bin/codex")
+	plan, err := BuildPlan(env, Options{Update: true, Prefix: "/home/a/.local/bin"})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	got := commandArgs(plan)
+	if len(got) != 2 ||
+		strings.Join(got[0], " ") != "codex plugin remove docket@local-personal" ||
+		strings.Join(got[1], " ") != "codex plugin add docket@local-personal" {
+		t.Fatalf("actions = %#v", got)
+	}
+}
+
+func TestUpdatePrefersTheCodexPluginActuallyInstalled(t *testing.T) {
+	env := testEnv(map[string]string{
+		"/home/a/.local/bin/.docket-codex.json":        codexReceipt(testEnv(nil)),
+		"/src/docket/.agents/plugins/marketplace.json": `{"name":"NovusEdge"}`,
+		"/home/a/.codex/config.toml": "[plugins.\"codex-rg-guard@local-personal\"]\nenabled = true\n\n" +
+			"[plugins.\"docket@local-personal\"]\nenabled = true\n",
+	}, "/home/a/.local/bin/.docket-codex.json", "/usr/bin/codex")
+	plan, err := BuildPlan(env, Options{Update: true, Prefix: "/home/a/.local/bin"})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	got := commandArgs(plan)
+	if len(got) != 2 ||
+		strings.Join(got[0], " ") != "codex plugin remove docket@local-personal" ||
+		strings.Join(got[1], " ") != "codex plugin add docket@local-personal" {
+		t.Fatalf("actions = %#v", got)
+	}
+}
+
+func TestUpdateSkipsMarketplaceUpdateForLocalSource(t *testing.T) {
+	env := testEnv(map[string]string{
+		"/home/a/.claude/plugins/installed_plugins.json":  `{"plugins":{"docket@local-personal":[{"version":"0.8.0"}]}}`,
+		"/home/a/.claude/plugins/known_marketplaces.json": `{"local-personal":{"source":{"source":"local","path":"/opt/local-personal"}}}`,
+	})
+	env.Path = []string{"/usr/bin"}
+	env.Exists = func(p string) bool { return p == "/usr/bin/claude" }
+	plan, err := BuildPlan(env, Options{Update: true, Prefix: "/home/a/.local/bin"})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	got := commandArgs(plan)
+	if len(got) != 1 || strings.Join(got[0], " ") != "claude plugin update docket@local-personal -y" {
+		t.Fatalf("actions = %#v", got)
+	}
+}
+
+func TestUpdateLeavesANoRegistrationInstallAlone(t *testing.T) {
+	env := testEnv(map[string]string{
+		"/home/a/.claude/plugins/installed_plugins.json": `{"plugins":{"other@Someone":[{"version":"1.0.0"}]}}`,
+	})
+	env.Readlink = func(p string) (string, error) {
+		if p == "/home/a/.claude/skills/docket" {
+			return "/src/docket", nil
+		}
+		return "", fs.ErrNotExist
+	}
+	env.Path = []string{"/usr/bin"}
+	env.Exists = func(p string) bool { return p == "/usr/bin/claude" }
+	plan, err := BuildPlan(env, Options{Update: true, Prefix: "/home/a/.local/bin"})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	if got := commandArgs(plan); len(got) != 0 {
+		t.Fatalf("non-docket registration produced harness commands: %#v", got)
+	}
+}
+
+func TestUpdateNotesAnAbsentHarnessCommand(t *testing.T) {
+	env := testEnv(map[string]string{
+		"/home/a/.claude/plugins/installed_plugins.json":  `{"plugins":{"docket@NovusEdge":[{"version":"0.8.0"}]}}`,
+		"/home/a/.claude/plugins/known_marketplaces.json": `{"NovusEdge":{"source":{"source":"github","repo":"NovusEdge/docket"}}}`,
+	})
+	plan, err := BuildPlan(env, Options{Update: true, Prefix: "/home/a/.local/bin"})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	if got := commandArgs(plan); len(got) != 0 {
+		t.Fatalf("harness commands without claude on PATH: %#v", got)
+	}
+	if len(plan.Notes) != 1 || !strings.Contains(plan.Notes[0], "claude") {
+		t.Fatalf("notes = %#v", plan.Notes)
+	}
+}
+
+func commandArgs(p Plan) [][]string {
+	var out [][]string
+	for _, action := range p.Actions {
+		if action.Kind == "command" {
+			out = append(out, action.Args)
+		}
+	}
+	return out
 }

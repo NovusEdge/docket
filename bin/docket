@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import time
 from pathlib import Path
 
 _LIB_DIR = Path(__file__).resolve().parent.parent / "lib"
@@ -1147,13 +1148,31 @@ def auto_scope_files(limit: int = _AUTO_SCOPE_LIMIT) -> tuple[str, ...]:
     return tuple(paths[:limit])
 
 
-def _print_context(text: str, args: argparse.Namespace) -> int:
-    if not text:
+def update_line() -> str | None:
+    """One notice line, or None. Never performs a network request."""
+    from docket_update import disabled, due, notice, read_state, spawn_fetch
+
+    try:
+        if disabled():
+            return None
+        root = Path(__file__).resolve().parent.parent
+        state = read_state()
+        if due(state, time.time()):
+            spawn_fetch(Path(__file__).resolve())
+        return notice(version(), str(state.get("latest", "")), root)
+    except Exception:
+        return None
+
+
+def _print_context(text: str, args: argparse.Namespace,
+                   notice: str | None = None) -> int:
+    body = f"{notice}\n{text}" if notice else text
+    if not body:
         return 0
     if args.for_harness:
-        print(json.dumps(CONTEXT_ENVELOPES[args.for_harness](text)))
+        print(json.dumps(CONTEXT_ENVELOPES[args.for_harness](body)))
     else:
-        print(text, end="")
+        print(body, end="")
     return 0
 
 
@@ -1165,6 +1184,7 @@ def cmd_context(args: argparse.Namespace) -> int:
     except ConfigError as exc:
         print(f"docket: {exc}", file=sys.stderr)
         return 1
+    line = update_line()
     # Validate against the loaded minimum, not a literal. A config that raises
     # budget.minimum would otherwise let a too-small value through and surface
     # as an uncaught ValueError from the renderer.
@@ -1189,7 +1209,7 @@ def cmd_context(args: argparse.Namespace) -> int:
                             max_chars=args.max_chars, ledger=str(ledger_path()),
                             settings=settings)
         if delta is not None:
-            return _print_context(delta, args)
+            return _print_context(delta, args, line)
         print(f"docket: baseline {args.since} is unknown or stale; "
               "printing a full briefing", file=sys.stderr)
 
@@ -1213,7 +1233,7 @@ def cmd_context(args: argparse.Namespace) -> int:
     except (LedgerError, OSError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
-    return _print_context(text, args)
+    return _print_context(text, args, line)
 
 
 _COMPLETION_FLAGS = (
@@ -1223,9 +1243,9 @@ _COMPLETION_FLAGS = (
     "--auto-scope", "--no-auto-scope", "--since", "--at",
     "--all", "--find", "--superseded", "--oneline", "--json", "--plain", "--pretty",
     "--style", "--interactive", "--no-interactive", "--for", "--version",
-    "--dry-run",
+    "--dry-run", "--check",
 )
-_COMPLETION_CMDS = ("claim", "decision", "question", "list", "show", "graph", "context", "where", "check", "rebase", "migrate", "init", "completion")
+_COMPLETION_CMDS = ("claim", "decision", "question", "list", "show", "graph", "context", "where", "check", "rebase", "migrate", "init", "completion", "update")
 
 _BASH_COMPLETION = f"""\
 _docket() {{
@@ -1294,6 +1314,79 @@ def cmd_completion(args: argparse.Namespace) -> int:
     return 0
 
 
+LAUNCHER_URL_TEMPLATE = (
+    "https://raw.githubusercontent.com/NovusEdge/docket/refs/tags/{tag}/"
+    "installer/install.py"
+)
+MAIN_LAUNCHER_URL = (
+    "https://raw.githubusercontent.com/NovusEdge/docket/main/installer/install.py"
+)
+
+
+def cmd_update(args: argparse.Namespace, root: Path | None = None) -> int:
+    from docket_update import is_newer, parse_version, read_state, shape, update_command
+
+    root = root or Path(__file__).resolve().parent.parent
+    running = version()
+    latest = str(read_state().get("latest", ""))
+    if args.check:
+        if not latest or parse_version(latest) is None:
+            print("docket: no cached release information yet")
+            return 2
+        if is_newer(latest, running):
+            print(f"docket {latest.lstrip('v')} is available (running {running})")
+            return 1
+        print(f"docket {running} is up to date")
+        return 0
+
+    kind = shape(root)
+    if kind == "plugin":
+        print(f"docket: this copy is managed by your harness. "
+              f"Run: {update_command(root)}")
+        return 0
+    if kind == "unknown":
+        print(f"docket: this copy has no installer and no repository. "
+              f"Run: {update_command(root)}")
+        return 0
+    if kind == "source":
+        command = [sys.executable, str(root / "installer" / "install.py"),
+                   "--checkout", str(root), "--update"]
+        print(" ".join(command))
+        return subprocess.call(command)
+    tag = latest if latest and parse_version(latest) is not None else None
+    return _run_downloaded_update(tag)
+
+
+def _run_downloaded_update(tag: str | None) -> int:
+    """Fetch the launcher and run it outside the checkout.
+
+    The bundled launcher takes its own checkout branch, which needs Go and
+    passes --checkout, and --checkout makes the planner skip the git update.
+    Without a cached release tag, fall back to the main branch so a fresh
+    install (no cache populated yet) can still update.
+    """
+    from urllib.request import urlopen
+
+    url = LAUNCHER_URL_TEMPLATE.format(tag=tag) if tag else MAIN_LAUNCHER_URL
+    with tempfile.TemporaryDirectory() as work:
+        launcher = Path(work) / "install.py"
+        try:
+            with urlopen(url, timeout=30) as response:
+                launcher.write_bytes(response.read())
+        except OSError as exc:
+            print(f"docket: could not download the installer: {exc}", file=sys.stderr)
+            return 1
+        command = [sys.executable, str(launcher), "--update"]
+        print(" ".join(command))
+        return subprocess.call(command, cwd=work)
+
+
+def cmd_update_fetch(args: argparse.Namespace) -> int:
+    from docket_update import run_fetch
+
+    return run_fetch(time.time())
+
+
 def _add_shared_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--scope", action="append", default=[])
     p.add_argument("--rationale", default="")
@@ -1315,7 +1408,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument("-h", "--help", action=HelpAction, nargs=0, help="show this help and exit")
     p.add_argument("--version", action=VersionAction, nargs=0, help="print the release and exit")
-    sub = p.add_subparsers(dest="cmd")
+    sub = p.add_subparsers(dest="cmd", metavar=(
+        "{claim,decision,question,list,show,graph,context,where,check,"
+        "rebase,migrate,init,completion,update}"))
 
     cl = sub.add_parser("claim", help="record a proposition")
     cl.add_argument("text")
@@ -1417,6 +1512,13 @@ def main(argv: list[str] | None = None) -> int:
     co = sub.add_parser("completion", help="print a shell completion script")
     co.add_argument("shell", choices=("bash", "zsh", "fish"))
     co.set_defaults(func=cmd_completion)
+
+    ud = sub.add_parser("update", help="update this Docket installation")
+    ud.add_argument("--check", action="store_true",
+                    help="report whether an update is available; change nothing")
+    ud.set_defaults(func=cmd_update)
+
+    sub.add_parser("_update-fetch").set_defaults(func=cmd_update_fetch)
 
     args = p.parse_args(argv)
     if args.cmd is None:

@@ -71,6 +71,8 @@ func executeAction(ctx context.Context, a Action) error {
 			return nil
 		}
 		return err
+	case "remove-tree":
+		return os.RemoveAll(a.Path)
 	case "command":
 		if len(a.Args) == 0 {
 			return errors.New("empty command")

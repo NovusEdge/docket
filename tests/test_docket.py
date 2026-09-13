@@ -21,6 +21,8 @@ def run(cwd, *args):
     env = dict(os.environ)
     env["DOCKET_HOME"] = str(Path(cwd) / "global")
     env["DOCKET_AUTHOR"] = "test"
+    env["DOCKET_NO_UPDATE_CHECK"] = "1"
+    env["XDG_STATE_HOME"] = str(Path(cwd) / "state")
     return subprocess.run([sys.executable, DOCKET, *args], cwd=cwd, env=env,
                           capture_output=True, text=True)
 

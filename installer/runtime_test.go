@@ -58,6 +58,23 @@ func TestExecutePlanWritesThenReportsAndStopsOnFailure(t *testing.T) {
 	}
 }
 
+func TestRemoveTreeDeletesANonEmptyStateDirectory(t *testing.T) {
+	dir := t.TempDir()
+	state := filepath.Join(dir, "docket")
+	if err := os.MkdirAll(state, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(state, "update.json"), []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := executeAction(context.Background(), Action{Kind: "remove-tree", Path: state, Label: "state"}); err != nil {
+		t.Fatalf("executeAction: %v", err)
+	}
+	if _, err := os.Stat(state); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("state directory still exists: %v", err)
+	}
+}
+
 func TestCancelledPlanDoesNotWrite(t *testing.T) {
 	dir := t.TempDir()
 	ctx, cancel := context.WithCancel(context.Background())

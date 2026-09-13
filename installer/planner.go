@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
+	"sort"
 	"strings"
 	"syscall"
 )
@@ -84,12 +85,15 @@ func buildPlan(env Environment, opts Options) (Plan, error) {
 		return buildUninstall(env, prefix, opts.Project)
 	}
 	if opts.Update {
-		return Plan{}, nil
+		return buildUpdate(env, prefix, opts.Checkout)
 	}
 
 	plan := Plan{}
 	plan.Actions = append(plan.Actions, planCommand(env, prefix)...)
 	plan.Actions = append(plan.Actions, planPathAdd(env, prefix)...)
+	if opts.Checkout == "" {
+		plan.Actions = append(plan.Actions, planMarker(env, prefix)...)
+	}
 	if selected == nil {
 		selected = []string{"claude-code"}
 		for _, h := range DetectHarnesses(env) {
@@ -158,6 +162,19 @@ func planCommand(env Environment, prefix string) []Action {
 		return nil
 	}
 	return []Action{{Kind: "link", Path: target, Source: source, Label: "command"}}
+}
+
+// The marker tells the Python CLI that this checkout is installer-owned. A
+// managed checkout is a git clone, so the presence of .git cannot distinguish
+// it from a contributor's own tree.
+func planMarker(env Environment, prefix string) []Action {
+	path := join(env, env.Checkout, ".docket-managed")
+	text, _ := json.MarshalIndent(map[string]string{"prefix": prefix, "version": version}, "", "  ")
+	body := string(text) + "\n"
+	if sameFile(env, path, body) {
+		return nil
+	}
+	return []Action{{Kind: "write", Path: path, Text: body, Label: "marker"}}
 }
 
 func planPathAdd(env Environment, prefix string) []Action {
@@ -331,6 +348,163 @@ func planOpenCode(env Environment) []Action {
 	return []Action{{Kind: "write", Path: p, Text: text, Label: "opencode"}}
 }
 
+func buildUpdate(env Environment, prefix string, checkout string) (Plan, error) {
+	plan := Plan{}
+	actions, notes, err := updateClaude(env)
+	if err != nil {
+		return Plan{}, err
+	}
+	plan.Actions = append(plan.Actions, actions...)
+	plan.Notes = append(plan.Notes, notes...)
+	actions, notes = updateCodex(env, prefix)
+	plan.Actions = append(plan.Actions, actions...)
+	plan.Notes = append(plan.Notes, notes...)
+	if checkout == "" {
+		plan.Actions = append(plan.Actions, planMarker(env, prefix)...)
+	}
+	return plan, nil
+}
+
+func updateClaude(env Environment) ([]Action, []string, error) {
+	installed := join(env, env.Home, ".claude", "plugins", "installed_plugins.json")
+	text, ok := readText(env, installed)
+	if !ok {
+		return nil, nil, nil
+	}
+	data, err := parseObject(installed, text)
+	if err != nil {
+		return nil, nil, err
+	}
+	entries, _ := data["plugins"].(map[string]any)
+	// Go randomizes map iteration, so a user registered from two marketplaces
+	// would get a different plan on every run. Sort and refresh all of them.
+	var marketplaces []string
+	for key := range entries {
+		name, marketplace, found := strings.Cut(key, "@")
+		if name == "docket" && found && marketplace != "" {
+			marketplaces = append(marketplaces, marketplace)
+		}
+	}
+	if len(marketplaces) == 0 {
+		return nil, nil, nil
+	}
+	sort.Strings(marketplaces)
+	if !commandPresent(env, "claude") {
+		return nil, []string{"claude is not on PATH; its plugin was left unchanged."}, nil
+	}
+	var actions []Action
+	for _, marketplace := range marketplaces {
+		if claudeMarketplaceSource(env, marketplace) == "github" {
+			actions = append(actions, Action{Kind: "command", Args: []string{"claude", "plugin", "marketplace", "update", marketplace}, Label: "claude-code"})
+		}
+		// -y because the installer runs commands through CombinedOutput, which
+		// is never a TTY, and claude plugin update requires it there.
+		actions = append(actions, Action{Kind: "command", Args: []string{"claude", "plugin", "update", "docket@" + marketplace, "-y"}, Label: "claude-code"})
+	}
+	return actions, nil, nil
+}
+
+// A marketplace registered from a local path has nothing upstream for
+// `claude plugin marketplace update` to fetch; only a GitHub-sourced
+// marketplace gets that command.
+func claudeMarketplaceSource(env Environment, marketplace string) string {
+	p := join(env, env.Home, ".claude", "plugins", "known_marketplaces.json")
+	text, ok := readText(env, p)
+	if !ok {
+		return ""
+	}
+	var known map[string]struct {
+		Source struct {
+			Source string `json:"source"`
+		} `json:"source"`
+	}
+	if err := json.Unmarshal([]byte(text), &known); err != nil {
+		return ""
+	}
+	return known[marketplace].Source.Source
+}
+
+func updateCodex(env Environment, prefix string) ([]Action, []string) {
+	receiptPath := join(env, prefix, ".docket-codex.json")
+	receiptText, ok := readText(env, receiptPath)
+	if !ok {
+		return nil, nil
+	}
+	var receipt struct{ Checkout string }
+	if err := json.Unmarshal([]byte(receiptText), &receipt); err != nil || receipt.Checkout == "" {
+		return nil, nil
+	}
+	// What Codex has installed wins over what the installer registered. A user
+	// can install docket from their own marketplace, and refreshing the
+	// registered one would add a second copy and leave the stale one enabled.
+	marketplaces := codexInstalledMarketplaces(env)
+	if len(marketplaces) == 0 {
+		marketplace := codexMarketplaceName(env, receipt.Checkout)
+		if marketplace == "" {
+			return nil, []string{"Codex marketplace manifest at " + receipt.Checkout + " has no name; its plugin was left unchanged."}
+		}
+		marketplaces = []string{marketplace}
+	}
+	if !commandPresent(env, "codex") {
+		return nil, []string{"Codex is not on PATH; its plugin was left unchanged."}
+	}
+	// Codex caches every plugin into a version-stamped directory, including
+	// one from a local-path marketplace, so an upgrade of the marketplace
+	// alone leaves the cached copy at its old version.
+	var actions []Action
+	for _, marketplace := range marketplaces {
+		actions = append(actions,
+			Action{Kind: "command", Args: []string{"codex", "plugin", "remove", "docket@" + marketplace}, Label: "codex"},
+			Action{Kind: "command", Args: []string{"codex", "plugin", "add", "docket@" + marketplace}, Label: "codex"})
+	}
+	return actions, nil
+}
+
+// codexInstalledMarketplaces reads the docket entries out of Codex's own
+// config. Codex writes one [plugins."<plugin>@<marketplace>"] table per
+// installed plugin, and a line scan reads it without a TOML parser or a
+// codex subprocess.
+func codexInstalledMarketplaces(env Environment) []string {
+	text, ok := readText(env, join(env, env.Home, ".codex", "config.toml"))
+	if !ok {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, line := range strings.Split(text, "\n") {
+		rest, found := strings.CutPrefix(strings.TrimSpace(line), `[plugins."docket@`)
+		if !found {
+			continue
+		}
+		name, found := strings.CutSuffix(rest, `"]`)
+		if !found || name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// The name comes from the marketplace's own manifest rather than being
+// assumed, so a checkout registered under a different marketplace name (for
+// example a hand-registered "local-personal") still gets the right plugin id.
+func codexMarketplaceName(env Environment, checkout string) string {
+	p := join(env, checkout, ".agents", "plugins", "marketplace.json")
+	text, ok := readText(env, p)
+	if !ok {
+		return ""
+	}
+	var manifest struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal([]byte(text), &manifest); err != nil {
+		return ""
+	}
+	return manifest.Name
+}
+
 func buildUninstall(env Environment, prefix string, project bool) (Plan, error) {
 	plan := Plan{Notes: []string{"Decision ledgers are preserved."}}
 	source := join(env, env.Checkout, "bin", "docket")
@@ -380,6 +554,11 @@ func buildUninstall(env Environment, prefix string, project bool) (Plan, error) 
 			plan.Actions = append(plan.Actions, Action{Kind: "remove", Path: rule, Label: "cursor"})
 		}
 	}
+	marker := join(env, env.Checkout, ".docket-managed")
+	if _, ok := readText(env, marker); ok {
+		plan.Actions = append(plan.Actions, Action{Kind: "remove", Path: marker, Label: "marker"})
+	}
+	plan.Actions = append(plan.Actions, Action{Kind: "remove-tree", Path: updateStateDir(env), Label: "state"})
 	codexReceiptPath := join(env, prefix, ".docket-codex.json")
 	receiptText, hasReceipt := readText(env, codexReceiptPath)
 	hasReceipt = hasReceipt && receiptText == codexReceipt(env)
@@ -549,6 +728,22 @@ func cursorRuleText() string {
 	return "---\nalwaysApply: true\n---\n\nSee docket's skill for when and how to record a decision.\n"
 }
 
+func updateStateDir(env Environment) string {
+	getenv := env.Getenv
+	if getenv == nil {
+		getenv = func(string) string { return "" }
+	}
+	if env.GOOS == "windows" {
+		if local := getenv("LOCALAPPDATA"); local != "" {
+			return join(env, local, "docket-state")
+		}
+	}
+	if xdg := getenv("XDG_STATE_HOME"); xdg != "" {
+		return join(env, xdg, "docket")
+	}
+	return join(env, env.Home, ".local", "state", "docket")
+}
+
 func codexReceipt(env Environment) string {
 	raw, _ := json.MarshalIndent(map[string]string{"checkout": env.Checkout}, "", "  ")
 	return string(raw) + "\n"
@@ -649,6 +844,8 @@ func DescribeAction(a Action) string {
 		return "link   " + a.Path + " -> " + a.Source
 	case "remove":
 		return "remove " + a.Path
+	case "remove-tree":
+		return "remove " + a.Path + " (recursively)"
 	case "command":
 		return "run    " + strings.Join(a.Args, " ")
 	case "path-add":

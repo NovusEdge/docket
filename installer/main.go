@@ -32,7 +32,7 @@ func parseOptions(args []string, out io.Writer) (Options, error) {
 	f.BoolVar(&opts.Yes, "yes", false, "apply defaults without prompts")
 	f.BoolVar(&opts.NoTTY, "no-tty", false, "use plain unattended output")
 	f.BoolVar(&opts.DryRun, "dry-run", false, "show every planned operation without applying it")
-	f.BoolVar(&opts.Update, "update", false, "refresh Docket and its graph viewer without changing harness configuration")
+	f.BoolVar(&opts.Update, "update", false, "refresh Docket, its graph viewer, and installed harness plugins; keep PATH and harness selection unchanged")
 	f.BoolVar(&opts.Uninstall, "uninstall", false, "remove Docket integration; keep decision ledgers")
 	f.BoolVar(&opts.Version, "version", false, "show installer version")
 	f.Usage = func() {

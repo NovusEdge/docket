@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `docket update` refreshes an installer-managed checkout, or prints the
+  plugin manager command for a plugin-only install. `installer/install.py
+  --update` now refreshes an installed Claude Code or Codex plugin as well,
+  instead of leaving harness configuration untouched.
+- `docket` checks for a newer release once a day, in a detached background
+  process, and prints a notice above the context briefing when one is
+  available. `DOCKET_NO_UPDATE_CHECK=1` disables the check and the notice.
+
 ## [0.10.0] - 2026-09-13
 
 ### Added

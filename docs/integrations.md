@@ -2,7 +2,8 @@
 
 Use this page to configure an agent manually or inspect the files that connect it
 to Docket. For guided setup, start with [Installation](installation.md). For daily
-use, read [Working with your agent](agents.md).
+use, read [Working with your agent](agents.md). For an agent carrying out setup
+on the user's behalf, follow [Setup instructions for agents](agent-setup.md).
 
 ## Configure an agent harness
 

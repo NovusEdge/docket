@@ -1,23 +1,19 @@
 # Installer reference
 
 Use this page for custom install locations, unattended setup, source builds, and
-installer behavior. For the normal setup and update steps, see
-[Installation](installation.md). Manual agent configuration is in the
+installer behavior. For setup by an agent, use the
+[shared setup instructions](agent-setup.md). For the normal setup and update
+steps, see [Installation](installation.md). Manual agent configuration is in the
 [agent setup reference](integrations.md).
 
 ## The installer
 
 ### Choose an installer path
 
-- Download and run the compatibility launcher:
+- Download the launcher into a temporary folder using the
+  [installation steps](installation.md#the-installer).
 
-   ```sh
-   curl -fsSLO https://raw.githubusercontent.com/NovusEdge/docket/main/installer/install.py
-   python3 install.py
-   ```
-
-   `curl -O` saves the file as `install.py` in the current directory. Outside a
-   checkout, the launcher downloads a native installer and verifies it against
+   Outside a checkout, the launcher downloads a native installer and verifies it against
    the release's `SHA256SUMS` file before running it. Release recipes build
    Linux, macOS, and Windows assets for amd64 and arm64. The matching asset must
    be published for the launcher to use it. Set `DOCKET_INSTALLER_VERSION` to
@@ -106,7 +102,7 @@ during installation stops further actions; completed actions remain applied.
 | `--checkout DIR` | Use an existing source checkout without replacing it |
 | `--yes` | Take every default and do not prompt |
 | `--no-tty` | Treat stdin as non-interactive and apply the same prompt defaults as `--yes` |
-| `--update` | Refresh the existing Docket checkout and native graph viewer; keep harness and PATH configuration unchanged |
+| `--update` | Refresh Docket, its graph viewer, and installed harness plugins; keep PATH and harness selection unchanged |
 | `--uninstall` | Remove what the installer wrote |
 | `--version` | Print the installer version |
 
@@ -122,11 +118,15 @@ only.
 
 ### Update, uninstall, and cleanup
 
-For a managed install, run the downloaded launcher with `--update` to
-fast-forward the managed checkout and refresh its viewer. The command must
-already be installed. This mode leaves `PATH` entries and harness configuration
-unchanged. Add `--dry-run` to review the checkout and viewer operations first.
+For a managed install, run `docket update`, or run the downloaded launcher with
+`--update`. Either one fast-forwards the managed checkout, refreshes its viewer,
+and refreshes the plugin each harness installed. The command must already be
+installed. `PATH` entries and the set of configured harnesses stay unchanged.
+Add `--dry-run` to review the checkout, viewer, and harness operations first.
 It cannot be combined with `--harness`, `--project`, or `--uninstall`.
+
+A copy installed only as a harness plugin has no checkout to update. There,
+`docket update` prints the command that harness needs and changes nothing.
 
 From a source checkout, `python3 installer/install.py --update` uses that
 checkout and does not fetch Git. It refreshes the viewer when Go is available.

@@ -27,7 +27,7 @@ verify:
 install:
     python3 installer/install.py
 
-# refresh only the installed Docket checkout and graph viewer
+# refresh the checkout, graph viewer, and installed harness plugins
 [group('install')]
 update:
     python3 installer/install.py --update

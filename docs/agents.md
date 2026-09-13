@@ -6,11 +6,10 @@ across sessions.
 
 ## Connect your agent
 
-Run the [installer](installation.md) and select the agent tools you use. It
-supports Claude Code, Codex, Gemini CLI, GitHub Copilot CLI, Cursor, and OpenCode.
-
-For OpenCode, follow the [manual setup note](integrations.md#opencode) after
-installation to put the plugin where OpenCode can load it.
+Use the [setup prompt](installation.md#let-your-agent-handle-setup) to let your
+agent install Docket and configure its integration. If you prefer manual setup,
+the [installation guide](installation.md#configure-an-agent-harness) has a route
+for Claude Code, Codex, Gemini CLI, GitHub Copilot CLI, Cursor, and OpenCode.
 
 After setup, start a new session in your project. Ask:
 
