@@ -1,10 +1,13 @@
 import argparse
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
@@ -60,6 +63,19 @@ class StateFile(unittest.TestCase):
             up.write_state({"latest": object()})
         self.assertEqual(list(up.state_dir().iterdir()), [])
 
+    def test_concurrent_writers_leave_one_intact_payload(self):
+        import threading
+
+        payloads = [{"latest": f"v0.{i}.0"} for i in range(8)]
+        threads = [threading.Thread(target=up.write_state, args=(p,)) for p in payloads]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        result = up.read_state()
+        self.assertIn(result, payloads)
+        self.assertEqual([p.name for p in up.state_dir().iterdir()], ["update.json"])
+
     def test_windows_state_dir_avoids_the_checkout_directory(self):
         os.environ.pop("XDG_STATE_HOME")
         os.environ["LOCALAPPDATA"] = r"C:\Users\a\AppData\Local"
@@ -93,6 +109,10 @@ class Shape(unittest.TestCase):
 
     def test_bare_directory_is_unknown(self):
         self.assertEqual(up.shape(self.root), "unknown")
+
+    def test_earlier_plugins_segment_does_not_shadow_the_real_cache(self):
+        root = Path("/home/a/plugins/work/.claude/plugins/cache/NovusEdge/docket/0.8.0")
+        self.assertEqual(up.plugin_origin(root), ("claude", "NovusEdge"))
 
 
 class Notice(unittest.TestCase):
@@ -257,6 +277,34 @@ import subprocess as sp
 DOCKET = Path(__file__).resolve().parent.parent / "bin" / "docket"
 
 
+class UpdateLine(unittest.TestCase):
+    """update_line() is called from the SessionStart hook and must never block on the network."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        os.environ["XDG_STATE_HOME"] = self.tmp.name
+        self.addCleanup(os.environ.pop, "XDG_STATE_HOME", None)
+        loader = SourceFileLoader("docket_cli_update_line", str(DOCKET))
+        spec = importlib.util.spec_from_loader("docket_cli_update_line", loader)
+        self.docket_cli = importlib.util.module_from_spec(spec)
+        loader.exec_module(self.docket_cli)
+
+    def test_due_check_forks_instead_of_fetching_inline(self):
+        def boom(url=up.RELEASES_URL):
+            raise AssertionError("update_line must not fetch inline")
+
+        spawned = []
+        self.addCleanup(setattr, up, "fetch_latest", up.fetch_latest)
+        self.addCleanup(setattr, up, "spawn_fetch", up.spawn_fetch)
+        up.fetch_latest = boom
+        up.spawn_fetch = lambda script: spawned.append(script)
+
+        self.docket_cli.update_line()
+
+        self.assertEqual(len(spawned), 1)
+
+
 class ContextNotice(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -361,31 +409,44 @@ class UpdateCommandBranches(unittest.TestCase):
     """Exercises cmd_update's side-effecting branches via the loaded module."""
 
     def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        os.environ["XDG_STATE_HOME"] = self.tmp.name
+        self.addCleanup(os.environ.pop, "XDG_STATE_HOME", None)
         loader = SourceFileLoader("docket_cli_update", str(DOCKET))
         spec = importlib.util.spec_from_loader("docket_cli_update", loader)
         self.docket_cli = importlib.util.module_from_spec(spec)
         loader.exec_module(self.docket_cli)
+        original_call = self.docket_cli.subprocess.call
+        self.addCleanup(setattr, self.docket_cli.subprocess, "call", original_call)
 
     def args(self):
         return argparse.Namespace(check=False)
 
     def test_plugin_shape_invokes_no_harness_call(self):
         recorded = []
-        self.addCleanup(setattr, up, "shape", up.shape)
-        up.shape = lambda root: "plugin"
+        root = Path("/home/a/.claude/plugins/cache/NovusEdge/docket/0.8.0")
         self.docket_cli.subprocess.call = lambda *a, **k: recorded.append((a, k)) or 0
-        rc = self.docket_cli.cmd_update(self.args())
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = self.docket_cli.cmd_update(self.args(), root=root)
         self.assertEqual(rc, 0)
         self.assertEqual(recorded, [])
+        printed = buf.getvalue()
+        self.assertIn("claude plugin update docket@NovusEdge -y", printed)
+        self.assertNotIn("docket update", printed)
 
     def test_unknown_shape_invokes_no_harness_call(self):
         recorded = []
-        self.addCleanup(setattr, up, "shape", up.shape)
-        up.shape = lambda root: "unknown"
         self.docket_cli.subprocess.call = lambda *a, **k: recorded.append((a, k)) or 0
-        rc = self.docket_cli.cmd_update(self.args())
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = self.docket_cli.cmd_update(self.args(), root=self.docket_cli.Path("/home/a/nowhere"))
         self.assertEqual(rc, 0)
         self.assertEqual(recorded, [])
+        printed = buf.getvalue()
+        self.assertIn(up.REPOSITORY, printed)
+        self.assertNotIn("docket update", printed)
 
     def test_source_shape_runs_the_installer_with_checkout(self):
         recorded = []
@@ -399,6 +460,37 @@ class UpdateCommandBranches(unittest.TestCase):
             self.docket_cli.sys.executable, str(root / "installer" / "install.py"),
             "--checkout", str(root), "--update",
         ]])
+
+    def test_managed_shape_downloads_the_cached_tag_launcher(self):
+        self.addCleanup(setattr, up, "shape", up.shape)
+        up.shape = lambda root: "managed"
+        up.write_state({"latest": "v0.9.0"})
+        urls = []
+
+        def fake_urlopen(url, timeout=30):
+            urls.append(url)
+            return io.BytesIO(b"# launcher")
+
+        self.docket_cli.subprocess.call = lambda *a, **k: 0
+        with unittest.mock.patch("urllib.request.urlopen", fake_urlopen):
+            rc = self.docket_cli.cmd_update(self.args())
+        self.assertEqual(rc, 0)
+        self.assertEqual(urls, [self.docket_cli.LAUNCHER_URL_TEMPLATE.format(tag="v0.9.0")])
+
+    def test_managed_shape_falls_back_to_main_branch_without_a_cached_tag(self):
+        self.addCleanup(setattr, up, "shape", up.shape)
+        up.shape = lambda root: "managed"
+        urls = []
+
+        def fake_urlopen(url, timeout=30):
+            urls.append(url)
+            return io.BytesIO(b"# launcher")
+
+        self.docket_cli.subprocess.call = lambda *a, **k: 0
+        with unittest.mock.patch("urllib.request.urlopen", fake_urlopen):
+            rc = self.docket_cli.cmd_update(self.args())
+        self.assertEqual(rc, 0)
+        self.assertEqual(urls, [self.docket_cli.MAIN_LAUNCHER_URL])
 
 
 if __name__ == "__main__":

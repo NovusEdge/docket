@@ -495,6 +495,30 @@ func TestUpdateRefreshesAClaudePluginInstall(t *testing.T) {
 	}
 }
 
+func TestUpdateWritesTheManagedMarker(t *testing.T) {
+	env := testEnv(nil)
+	plan, err := BuildPlan(env, Options{Update: true, Prefix: "/home/a/.local/bin"})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	if _, ok := findAction(plan.Actions, "write", "/src/docket/.docket-managed"); !ok {
+		t.Fatalf("no marker action in update plan: %#v", plan.Actions)
+	}
+}
+
+func TestUpdateInSourceModeWritesNoManagedMarker(t *testing.T) {
+	env := testEnv(nil)
+	plan, err := BuildPlan(env, Options{Update: true, Prefix: "/home/a/.local/bin", Checkout: "/src/docket"})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	for _, action := range plan.Actions {
+		if strings.HasSuffix(action.Path, ".docket-managed") {
+			t.Fatalf("source-mode update wrote a managed marker: %#v", action)
+		}
+	}
+}
+
 func TestUpdateReinstallsTheCodexPlugin(t *testing.T) {
 	env := testEnv(map[string]string{
 		"/home/a/.local/bin/.docket-codex.json":        codexReceipt(testEnv(nil)),
@@ -562,8 +586,8 @@ func TestUpdateLeavesANoRegistrationInstallAlone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildPlan: %v", err)
 	}
-	if len(plan.Actions) != 0 {
-		t.Fatalf("non-docket registration produced actions: %#v", plan.Actions)
+	if got := commandArgs(plan); len(got) != 0 {
+		t.Fatalf("non-docket registration produced harness commands: %#v", got)
 	}
 }
 
@@ -576,8 +600,8 @@ func TestUpdateNotesAnAbsentHarnessCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildPlan: %v", err)
 	}
-	if len(plan.Actions) != 0 {
-		t.Fatalf("actions without claude on PATH: %#v", plan.Actions)
+	if got := commandArgs(plan); len(got) != 0 {
+		t.Fatalf("harness commands without claude on PATH: %#v", got)
 	}
 	if len(plan.Notes) != 1 || !strings.Contains(plan.Notes[0], "claude") {
 		t.Fatalf("notes = %#v", plan.Notes)

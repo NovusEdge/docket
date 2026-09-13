@@ -84,7 +84,7 @@ func buildPlan(env Environment, opts Options) (Plan, error) {
 		return buildUninstall(env, prefix, opts.Project)
 	}
 	if opts.Update {
-		return buildUpdate(env, prefix)
+		return buildUpdate(env, prefix, opts.Checkout)
 	}
 
 	plan := Plan{}
@@ -347,7 +347,7 @@ func planOpenCode(env Environment) []Action {
 	return []Action{{Kind: "write", Path: p, Text: text, Label: "opencode"}}
 }
 
-func buildUpdate(env Environment, prefix string) (Plan, error) {
+func buildUpdate(env Environment, prefix string, checkout string) (Plan, error) {
 	plan := Plan{}
 	actions, notes, err := updateClaude(env)
 	if err != nil {
@@ -358,6 +358,9 @@ func buildUpdate(env Environment, prefix string) (Plan, error) {
 	actions, notes = updateCodex(env, prefix)
 	plan.Actions = append(plan.Actions, actions...)
 	plan.Notes = append(plan.Notes, notes...)
+	if checkout == "" {
+		plan.Actions = append(plan.Actions, planMarker(env, prefix)...)
+	}
 	return plan, nil
 }
 

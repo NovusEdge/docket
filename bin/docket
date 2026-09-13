@@ -1318,12 +1318,15 @@ LAUNCHER_URL_TEMPLATE = (
     "https://raw.githubusercontent.com/NovusEdge/docket/refs/tags/{tag}/"
     "installer/install.py"
 )
+MAIN_LAUNCHER_URL = (
+    "https://raw.githubusercontent.com/NovusEdge/docket/main/installer/install.py"
+)
 
 
-def cmd_update(args: argparse.Namespace) -> int:
+def cmd_update(args: argparse.Namespace, root: Path | None = None) -> int:
     from docket_update import is_newer, parse_version, read_state, shape, update_command
 
-    root = Path(__file__).resolve().parent.parent
+    root = root or Path(__file__).resolve().parent.parent
     running = version()
     latest = str(read_state().get("latest", ""))
     if args.check:
@@ -1346,25 +1349,25 @@ def cmd_update(args: argparse.Namespace) -> int:
                    "--checkout", str(root), "--update"]
         print(" ".join(command))
         return subprocess.call(command)
-    if not latest or parse_version(latest) is None:
-        print("docket: no cached release information yet; run `docket update --check`",
-              file=sys.stderr)
-        return 2
-    return _run_downloaded_update(latest)
+    tag = latest if latest and parse_version(latest) is not None else None
+    return _run_downloaded_update(tag)
 
 
-def _run_downloaded_update(tag: str) -> int:
-    """Fetch the launcher from the given release tag and run it outside the checkout.
+def _run_downloaded_update(tag: str | None) -> int:
+    """Fetch the launcher and run it outside the checkout.
 
     The bundled launcher takes its own checkout branch, which needs Go and
     passes --checkout, and --checkout makes the planner skip the git update.
+    Without a cached release tag, fall back to the main branch so a fresh
+    install (no cache populated yet) can still update.
     """
     from urllib.request import urlopen
 
+    url = LAUNCHER_URL_TEMPLATE.format(tag=tag) if tag else MAIN_LAUNCHER_URL
     with tempfile.TemporaryDirectory() as work:
         launcher = Path(work) / "install.py"
         try:
-            with urlopen(LAUNCHER_URL_TEMPLATE.format(tag=tag), timeout=30) as response:
+            with urlopen(url, timeout=30) as response:
                 launcher.write_bytes(response.read())
         except OSError as exc:
             print(f"docket: could not download the installer: {exc}", file=sys.stderr)

@@ -89,15 +89,18 @@ def plugin_origin(root: Path) -> tuple[str, str] | None:
     <plugin>/<version>, so the anchor directory is what tells them apart.
     """
     parts = root.parts
-    if "plugins" not in parts:
+    index = None
+    for i, part in enumerate(parts):
+        if part == "plugins" and i + 1 < len(parts) and parts[i + 1] == "cache":
+            index = i
+    if index is None or index == 0:
         return None
-    index = parts.index("plugins")
     tail = parts[index + 1:]
-    if len(tail) < 2 or tail[0] != "cache":
+    if len(tail) < 2:
         return None
     marketplace = tail[1]
     for anchor, harness in _HARNESS_ANCHORS:
-        if anchor in parts[:index]:
+        if parts[index - 1] == anchor:
             return harness, marketplace
     return None
 
