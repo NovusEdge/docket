@@ -1,20 +1,33 @@
 """CLI checks. Run directly with ``python3 tests/test_docket.py``."""
 
-import importlib.util
 import json
 import os
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
-from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from docket import env as docket_env  # noqa: E402
+from docket.cli import graph as cli_graph, query as cli_query  # noqa: E402
+from docket.ledger import make_record  # noqa: E402
+
 DOCKET = str(Path(__file__).resolve().parent.parent / "bin" / "docket")
-loader = SourceFileLoader("docket_cli", DOCKET)
-spec = importlib.util.spec_from_loader("docket_cli", loader)
-docket_cli = importlib.util.module_from_spec(spec)
-loader.exec_module(docket_cli)
+
+# The CLI used to load as one module, and these tests patch its attributes.
+# Each name now belongs to the module that owns it, and a patch must land
+# there: patching a copy bound into another module changes nothing, and these
+# tests swap ledger_path precisely to keep themselves off the real ledger.
+docket_cli = types.SimpleNamespace(
+    make_record=make_record,
+    read=docket_env.read,
+    retired_by=docket_env.retired_by,
+    _graph_payload=cli_graph._graph_payload,
+    auto_scope_files=cli_query.auto_scope_files,
+)
 
 
 def run(cwd, *args):
@@ -105,17 +118,17 @@ class GraphDispatchTests(unittest.TestCase):
                 docket_cli.make_record("question", "Open", author="test", record_id="q3"),
             ]
             ledger.write_text("\n".join(json.dumps(item) for item in entries) + "\n")
-            originals = (docket_cli.ledger_path, docket_cli.sys.stdin, docket_cli.sys.stdout,
-                         docket_cli.sys.stderr, docket_cli._graph_viewer_path,
-                         docket_cli.subprocess.run)
+            originals = (docket_env.ledger_path, sys.stdin, sys.stdout,
+                         sys.stderr, cli_graph._graph_viewer_path,
+                         cli_graph.subprocess.run)
             try:
-                docket_cli.ledger_path = lambda: ledger
-                docket_cli.sys.stdin = _TTYBuffer(True)
-                docket_cli.sys.stdout = _TTYBuffer(True)
-                docket_cli.sys.stderr = _TTYBuffer(False)
+                docket_env.ledger_path = lambda: ledger
+                sys.stdin = _TTYBuffer(True)
+                sys.stdout = _TTYBuffer(True)
+                sys.stderr = _TTYBuffer(False)
                 viewer = root / "viewer"
                 viewer.write_text("viewer")
-                docket_cli._graph_viewer_path = lambda: viewer
+                cli_graph._graph_viewer_path = lambda: viewer
                 seen = {}
 
                 def fake_run(argv, **kwargs):
@@ -124,65 +137,65 @@ class GraphDispatchTests(unittest.TestCase):
                     self.assertTrue(Path(argv[2]).exists())
                     return subprocess.CompletedProcess(argv, 7)
 
-                docket_cli.subprocess.run = fake_run
+                cli_graph.subprocess.run = fake_run
                 args = type("Args", (), {"style": None, "state": None, "kind": None,
                                           "find": None, "plain": False, "pretty": False,
                                           "interactive": False, "no_interactive": False})()
-                self.assertEqual(docket_cli.cmd_graph(args), 7)
+                self.assertEqual(cli_graph.cmd_graph(args), 7)
                 self.assertEqual(seen["payload"]["version"], 2)
                 self.assertFalse(Path(seen["argv"][2]).exists())
 
                 pretty = type("Args", (), {"style": None, "state": None, "kind": None,
                                             "find": None, "plain": False, "pretty": True,
                                             "interactive": False, "no_interactive": False})()
-                self.assertEqual(docket_cli.cmd_graph(pretty), 7)
+                self.assertEqual(cli_graph.cmd_graph(pretty), 7)
                 self.assertEqual(seen["argv"][3], "--pretty")
 
                 def broken_run(*argv, **kwargs):
                     seen["broken"] = argv[0][2]
                     raise OSError("Exec format error")
 
-                docket_cli.subprocess.run = broken_run
-                self.assertEqual(docket_cli.cmd_graph(args), 1)
-                self.assertIn("could not start interactive viewer", docket_cli.sys.stderr.getvalue())
+                cli_graph.subprocess.run = broken_run
+                self.assertEqual(cli_graph.cmd_graph(args), 1)
+                self.assertIn("could not start interactive viewer", sys.stderr.getvalue())
                 self.assertFalse(Path(seen["broken"]).exists())
 
-                docket_cli.sys.stdin = _TTYBuffer(False)
-                docket_cli.sys.stdout = _TTYBuffer(False)
+                sys.stdin = _TTYBuffer(False)
+                sys.stdout = _TTYBuffer(False)
                 called = []
-                docket_cli.subprocess.run = lambda *a, **k: called.append((a, k))
-                self.assertEqual(docket_cli.cmd_graph(args), 0)
+                cli_graph.subprocess.run = lambda *a, **k: called.append((a, k))
+                self.assertEqual(cli_graph.cmd_graph(args), 0)
                 self.assertFalse(called)
-                self.assertIn("Root", docket_cli.sys.stdout.getvalue())
+                self.assertIn("Root", sys.stdout.getvalue())
 
-                docket_cli.sys.stdin = _TTYBuffer(True)
-                docket_cli.sys.stdout = _TTYBuffer(True)
-                docket_cli.sys.stderr = _TTYBuffer(False)
-                docket_cli._graph_viewer_path = lambda: root / "missing"
-                self.assertEqual(docket_cli.cmd_graph(args), 0)
-                self.assertIn("Root", docket_cli.sys.stdout.getvalue())
-                self.assertIn("build", docket_cli.sys.stderr.getvalue().lower())
+                sys.stdin = _TTYBuffer(True)
+                sys.stdout = _TTYBuffer(True)
+                sys.stderr = _TTYBuffer(False)
+                cli_graph._graph_viewer_path = lambda: root / "missing"
+                self.assertEqual(cli_graph.cmd_graph(args), 0)
+                self.assertIn("Root", sys.stdout.getvalue())
+                self.assertIn("build", sys.stderr.getvalue().lower())
 
                 interactive = type("Args", (), {"style": None, "state": None, "kind": None,
                                                  "find": None, "plain": False, "pretty": False,
                                                  "interactive": True, "no_interactive": False})()
-                self.assertEqual(docket_cli.cmd_graph(interactive), 1)
-                docket_cli.sys.stdin = _TTYBuffer(False)
-                self.assertEqual(docket_cli.cmd_graph(interactive), 1)
-                docket_cli.sys.stdin = _TTYBuffer(True)
-                docket_cli._graph_viewer_path = lambda: viewer
+                self.assertEqual(cli_graph.cmd_graph(interactive), 1)
+                sys.stdin = _TTYBuffer(False)
+                self.assertEqual(cli_graph.cmd_graph(interactive), 1)
+                sys.stdin = _TTYBuffer(True)
+                cli_graph._graph_viewer_path = lambda: viewer
 
                 def interrupt(*args, **kwargs):
                     seen["interrupt"] = args[0][2]
                     raise KeyboardInterrupt
 
-                docket_cli.subprocess.run = interrupt
-                self.assertEqual(docket_cli.cmd_graph(interactive), 130)
+                cli_graph.subprocess.run = interrupt
+                self.assertEqual(cli_graph.cmd_graph(interactive), 130)
                 self.assertFalse(Path(seen["interrupt"]).exists())
             finally:
-                (docket_cli.ledger_path, docket_cli.sys.stdin, docket_cli.sys.stdout,
-                 docket_cli.sys.stderr, docket_cli._graph_viewer_path,
-                 docket_cli.subprocess.run) = originals
+                (docket_env.ledger_path, sys.stdin, sys.stdout,
+                 sys.stderr, cli_graph._graph_viewer_path,
+                 cli_graph.subprocess.run) = originals
 
     def test_graph_flag_conflicts(self):
         for flags in (("--interactive", "--no-interactive"),
@@ -238,19 +251,19 @@ class GraphDispatchTests(unittest.TestCase):
                                        depends_on=["c1"], author="test", record_id="d2"),
             ]
             ledger.write_text("\n".join(json.dumps(item) for item in entries) + "\n")
-            original = docket_cli.ledger_path
-            old_stdout = docket_cli.sys.stdout
+            original = docket_env.ledger_path
+            old_stdout = sys.stdout
             try:
-                docket_cli.ledger_path = lambda: ledger
-                docket_cli.sys.stdout = _TTYBuffer(False)
+                docket_env.ledger_path = lambda: ledger
+                sys.stdout = _TTYBuffer(False)
                 args = type("Args", (), {"style": "compact", "state": None, "kind": None,
                                           "find": None, "plain": True, "pretty": False,
                                           "interactive": False, "no_interactive": False})()
-                self.assertEqual(docket_cli.cmd_graph(args), 0)
-                self.assertIn("blocked by c1", docket_cli.sys.stdout.getvalue())
+                self.assertEqual(cli_graph.cmd_graph(args), 0)
+                self.assertIn("blocked by c1", sys.stdout.getvalue())
             finally:
-                docket_cli.ledger_path = original
-                docket_cli.sys.stdout = old_stdout
+                docket_env.ledger_path = original
+                sys.stdout = old_stdout
 
 
 class AutoScopeTests(unittest.TestCase):
