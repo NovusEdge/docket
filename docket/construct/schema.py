@@ -10,13 +10,21 @@ import hashlib
 import re
 
 KINDS = ("claim", "decision", "question")
-STATES = ("staged", "accepted", "rejected")
+STATES = ("staged", "accepted", "rejected", "written")
 CONFIDENCE = ("low", "medium", "high")
 
 SCOPE_MAX = 200
 
-_EMPHASIS = re.compile(r"[*_`]+")
+# Asterisk and backtick are always markup here. Underscore is not: the corpus
+# this was built against carries 62162 identifier underscores against 9 uses of
+# _emphasis_, and stripping them merges set_timeout with settimeout. A merged
+# anchor silently collapses two records into one.
+_EMPHASIS = re.compile(r"[*`]+")
 _SPACE = re.compile(r"\s+")
+
+# A scope entry matching the whole tree makes its record surface in every
+# briefing, which is worse than carrying no scope at all.
+_EVERYTHING = {"*", "**", "*/*", "**/*", "**/**", "./**"}
 
 
 class SchemaError(ValueError):
@@ -34,15 +42,20 @@ def normalize_anchor(text: str) -> str:
     return _SPACE.sub(" ", _EMPHASIS.sub("", text)).strip()
 
 
-def identity(source_path: str, anchor: str) -> str:
+def identity(source_path: str, anchor: str, kind: str = "") -> str:
     """The key that survives re-extraction.
 
     Extraction is not deterministic, so the model's own wording cannot key a
     record across runs. The anchor is verbatim source text and the path pins
     which document it came from. A NUL joins them because no path contains one,
     so no pair of (path, anchor) can collide by concatenation.
+
+    `kind` separates a derived record from the one it borrowed from. A
+    contradiction question takes another record's anchor and source so a reviewer
+    still has a line to open, and without this it would key identically and one
+    of the two would be dropped as a duplicate.
     """
-    material = f"{source_path}\0{normalize_anchor(anchor)}".encode()
+    material = f"{source_path}\0{normalize_anchor(anchor)}\0{kind}".encode()
     return hashlib.sha256(material).hexdigest()
 
 
@@ -55,15 +68,24 @@ def invalid_scope(scope: list[str]) -> list[str]:
     """
     bad = []
     for item in scope:
-        if not item or len(item) > SCOPE_MAX or _SPACE.search(item):
+        if (not item
+                or len(item) > SCOPE_MAX
+                or _SPACE.search(item)
+                or item in _EVERYTHING
+                or item.startswith("/")
+                or ".." in item.split("/")):
             bad.append(item)
     return bad
 
 
 def proposal(kind: str, text: str, anchor: str, source: dict,
              choice: str = "", rationale: str = "", scope: list[str] | None = None,
-             confidence: str = "low", **extra) -> dict:
-    """One staged record, keyed and checked."""
+             confidence: str = "low", key_kind: str = "", **extra) -> dict:
+    """One staged record, keyed and checked.
+
+    `key_kind` separates a record derived from another's anchor, so the two do
+    not key identically. See `identity`.
+    """
     if kind not in KINDS:
         raise SchemaError(f"unknown kind {kind!r}; expected one of {', '.join(KINDS)}")
     if not text.strip():
@@ -84,7 +106,7 @@ def proposal(kind: str, text: str, anchor: str, source: dict,
         raise SchemaError(f"scope entries do not address a file: {bad!r}")
 
     return {
-        "key": identity(source["path"], anchor),
+        "key": identity(source["path"], anchor, kind=key_kind),
         "kind": kind,
         "text": text,
         "choice": choice,

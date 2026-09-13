@@ -92,6 +92,40 @@ class SupersedesTests(unittest.TestCase):
         self.assertEqual(edges, [])
 
 
+class LedgerRuleTests(unittest.TestCase):
+    """Rules docket/ledger.py enforces on append, mirrored here.
+
+    An edge that passes validation and then aborts the append is worse than one
+    dropped now: acceptance has no transaction, so the abort leaves records
+    written and the stage untouched.
+    """
+
+    def test_drops_support_pointing_at_a_question(self):
+        items = [prop("q", kind="question", choice=""), prop("d")]
+        edges, dropped = link.validate(
+            [{"kind": "supports", "from": "p2", "to": "p1"}], items)
+        self.assertEqual(edges, [])
+        self.assertIn("question", dropped[0])
+
+    def test_keeps_support_pointing_at_a_claim(self):
+        items = [prop("c", kind="claim", choice=""), prop("d")]
+        edges, _ = link.validate(
+            [{"kind": "supports", "from": "p2", "to": "p1"}], items)
+        self.assertEqual(len(edges), 1)
+
+    def test_drops_a_second_record_superseding_the_same_target(self):
+        # The ledger retires a target once; the second append is refused.
+        items = [prop("old", date="2026-01-01"),
+                 prop("mid", date="2026-03-01"),
+                 prop("new", date="2026-06-01")]
+        edges, dropped = link.validate([
+            {"kind": "supersedes", "from": "p2", "to": "p1"},
+            {"kind": "supersedes", "from": "p3", "to": "p1"},
+        ], items)
+        self.assertEqual(len(edges), 1)
+        self.assertTrue(any("already" in d for d in dropped))
+
+
 class SupportsAcyclicTests(unittest.TestCase):
     def test_keeps_a_chain(self):
         items = [prop("a"), prop("b"), prop("c")]
@@ -179,6 +213,14 @@ class ContradictionTests(unittest.TestCase):
         self.assertEqual(link.questions(edge, items)[0]["key"],
                          link.questions(edge, items)[0]["key"])
 
+    def test_the_question_keys_apart_from_the_record_it_borrowed_from(self):
+        # It takes that record's anchor and source. Keying the same would make
+        # acceptance drop one of the two as a duplicate, silently.
+        items = self.pair()
+        asked = link.questions([{"kind": "contradicts", "from": "p1", "to": "p2"}], items)
+        self.assertNotEqual(asked[0]["key"], items[0]["key"])
+        self.assertNotEqual(asked[0]["key"], items[1]["key"])
+
     def test_a_contradiction_writes_no_relation_onto_either_record(self):
         items = self.pair()
         out = link.apply([{"kind": "contradicts", "from": "p1", "to": "p2"}], items)
@@ -190,8 +232,11 @@ class ContradictionTests(unittest.TestCase):
 
 
 class BatchTests(unittest.TestCase):
-    def items(self, n):
-        return [prop(f"anchor {i}", path=f"doc{i // 5}.md") for i in range(n)]
+    def items(self, n, per_doc=7):
+        # Seven per document against a size of 120 divides unevenly, so a naive
+        # slicer splits a document and fails. Five per document would divide
+        # cleanly and let a slicer pass.
+        return [prop(f"anchor {i}", path=f"doc{i // per_doc}.md") for i in range(n)]
 
     def test_a_small_set_is_one_batch(self):
         self.assertEqual(len(link.batches(self.items(10), size=120)), 1)
@@ -208,13 +253,13 @@ class BatchTests(unittest.TestCase):
         # Records from one document are the likeliest to relate, so splitting a
         # document costs the edges the linker would most reliably find.
         batches = link.batches(self.items(300), size=120)
-        for batch in batches:
-            pass
-        seen: dict[str, int] = {}
+        self.assertGreater(len(batches), 1)
+        where: dict[str, int] = {}
         for index, batch in enumerate(batches):
             for item in batch:
                 path = item["source"]["path"]
-                self.assertIn(seen.setdefault(path, index), (index,))
+                self.assertEqual(where.setdefault(path, index), index,
+                                 f"{path} spans more than one batch")
 
     def test_batching_is_off_for_a_size_of_zero(self):
         self.assertEqual(len(link.batches(self.items(300), size=0)), 1)
@@ -238,12 +283,23 @@ class ApplyTests(unittest.TestCase):
         out = link.apply([], items)
         self.assertEqual(out[0].get("supports", []), [])
 
-    def test_collects_several_supports_into_one_justification_set(self):
+    def test_keeps_several_grounds_as_separate_alternatives(self):
+        # docket/ledger.py reads supports as a list of conjunctive sets, so one
+        # set means "all of these are required". A linker sees two independent
+        # grounds and cannot tell that; joining them claims more than it saw.
         items = [prop("a"), prop("b"), prop("c")]
         edges = [{"kind": "supports", "from": "p3", "to": "p1"},
                  {"kind": "supports", "from": "p3", "to": "p2"}]
         out = link.apply(edges, items)
-        self.assertEqual(out[2]["supports"], [[items[0]["key"], items[1]["key"]]])
+        self.assertEqual(out[2]["supports"],
+                         [[items[0]["key"]], [items[1]["key"]]])
+
+    def test_does_not_mutate_the_records_it_was_given(self):
+        items = [prop("a", date="2026-01-01"), prop("b", date="2026-06-01")]
+        items[1]["supersedes"] = []
+        before = items[1]["supersedes"]
+        link.apply([{"kind": "supersedes", "from": "p2", "to": "p1"}], items)
+        self.assertEqual(before, [])
 
 
 if __name__ == "__main__":

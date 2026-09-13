@@ -71,6 +71,7 @@ def validate(edges: list[dict], proposals: list[dict]) -> tuple[list[dict], list
     kept: list[dict] = []
     dropped: list[str] = []
     supports: list[tuple[str, str]] = []
+    retired: dict[str, str] = {}
 
     for edge in edges:
         kind, tail, head = edge.get("kind"), edge.get("from"), edge.get("to")
@@ -109,8 +110,22 @@ def validate(edges: list[dict], proposals: list[dict]) -> tuple[list[dict], list
                     dropped.append(f"{where}: {tail} is earlier than or same-day as "
                                    f"{head}, so it cannot supersede it")
                     continue
+                if head in retired:
+                    # The ledger retires a target once and refuses the second
+                    # append. Acceptance has no transaction, so an edge that
+                    # aborts there leaves records written and the stage untouched.
+                    dropped.append(f"{where}: {head} is already superseded by "
+                                   f"{retired[head]}")
+                    continue
+                retired[head] = tail
 
             if kind == "supports":
+                if target["kind"] == "question":
+                    # ledger.py refuses support pointing at a question: an
+                    # inquiry is not a ground.
+                    dropped.append(f"{where}: {head} is a question, which cannot "
+                                   "ground anything")
+                    continue
                 # The new edge points tail -> head, so a path from head back to
                 # tail would close a loop.
                 if _reaches(supports, head, tail):
@@ -146,6 +161,7 @@ def questions(edges: list[dict], proposals: list[dict]) -> list[dict]:
             text=(f"Which holds? {first['text']} "
                   f"Against: {second['text']}"),
             anchor=first["anchor"],
+            key_kind="contradiction",
             rationale=(f"Extraction found both, from {first['source']['path']} "
                        f"and {second['source']['path']}. Neither source settles it."),
             source=dict(first["source"]),
@@ -189,25 +205,25 @@ def apply(edges: list[dict], proposals: list[dict]) -> list[dict]:
     two halves of one.
     """
     key_of = labels(proposals)
-    out = [dict(item) for item in proposals]
+    # Deep enough to own every list this function appends to, so an input
+    # record's own relations are never mutated.
+    out = [{**item,
+            "supports": [list(group) for group in item.get("supports") or []],
+            "supersedes": list(item.get("supersedes") or [])}
+           for item in proposals]
     index_of = {_label(index): index for index in range(len(proposals))}
 
-    grouped: dict[str, list[str]] = {}
     for edge in edges:
         if edge["kind"] == "contradicts":
             # Lands on neither record; questions() turns it into its own.
             continue
+        record = out[index_of[edge["from"]]]
         target_key = key_of[edge["to"]]
         if edge["kind"] == "supports":
-            grouped.setdefault(edge["from"], []).append(target_key)
+            # One set per ground. docket/ledger.py reads supports as a list of
+            # conjunctive sets, so joining two grounds into one set would claim
+            # both are required, which is more than the linker saw.
+            record["supports"].append([target_key])
         else:
-            record = out[index_of[edge["from"]]]
-            record.setdefault("supersedes", []).append(target_key)
-
-    for tail, keys in grouped.items():
-        out[index_of[tail]]["supports"] = [keys]
-
-    for record in out:
-        record.setdefault("supports", [])
-        record.setdefault("supersedes", [])
+            record["supersedes"].append(target_key)
     return out

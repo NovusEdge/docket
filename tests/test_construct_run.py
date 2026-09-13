@@ -1,10 +1,41 @@
 """The two-pass driver, with the provider call injected."""
 
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
 from docket.construct import run
+
+
+class SchemaShapeTests(unittest.TestCase):
+    """Both schemas travel with `"strict": True`.
+
+    Strict mode requires every property listed in `required` and
+    `additionalProperties: false`. A schema that misses either is refused by the
+    endpoint, and no fake caller would ever notice.
+    """
+
+    def objects(self, node):
+        if isinstance(node, dict):
+            if node.get("type") == "object":
+                yield node
+            for value in node.values():
+                yield from self.objects(value)
+        elif isinstance(node, list):
+            for value in node:
+                yield from self.objects(value)
+
+    def test_every_property_is_required(self):
+        for schema in (run.EXTRACT_SCHEMA, run.LINK_SCHEMA):
+            for node in self.objects(schema):
+                self.assertEqual(set(node.get("properties", {})),
+                                 set(node.get("required", [])), node)
+
+    def test_no_object_admits_extra_properties(self):
+        for schema in (run.EXTRACT_SCHEMA, run.LINK_SCHEMA):
+            for node in self.objects(schema):
+                self.assertIs(node.get("additionalProperties"), False, node)
 
 
 class FakeCaller:
@@ -17,7 +48,9 @@ class FakeCaller:
 
     def __call__(self, prompt, schema):
         self.prompts.append(prompt)
-        if "edges" in schema.get("properties", {}):
+        # Identity, never a property name: dispatching on the schema's contents
+        # would couple every test to the schema's internals.
+        if schema is run.LINK_SCHEMA:
             return self.link_reply
         return self.extract_reply
 
@@ -27,6 +60,53 @@ def doc(root, name, body):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body)
     return path
+
+
+class PathSpellingTests(unittest.TestCase):
+    """A record's key and its git date both hinge on the path's spelling.
+
+    An absolute path argument would otherwise restage every record as new, and
+    make every git-date lookup miss, which silently disables supersession.
+    """
+
+    def test_an_absolute_path_records_the_repository_relative_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            (root / "docs").mkdir()
+            doc(root, "docs/one.md", "# one\n\nClaim: a\n")
+            caller = FakeCaller({"records": [
+                {"kind": "claim", "text": "A", "choice": "", "anchor": "Claim: a",
+                 "rationale": "", "scope": []}]})
+            got, _ = run.two_pass([str(root / "docs")], caller=caller, root=root)
+            self.assertEqual(got[0]["source"]["path"], "docs/one.md")
+
+    def test_derives_the_root_from_the_documents_own_repository(self):
+        # Reading another project's history is the main case, so the root cannot
+        # be the working directory. Without this, paths stay absolute and a
+        # different spelling on the next run restages every record.
+        with tempfile.TemporaryDirectory() as tmp:
+            other = Path(tmp).resolve() / "other"
+            (other / "docs").mkdir(parents=True)
+            subprocess.run(["git", "-C", str(other), "init", "-q"], check=True)
+            doc(other, "docs/one.md", "# one\n\nClaim: a\n")
+            caller = FakeCaller({"records": [
+                {"kind": "claim", "text": "A", "choice": "", "anchor": "Claim: a",
+                 "rationale": "", "scope": []}]})
+            got, _ = run.two_pass([str(other / "docs")], caller=caller)
+            self.assertEqual(got[0]["source"]["path"], "docs/one.md")
+
+    def test_two_spellings_of_one_document_give_one_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            doc(root, "one.md", "# one\n\nClaim: a\n")
+            reply = {"records": [
+                {"kind": "claim", "text": "A", "choice": "", "anchor": "Claim: a",
+                 "rationale": "", "scope": []}]}
+            absolute, _ = run.two_pass([str(root / "one.md")],
+                                       caller=FakeCaller(reply), root=root)
+            relative, _ = run.two_pass([str(root / "./one.md")],
+                                       caller=FakeCaller(reply), root=root)
+            self.assertEqual(absolute[0]["key"], relative[0]["key"])
 
 
 class DiscoveryTests(unittest.TestCase):
@@ -135,7 +215,7 @@ class LinkPassTests(unittest.TestCase):
         doc(tmp, "b.md", self.SOURCE_B)
 
         def per_doc(prompt, schema):
-            if "edges" in schema.get("properties", {}):
+            if schema is run.LINK_SCHEMA:
                 return caller.link_reply
             if "sanitized" in prompt:
                 return {"records": [{"kind": "claim", "text": "State must be sanitized",
@@ -182,7 +262,7 @@ class LinkBatchTests(unittest.TestCase):
             calls = []
 
             def caller(prompt, schema):
-                if "edges" in schema.get("properties", {}):
+                if schema is run.LINK_SCHEMA:
                     calls.append(prompt)
                     return {"edges": []}
                 n = prompt.split("Claim: number ")[1][0]
@@ -200,7 +280,7 @@ class LinkBatchTests(unittest.TestCase):
             doc(tmp, "b.md", "# b\n\nClaim: latency is under 50ms\n")
 
             def caller(prompt, schema):
-                if "edges" in schema.get("properties", {}):
+                if schema is run.LINK_SCHEMA:
                     return {"edges": [{"kind": "contradicts", "from": "p1", "to": "p2"}]}
                 text = "latency is 200ms" if "200ms" in prompt else "latency is under 50ms"
                 return {"records": [{"kind": "claim", "text": text.capitalize(), "choice": "",
@@ -222,6 +302,68 @@ class DryRunTests(unittest.TestCase):
             self.assertEqual(got, [])
             self.assertEqual(caller.prompts, [])
             self.assertTrue(any("1 document" in line for line in report))
+
+
+class RetryTests(unittest.TestCase):
+    """One call per document across a pool, so a 429 is expected.
+
+    Without a retry the whole document's records are lost to one rate limit.
+    """
+
+    def source(self, tmp):
+        doc(tmp, "a.md", "# a\n\nClaim: one\n")
+        return {"records": [{"kind": "claim", "text": "One", "choice": "",
+                             "anchor": "Claim: one", "rationale": "", "scope": []}]}
+
+    def test_retries_a_rate_limited_document(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            reply = self.source(tmp)
+            tries = {"n": 0}
+
+            def limited(prompt, schema):
+                tries["n"] += 1
+                if tries["n"] < 3:
+                    raise RuntimeError("429 Too Many Requests")
+                return reply
+
+            got, _ = run.two_pass([tmp], caller=limited, sleep=lambda s: None)
+            self.assertEqual(len(got), 1)
+            self.assertEqual(tries["n"], 3)
+
+    def test_waits_longer_between_attempts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.source(tmp)
+            waits = []
+
+            def limited(prompt, schema):
+                raise RuntimeError("429 rate limited")
+
+            run.two_pass([tmp], caller=limited, sleep=waits.append)
+            self.assertTrue(waits)
+            self.assertEqual(waits, sorted(waits))
+
+    def test_gives_up_after_the_last_attempt_and_reports_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.source(tmp)
+
+            def limited(prompt, schema):
+                raise RuntimeError("429 rate limited")
+
+            got, report = run.two_pass([tmp], caller=limited, sleep=lambda s: None)
+            self.assertEqual(got, [])
+            self.assertTrue(any("429" in line for line in report))
+
+    def test_does_not_retry_an_error_that_is_not_a_rate_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.source(tmp)
+            tries = {"n": 0}
+
+            def broken(prompt, schema):
+                tries["n"] += 1
+                raise RuntimeError("400 malformed schema")
+
+            run.two_pass([tmp], caller=broken, sleep=lambda s: None)
+            self.assertEqual(tries["n"], 1)
 
 
 class FailureTests(unittest.TestCase):

@@ -10,7 +10,7 @@ import fnmatch
 import json
 from pathlib import Path
 
-from docket.construct.schema import CONFIDENCE
+from docket.construct.schema import CONFIDENCE, STATES
 
 PROPOSED = Path(".docket/proposed.jsonl")
 
@@ -18,11 +18,36 @@ PROPOSED = Path(".docket/proposed.jsonl")
 _RANK = {name: index for index, name in enumerate(reversed(CONFIDENCE))}
 
 
+class StageError(ValueError):
+    """The staging file cannot be read as proposals."""
+
+
 def read(path: Path) -> list[dict]:
-    """Staged proposals, or nothing when the file does not exist yet."""
+    """Staged proposals, or nothing when the file does not exist yet.
+
+    Marking proposals accepted means editing this file by hand, so a bad edit
+    has to name the line rather than raise a decode error at whoever made it.
+    """
     if not path.exists():
         return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line]
+    items = []
+    for number, line in enumerate(path.read_text().splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise StageError(f"{path}: line {number} is not JSON: {exc}") from None
+        if not isinstance(item, dict):
+            raise StageError(f"{path}: line {number} is not an object")
+        for field in ("key", "state", "kind"):
+            if field not in item:
+                raise StageError(f"{path}: line {number} has no {field!r}")
+        if item["state"] not in STATES:
+            raise StageError(f"{path}: line {number} has state {item['state']!r}; "
+                             f"expected one of {', '.join(STATES)}")
+        items.append(item)
+    return items
 
 
 def write(path: Path, proposals: list[dict]) -> None:

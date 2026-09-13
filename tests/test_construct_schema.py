@@ -14,10 +14,25 @@ class NormalizeAnchorTests(unittest.TestCase):
             schema.normalize_anchor("Decision: Option B - tiered checking"),
         )
 
-    def test_strips_inline_code_and_underscore_emphasis(self):
+    def test_strips_inline_code_backticks(self):
         self.assertEqual(
-            schema.normalize_anchor("use `build_context` for _scoped_ runs"),
-            schema.normalize_anchor("use build_context for scoped runs"),
+            schema.normalize_anchor("use `build_context` for runs"),
+            schema.normalize_anchor("use build_context for runs"),
+        )
+
+    def test_keeps_underscores_because_identifiers_carry_them(self):
+        # The corpus has 62162 identifier underscores against 9 uses of
+        # _emphasis_. Stripping them merges set_timeout with settimeout, and a
+        # merged anchor silently collapses two records into one.
+        self.assertNotEqual(
+            schema.normalize_anchor("set_timeout(x) was removed"),
+            schema.normalize_anchor("settimeout(x) was removed"),
+        )
+
+    def test_keeps_a_dunder_distinct_from_the_bare_word(self):
+        self.assertNotEqual(
+            schema.normalize_anchor("`__init__` is generated"),
+            schema.normalize_anchor("init is generated"),
         )
 
     def test_collapses_runs_of_whitespace(self):
@@ -70,6 +85,40 @@ class ScopeValidationTests(unittest.TestCase):
 
     def test_reports_every_bad_entry_not_just_the_first(self):
         self.assertEqual(schema.invalid_scope(["", "ok/path.py", "a b"]), ["", "a b"])
+
+    def test_rejects_a_glob_that_matches_the_whole_tree(self):
+        # Scope decides which records a briefing surfaces. An entry matching
+        # everything makes the record surface in every briefing, which is worse
+        # than no scope at all.
+        self.assertEqual(schema.invalid_scope(["**"]), ["**"])
+        self.assertEqual(schema.invalid_scope(["*"]), ["*"])
+        self.assertEqual(schema.invalid_scope(["**/*"]), ["**/*"])
+
+    def test_rejects_an_absolute_path(self):
+        # Scope is matched against repository-relative paths, so an absolute one
+        # can never match, and it leaks a filesystem layout into the ledger.
+        self.assertEqual(schema.invalid_scope(["/etc/passwd"]), ["/etc/passwd"])
+
+    def test_rejects_a_path_climbing_out_of_the_repository(self):
+        self.assertEqual(schema.invalid_scope(["../../secrets.env"]),
+                         ["../../secrets.env"])
+
+    def test_keeps_a_directory_glob(self):
+        self.assertEqual(schema.invalid_scope(["src/**", "docket/cli/*.py"]), [])
+
+
+class IdentityDiscriminatorTests(unittest.TestCase):
+    def test_a_derived_record_keys_apart_from_the_one_it_borrowed_from(self):
+        # A contradiction question borrows a record's anchor and source so a
+        # reviewer has a line to open. Without a discriminator it keys the same,
+        # and acceptance drops one of the two as a duplicate.
+        plain = schema.identity("a.md", "Claim: x")
+        derived = schema.identity("a.md", "Claim: x", kind="question")
+        self.assertNotEqual(plain, derived)
+
+    def test_the_discriminator_is_stable(self):
+        self.assertEqual(schema.identity("a.md", "Claim: x", kind="question"),
+                         schema.identity("a.md", "Claim: x", kind="question"))
 
 
 class ProposalTests(unittest.TestCase):

@@ -100,7 +100,10 @@ def run(staged: Path, ledger: Path, source: str | None = None) -> tuple[int, int
         ids[item["key"]] = stored["id"]
         item["state"] = "written"
         written += 1
-
-    if written:
+        # After each append, never once at the end. There is no transaction
+        # across N appends, so a failure on append k would otherwise commit k-1
+        # records while the stage still calls them accepted. The user would see
+        # the error, rerun, and append a second copy of every one.
         stage.write(staged, proposals)
+
     return written, skipped

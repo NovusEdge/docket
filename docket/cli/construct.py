@@ -8,6 +8,7 @@ approval is the whole thing the ledger records.
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import sys
 import textwrap
@@ -20,23 +21,47 @@ from docket import env
 # a subpackage only this command uses.
 
 MISSING_SDK = (
-    "docket construct needs the openai SDK: pip install openai\n"
+    "docket construct needs the openai SDK:\n"
+    "    uv pip install openai        (or: python3 -m pip install --user openai)\n"
     "It is the only command that does. Every other command, and the "
     "SessionStart hook, run without it."
 )
 
+_WIDTH = 88
+_TEXT_MAX = 400
 
-def _staged_path() -> Path:
-    """Where proposals wait.
+# Every string in a proposal came from a model. Control characters would reach
+# the terminal verbatim, and an escape sequence can repaint a reviewer's screen.
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def _safe(text: str, limit: int = _TEXT_MAX) -> str:
+    """Model text fit to print: no control characters, bounded length."""
+    clean = _CONTROL.sub("", str(text))
+    return clean if len(clean) <= limit else clean[:limit] + "..."
+
+
+def _docket_dir() -> Path:
+    """The directory holding both the staging file and the ledger.
 
     A project's own .docket wins. Construct's main case is a project whose
     ledger does not exist yet, and there ledger_path() answers with the global
-    store, which is nowhere the user would look for their own proposals.
+    store, which is nowhere the user would look for their own proposals. Pairing
+    the two matters: proposals in one place and the records they became in
+    another is worse than either choice alone.
     """
     local = env.project_root() / ".docket"
     if local.is_dir():
-        return local / "proposed.jsonl"
-    return env.ledger_path().parent / "proposed.jsonl"
+        return local
+    return env.ledger_path().parent
+
+
+def _staged_path() -> Path:
+    return _docket_dir() / "proposed.jsonl"
+
+
+def _ledger_path() -> Path:
+    return _docket_dir() / env.LEDGER.name
 
 
 def _live_paths() -> set[str]:
@@ -60,7 +85,11 @@ def review(staged: Path, live: set[str]) -> int:
     """
     from docket.construct import stage
 
-    proposals = stage.read(staged)
+    try:
+        proposals = stage.read(staged)
+    except stage.StageError as exc:
+        print(f"docket: {exc}", file=sys.stderr)
+        return 1
     groups = stage.review_groups(proposals, live)
     if not groups:
         print("docket: nothing staged for review")
@@ -71,20 +100,20 @@ def review(staged: Path, live: set[str]) -> int:
     print(f"# scope resolves: {resolved}/{scoped}")
     print(f"# staged: {sum(len(items) for _, items in groups)}\n")
 
-    width = max(60, min(100, len(max(live, key=len, default="x")) + 60))
     for name, items in groups:
-        print(f"## {name}")
+        print(f"## {_safe(name)}")
         for item in items:
             mark = "" if stage.resolves(item, live) else "  [unresolved scope]"
-            print(f"  {item['kind']} ({item['confidence']}){mark}")
-            for line in textwrap.wrap(item["text"], width=width):
+            print(f"  {item['kind']} ({item.get('confidence', 'low')}){mark}")
+            for line in textwrap.wrap(_safe(item["text"]), width=_WIDTH):
                 print(f"    {line}")
             if item.get("choice"):
-                for line in textwrap.wrap(f"choice: {item['choice']}", width=width):
+                for line in textwrap.wrap(f"choice: {_safe(item['choice'])}",
+                                          width=_WIDTH):
                     print(f"    {line}")
             if item.get("scope"):
-                print(f"    scope: {', '.join(item['scope'])}")
-            print(f"    anchor: {item['anchor']}")
+                print(f"    scope: {_safe(', '.join(item['scope']))}")
+            print(f"    anchor: {_safe(item['anchor'])}")
             print(f"    key: {item['key'][:12]}")
             print()
     return 0
@@ -119,7 +148,7 @@ def cmd_construct(args: argparse.Namespace) -> int:
     if args.review:
         return review(staged, _live_paths())
     if args.accept:
-        return accept_staged(staged, env.ledger_path(), source=args.source)
+        return accept_staged(staged, _ledger_path(), source=args.source)
     if not args.paths:
         print("docket: name the documents to read, or pass --review or --accept",
               file=sys.stderr)

@@ -159,6 +159,77 @@ class StagedPathTests(unittest.TestCase):
                  cli_construct.env.ledger_path) = originals
 
 
+class LedgerPairingTests(unittest.TestCase):
+    def test_accept_writes_beside_the_staging_file(self):
+        # Staging prefers a project's own .docket; acceptance must target the
+        # same project, never the global store. Splitting them puts proposals
+        # in one place and the records they became in another.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".git").mkdir()
+            (root / ".docket").mkdir()
+            original = cli_construct.env.project_root
+            try:
+                cli_construct.env.project_root = lambda start=None: root
+                self.assertEqual(cli_construct._ledger_path().parent,
+                                 cli_construct._staged_path().parent)
+            finally:
+                cli_construct.env.project_root = original
+
+
+class MalformedStageTests(unittest.TestCase):
+    """Hand-editing the stage is the documented workflow, so a bad edit has to
+    report itself instead of raising a traceback."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.staged = Path(self.tmp.name) / "proposed.jsonl"
+
+    def test_a_broken_line_names_the_file_and_the_line(self):
+        self.staged.write_text(
+            '{"key": "a", "state": "staged", "kind": "claim"}\nnot json\n')
+        err = io.StringIO()
+        with redirect_stderr(err):
+            rc = cli_construct.review(self.staged, live=set())
+        self.assertEqual(rc, 1)
+        self.assertIn("line 2", err.getvalue())
+
+    def test_a_record_missing_its_state_is_reported(self):
+        self.staged.write_text('{"key": "a", "kind": "claim"}\n')
+        err = io.StringIO()
+        with redirect_stderr(err):
+            rc = cli_construct.review(self.staged, live=set())
+        self.assertEqual(rc, 1)
+        self.assertIn("state", err.getvalue())
+
+
+class ReviewSafetyTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.staged = Path(self.tmp.name) / "proposed.jsonl"
+
+    def test_strips_control_characters_from_model_text(self):
+        # Everything in a proposal came from a model. An escape sequence would
+        # otherwise reach the terminal verbatim.
+        item = prop("one", text="red \x1b[31mALERT\x1b[0m here")
+        stage.write(self.staged, [item])
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cli_construct.review(self.staged, live=set())
+        self.assertNotIn("\x1b", out.getvalue())
+        self.assertIn("ALERT", out.getvalue())
+
+    def test_truncates_text_too_long_to_read(self):
+        item = prop("one", text="x" * 5000)
+        stage.write(self.staged, [item])
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cli_construct.review(self.staged, live=set())
+        self.assertLess(len(out.getvalue()), 3000)
+
+
 class DryRunTests(unittest.TestCase):
     def test_dry_run_needs_no_sdk(self):
         # It reads no document and issues no call, so demanding the dependency

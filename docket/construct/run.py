@@ -12,11 +12,15 @@ from __future__ import annotations
 
 import concurrent.futures
 import json
-import textwrap
+import subprocess
+import time
 from pathlib import Path
 
 from docket.construct import client, extract, link, schema
 
+# Both schemas travel with "strict": True, which requires every property to
+# appear in `required` and every object to refuse extra properties. A field the
+# document does not supply comes back as "" or [], never absent.
 EXTRACT_SCHEMA = {
     "type": "object",
     "properties": {
@@ -32,11 +36,13 @@ EXTRACT_SCHEMA = {
                     "anchor": {"type": "string"},
                     "scope": {"type": "array", "items": {"type": "string"}},
                 },
-                "required": ["kind", "text", "anchor"],
+                "required": ["kind", "text", "choice", "rationale", "anchor", "scope"],
+                "additionalProperties": False,
             },
         },
     },
     "required": ["records"],
+    "additionalProperties": False,
 }
 
 LINK_SCHEMA = {
@@ -52,10 +58,12 @@ LINK_SCHEMA = {
                     "to": {"type": "string"},
                 },
                 "required": ["kind", "from", "to"],
+                "additionalProperties": False,
             },
         },
     },
     "required": ["edges"],
+    "additionalProperties": False,
 }
 
 _EXTRACT_PROMPT = """\
@@ -141,9 +149,39 @@ def _default_caller():
     return call
 
 
-def _one_document(path: Path, text: str, date: str | None, caller) -> tuple[list[dict], list[str]]:
+ATTEMPTS = 4
+
+# A rate limit reports itself differently per provider, so match the code and
+# the words rather than an exception type the SDK may or may not raise.
+_RATE_LIMITED = ("429", "rate limit", "resource_exhausted", "too many requests")
+
+
+def _rate_limited(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return any(mark in text for mark in _RATE_LIMITED)
+
+
+def _with_retry(call, sleep) -> dict:
+    """One call, retried while the provider says it is rate limited.
+
+    Extraction issues one call per document across a pool, so a 429 is expected.
+    Without this, one rate limit costs a whole document's records.
+    """
+    for attempt in range(ATTEMPTS):
+        try:
+            return call()
+        except Exception as exc:
+            if attempt == ATTEMPTS - 1 or not _rate_limited(exc):
+                raise
+            sleep(client.backoff(attempt))
+    raise AssertionError("unreachable")
+
+
+def _one_document(path: str, text: str, date: str | None, caller,
+                  sleep=time.sleep) -> tuple[list[dict], list[str]]:
     """Pass 1 for one document: the records that survive local checks."""
-    reply = caller(_EXTRACT_PROMPT.format(path=path, body=text), EXTRACT_SCHEMA)
+    prompt = _EXTRACT_PROMPT.format(path=path, body=text)
+    reply = _with_retry(lambda: caller(prompt, EXTRACT_SCHEMA), sleep)
     raw = reply.get("records", [])
     kept: list[dict] = []
     notes: list[str] = []
@@ -171,7 +209,7 @@ def _one_document(path: Path, text: str, date: str | None, caller) -> tuple[list
                 choice=record.get("choice", "") or "",
                 rationale=record.get("rationale", "") or "",
                 scope=scope,
-                source={"path": str(path), "date": date},
+                source={"path": path, "date": date},
                 line=line,
             )
         except schema.SchemaError as exc:
@@ -217,8 +255,40 @@ def _link(proposals: list[dict], caller, batch: int) -> tuple[list[dict], list[s
     return linked + asked, notes
 
 
+def _repo_root(found: list[Path], fallback: Path) -> Path:
+    """The repository holding the documents.
+
+    Never the working directory: reading another project's history is the main
+    case, and there cwd names a repository the documents are not in. Both the
+    identity key and the git date lookup are relative to this.
+    """
+    start = found[0].resolve().parent if found else fallback
+    try:
+        done = subprocess.run(["git", "-C", str(start), "rev-parse", "--show-toplevel"],
+                              capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return fallback
+    if done.returncode != 0:
+        return fallback
+    return Path(done.stdout.strip()).resolve()
+
+
+def _relative(path: Path, root: Path) -> str:
+    """The path as the repository names it.
+
+    Both the identity key and the git date lookup hinge on this spelling. An
+    absolute path would restage every record as new on the next run, and would
+    miss every git date, which silently disables supersession.
+    """
+    try:
+        return str(path.resolve().relative_to(root))
+    except ValueError:
+        return str(path)
+
+
 def two_pass(paths: list[str], jobs: int = 8, dry_run: bool = False,
-             caller=None, batch: int = link.BATCH) -> tuple[list[dict], list[str]]:
+             caller=None, batch: int = link.BATCH,
+             root: Path | None = None, sleep=time.sleep) -> tuple[list[dict], list[str]]:
     """Both passes over the given documents.
 
     A document whose call fails costs only its own records. One provider error
@@ -236,14 +306,18 @@ def two_pass(paths: list[str], jobs: int = 8, dry_run: bool = False,
         return [], report
 
     caller = caller or _default_caller()
-    git = extract.git_dates(Path.cwd())
+    root = (root or _repo_root(found, Path.cwd())).resolve()
+    git = extract.git_dates(root)
     bodies = {path: path.read_text(errors="replace") for path in found}
-    dates = {path: extract.resolve_date(str(path), bodies[path], git) for path in found}
+    names = {path: _relative(path, root) for path in found}
+    dates = {path: extract.resolve_date(names[path], bodies[path], git)
+             for path in found}
 
     proposals: list[dict] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
         futures = {
-            pool.submit(_one_document, path, bodies[path], dates[path], caller): path
+            pool.submit(_one_document, names[path], bodies[path], dates[path],
+                        caller, sleep): path
             for path in found
         }
         for future in concurrent.futures.as_completed(futures):

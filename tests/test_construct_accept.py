@@ -158,6 +158,71 @@ class RelationTests(unittest.TestCase):
         self.assertEqual(len(project(read(self.ledger))), 2)
 
 
+class CrashSafetyTests(unittest.TestCase):
+    """A failed append must not leave the stage claiming nothing was written.
+
+    There is no transaction across N appends, so the stage has to record each
+    one as it lands. Otherwise the user sees an error, reruns --accept, and
+    appends a second copy of everything already written.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.ledger = Path(self.tmp.name) / "ledger.jsonl"
+        self.staged = Path(self.tmp.name) / "proposed.jsonl"
+
+    def three(self):
+        items = [dict(prop(f"anchor {i}")) for i in range(3)]
+        for item in items:
+            item["state"] = "accepted"
+        return items
+
+    def test_a_failing_append_leaves_the_earlier_ones_marked_written(self):
+        stage.write(self.staged, self.three())
+        calls = {"n": 0}
+        real = accept.append
+
+        def flaky(ledger, record):
+            calls["n"] += 1
+            if calls["n"] == 3:
+                raise RuntimeError("disk went away")
+            return real(ledger, record)
+
+        accept.append = flaky
+        try:
+            with self.assertRaises(RuntimeError):
+                accept.run(self.staged, self.ledger)
+        finally:
+            accept.append = real
+
+        self.assertEqual(len(read(self.ledger)), 2)
+        states = [p["state"] for p in stage.read(self.staged)]
+        self.assertEqual(states.count("written"), 2)
+
+    def test_rerunning_after_a_failure_writes_only_what_is_left(self):
+        stage.write(self.staged, self.three())
+        calls = {"n": 0}
+        real = accept.append
+
+        def flaky(ledger, record):
+            calls["n"] += 1
+            if calls["n"] == 3:
+                raise RuntimeError("disk went away")
+            return real(ledger, record)
+
+        accept.append = flaky
+        try:
+            with self.assertRaises(RuntimeError):
+                accept.run(self.staged, self.ledger)
+        finally:
+            accept.append = real
+
+        accept.run(self.staged, self.ledger)
+        # Three records total, never five.
+        self.assertEqual(len(read(self.ledger)), 3)
+
+
 class ReportTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
