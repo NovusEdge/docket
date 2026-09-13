@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import time
 from pathlib import Path
 
 _LIB_DIR = Path(__file__).resolve().parent.parent / "lib"
@@ -1147,13 +1148,28 @@ def auto_scope_files(limit: int = _AUTO_SCOPE_LIMIT) -> tuple[str, ...]:
     return tuple(paths[:limit])
 
 
-def _print_context(text: str, args: argparse.Namespace) -> int:
-    if not text:
+def update_line() -> str | None:
+    """One notice line, or None. Never performs a network request."""
+    from docket_update import disabled, due, notice, read_state, spawn_fetch
+
+    if disabled():
+        return None
+    root = Path(__file__).resolve().parent.parent
+    state = read_state()
+    if due(state, time.time()):
+        spawn_fetch(Path(__file__).resolve())
+    return notice(version(), str(state.get("latest", "")), root)
+
+
+def _print_context(text: str, args: argparse.Namespace,
+                   notice: str | None = None) -> int:
+    body = f"{notice}\n{text}" if notice else text
+    if not body:
         return 0
     if args.for_harness:
-        print(json.dumps(CONTEXT_ENVELOPES[args.for_harness](text)))
+        print(json.dumps(CONTEXT_ENVELOPES[args.for_harness](body)))
     else:
-        print(text, end="")
+        print(body, end="")
     return 0
 
 
@@ -1165,6 +1181,7 @@ def cmd_context(args: argparse.Namespace) -> int:
     except ConfigError as exc:
         print(f"docket: {exc}", file=sys.stderr)
         return 1
+    line = update_line()
     # Validate against the loaded minimum, not a literal. A config that raises
     # budget.minimum would otherwise let a too-small value through and surface
     # as an uncaught ValueError from the renderer.
@@ -1189,7 +1206,7 @@ def cmd_context(args: argparse.Namespace) -> int:
                             max_chars=args.max_chars, ledger=str(ledger_path()),
                             settings=settings)
         if delta is not None:
-            return _print_context(delta, args)
+            return _print_context(delta, args, line)
         print(f"docket: baseline {args.since} is unknown or stale; "
               "printing a full briefing", file=sys.stderr)
 
@@ -1213,7 +1230,7 @@ def cmd_context(args: argparse.Namespace) -> int:
     except (LedgerError, OSError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
-    return _print_context(text, args)
+    return _print_context(text, args, line)
 
 
 _COMPLETION_FLAGS = (

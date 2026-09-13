@@ -224,5 +224,60 @@ class SpawnFetch(unittest.TestCase):
         up.spawn_fetch(Path("/src/docket/bin/docket"))
 
 
+import subprocess as sp
+
+DOCKET = Path(__file__).resolve().parent.parent / "bin" / "docket"
+
+
+class ContextNotice(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.state = Path(self.tmp.name) / "state"
+        self.project = Path(self.tmp.name) / "project"
+        (self.project / ".docket").mkdir(parents=True)
+        (self.project / ".docket" / "ledger.jsonl").write_text("")
+
+    def run_context(self, *args, **env):
+        environment = {
+            **os.environ,
+            "XDG_STATE_HOME": str(self.state),
+            "DOCKET_HOME": str(self.project / ".docket"),
+            **env,
+        }
+        return sp.run([sys.executable, str(DOCKET), "context", *args],
+                      cwd=self.project, env=environment,
+                      capture_output=True, text=True)
+
+    def seed(self, latest):
+        self.state.mkdir(parents=True, exist_ok=True)
+        (self.state / "docket").mkdir(parents=True, exist_ok=True)
+        (self.state / "docket" / "update.json").write_text(json.dumps(
+            {"latest": latest, "checked_at": 0, "failures": 0,
+             "next_check_at": 9_999_999_999}))
+
+    def test_notice_prints_with_an_empty_ledger(self):
+        self.seed("v99.0.0")
+        done = self.run_context()
+        self.assertIn("99.0.0 is available", done.stdout)
+
+    def test_opt_out_suppresses_the_notice(self):
+        self.seed("v99.0.0")
+        done = self.run_context(DOCKET_NO_UPDATE_CHECK="1")
+        self.assertNotIn("is available", done.stdout)
+
+    def test_current_version_prints_nothing_extra(self):
+        self.seed("v0.0.1")
+        done = self.run_context()
+        self.assertNotIn("is available", done.stdout)
+
+    def test_notice_stays_inside_the_gemini_envelope(self):
+        self.seed("v99.0.0")
+        done = self.run_context("--for", "gemini")
+        payload = json.loads(done.stdout)
+        context = payload["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("99.0.0 is available", context)
+
+
 if __name__ == "__main__":
     unittest.main()
