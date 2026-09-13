@@ -32,8 +32,8 @@ def main() -> int:
         return 1
     tight = merge({"budget": {"target": DEFAULTS["budget"]["target"] // 2}})
     variants = {
-        "scoped": {"files": ("lib/docket_context.py",)},
-        "scoped tight": {"files": ("lib/docket_context.py",), "settings": tight},
+        "scoped": {"files": ("docket/context.py",)},
+        "scoped tight": {"files": ("docket/context.py",), "settings": tight},
         "unscoped": {},
         "all": {"all_records": True},
     }

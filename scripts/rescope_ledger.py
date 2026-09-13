@@ -41,14 +41,27 @@ PATHS = {
 # from this table keeps bin/docket: d80 and d82 both decide what the entry
 # point is, which is still this file.
 BIN_ROUTES = {
-    "d12": "docket/env.py",        # where the ledger lives by default
-    "d13": "docket/env.py",        # provenance capture
-    "q15": "docket/env.py",        # justification sets
-    "c20": "docket/env.py",        # retirement reporting
-    "d14": "docket/cli/query.py",  # per-harness context envelopes
-    "d78": "docket/cli/query.py",  # the update notice line
-    "d36": "docket/cli/graph.py",  # graph browsing
-    "d77": "docket/cli/admin.py",  # the update command
+    "d12": "docket/env.py",            # where the ledger lives by default
+    "d13": "docket/env.py",            # provenance capture
+    "q15": "docket/env.py",            # justification sets
+    "c20": "docket/env.py",            # retirement reporting
+    "d78": "docket/cli/query.py",      # the update notice line
+    "d36": "docket/cli/graph.py",      # graph browsing
+    "d77": "docket/cli/admin.py",      # the update command
+    "d14": "docs/installation.md",     # which harnesses ship config
+    # Nothing in the CLI: d16 puts defects in GitHub issues, and d43, d44 and
+    # d45 decide the record and context model, which docket/** already covers.
+    "d16": None,
+    "d43": None,
+    "d44": None,
+    "d45": None,
+}
+
+# The first run routed d14, d16, d43, d44 and d45 by mechanical assignment
+# instead of by subject, so it sent them to the CLI. Re-running is idempotent
+# for every other record; these five need the wrong target taken back out.
+FIRST_RUN_MISTAKES = {
+    "d14": "docket/cli/query.py",
     "d16": "docket/cli/**",
     "d43": "docket/cli/**",
     "d44": "docket/cli/**",
@@ -59,14 +72,25 @@ BIN_ROUTES = {
 def rescope(entry: dict) -> list[str] | None:
     """The record's new scope, or None when nothing changes."""
     old = entry.get("scope") or []
+    wrong = FIRST_RUN_MISTAKES.get(entry["id"])
     new: list[str] = []
     for item in old:
+        if item == wrong:
+            continue
         if item in PATHS:
             new.append(PATHS[item])
         elif item == "bin/docket":
-            new.append(BIN_ROUTES.get(entry["id"], "bin/docket"))
+            target = BIN_ROUTES.get(entry["id"], "bin/docket")
+            if target is not None:
+                new.append(target)
         else:
             new.append(item)
+    # The first run already consumed this record's bin/docket entry, so the
+    # corrected target has to be added rather than substituted.
+    if wrong is not None:
+        target = BIN_ROUTES.get(entry["id"])
+        if target is not None:
+            new.append(target)
     # Routing can collide with a scope the record already carries.
     new = list(dict.fromkeys(new))
     return new if new != old else None

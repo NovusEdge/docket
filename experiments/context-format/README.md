@@ -18,7 +18,7 @@ dependency for this, and the character column compares formats on its own.
 
 | Variant | Inputs |
 | --- | --- |
-| `scoped` | `files=("lib/docket_context.py",)` |
+| `scoped` | `files=("docket/context.py",)` |
 | `scoped tight` | the same files, with `budget.target` halved |
 | `unscoped` | no query and no files |
 | `all` | `all_records=True` |

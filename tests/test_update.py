@@ -1,6 +1,5 @@
 import argparse
 import contextlib
-import importlib.util
 import io
 import json
 import os
@@ -8,7 +7,6 @@ import sys
 import tempfile
 import unittest
 import unittest.mock
-from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))

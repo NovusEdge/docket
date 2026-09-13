@@ -14,7 +14,13 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from docket.migrate import main  # noqa: E402
+try:
+    from docket.migrate import main  # noqa: E402
+except ImportError as exc:  # pragma: no cover - a broken or partial install
+    # docket.migrate pulls docket.ledger at module scope. Report which import
+    # failed instead of printing a traceback at someone mid-migration.
+    print(f"migrate_ledger: cannot import docket.migrate: {exc}", file=sys.stderr)
+    raise SystemExit(1) from None
 
 
 if __name__ == "__main__":
