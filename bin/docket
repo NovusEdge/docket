@@ -15,11 +15,12 @@ import textwrap
 import time
 from pathlib import Path
 
-_LIB_DIR = Path(__file__).resolve().parent.parent / "lib"
-if str(_LIB_DIR) not in sys.path:
-    sys.path.insert(0, str(_LIB_DIR))
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
-from docket_ledger import (  # noqa: E402
+from docket import version  # noqa: E402
+from docket.ledger import (  # noqa: E402
     ID_RE,
     KINDS,
     STATES,
@@ -44,19 +45,6 @@ def global_root() -> Path:
     if env := os.environ.get("CLAUDE_CONFIG_DIR"):
         return Path(env).expanduser() / "docket"
     return Path.home() / ".claude" / "docket"
-
-
-def version() -> str:
-    """The release, from the VERSION file beside the checkout.
-
-    Read only when a version or top-level help request asks for it. The
-    SessionStart hook runs `context` on every session and must not pay for a
-    file read it never uses.
-    """
-    try:
-        return (Path(__file__).resolve().parent.parent / "VERSION").read_text().strip()
-    except OSError:
-        return "unknown"
 
 
 class VersionAction(argparse.Action):
@@ -169,7 +157,7 @@ def read(path: Path, lock: bool = True) -> list[dict]:
 
 
 def next_id(entries: list[dict]) -> str:
-    from docket_ledger import next_id as ledger_next_id
+    from docket.ledger import next_id as ledger_next_id
     return ledger_next_id(entries)
 
 
@@ -205,7 +193,7 @@ def _list_dim_tail(line: str, marker: str, use_color: bool) -> str:
 
 
 def _shared_fields(args: argparse.Namespace) -> dict:
-    from docket_ledger import parse_evidence
+    from docket.ledger import parse_evidence
     return {
         "scope": args.scope or [],
         "rationale": args.rationale or "",
@@ -868,7 +856,7 @@ def cmd_where(args: argparse.Namespace) -> int:
 
 def cmd_rebase(args: argparse.Namespace) -> int:
     """Append another branch's divergent tail under fresh IDs."""
-    from docket_rebase import RebaseError, renumber
+    from docket.rebase import RebaseError, renumber
     path = ledger_path()
     other = Path(args.other)
     if not other.is_file():
@@ -907,7 +895,7 @@ def cmd_rebase(args: argparse.Namespace) -> int:
 
 def cmd_migrate(args: argparse.Namespace) -> int:
     """Convert this project's ledger to the current schema."""
-    from docket_migrate import (
+    from docket.migrate import (
         MigrationError, derive_mapping, detect_version, migrate_in_place, read_source,
     )
 
@@ -1150,7 +1138,7 @@ def auto_scope_files(limit: int = _AUTO_SCOPE_LIMIT) -> tuple[str, ...]:
 
 def update_line() -> str | None:
     """One notice line, or None. Never performs a network request."""
-    from docket_update import disabled, due, notice, read_state, spawn_fetch
+    from docket.update import disabled, due, notice, read_state, spawn_fetch
 
     try:
         if disabled():
@@ -1177,8 +1165,8 @@ def _print_context(text: str, args: argparse.Namespace,
 
 
 def cmd_context(args: argparse.Namespace) -> int:
-    from docket_context import build_context as render_context
-    from docket_config import ConfigError, load as load_settings
+    from docket.context import build_context as render_context
+    from docket.config import ConfigError, load as load_settings
     try:
         settings, settings_id = load_settings(ledger_path().parent)
     except ConfigError as exc:
@@ -1193,7 +1181,7 @@ def cmd_context(args: argparse.Namespace) -> int:
         print(f"docket: --max-chars must be at least {minimum}", file=sys.stderr)
         return 2
     if args.since:
-        from docket_context import build_delta
+        from docket.context import build_delta
         try:
             raw = read(ledger_path())
         except (LedgerError, OSError) as exc:
@@ -1324,7 +1312,7 @@ MAIN_LAUNCHER_URL = (
 
 
 def cmd_update(args: argparse.Namespace, root: Path | None = None) -> int:
-    from docket_update import is_newer, parse_version, read_state, shape, update_command
+    from docket.update import is_newer, parse_version, read_state, shape, update_command
 
     root = root or Path(__file__).resolve().parent.parent
     running = version()
@@ -1382,7 +1370,7 @@ def _run_downloaded_update(tag: str | None) -> int:
 
 
 def cmd_update_fetch(args: argparse.Namespace) -> int:
-    from docket_update import run_fetch
+    from docket.update import run_fetch
 
     return run_fetch(time.time())
 

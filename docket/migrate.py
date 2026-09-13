@@ -22,19 +22,20 @@ ID (``d17`` becomes ``c17``, ``d17``, or ``q17``).
 
 This module deliberately has no prose classifier.  It validates all source
 references and all mapped records before opening the destination with
-exclusive-create semantics.  The repository's ``lib.docket_ledger``
+exclusive-create semantics.  The repository's ``docket.ledger``
 ``validate_entries`` function is authoritative.
 """
 
 from __future__ import annotations
 
 import argparse
-import importlib
 import json
 import re
 import sys
 from pathlib import Path
 from typing import Any, Callable
+
+from docket.ledger import validate_entries, ledger_lock
 
 
 OLD_ID = re.compile(r"^d[1-9][0-9]*$")
@@ -133,7 +134,7 @@ def _rewrite_supersedes_into_answers(
 ) -> None:
     """Move a supersedes target that derives to a question onto answers.
 
-    A question cannot carry answers (lib.docket_ledger forbids it), so a
+    A question cannot carry answers (docket.ledger forbids it), so a
     question source is left on the default supersedes path; same-kind
     question-to-question supersession is already legal there.
     """
@@ -442,17 +443,7 @@ def build_records(source: list[dict[str, Any]], mapping: dict[str, dict[str, Any
 
 
 def core_validator() -> Callable[[list[dict[str, Any]]], Any]:
-    root = Path(__file__).resolve().parent.parent
-    if str(root) not in sys.path:
-        sys.path.insert(0, str(root))
-    try:
-        core = importlib.import_module("lib.docket_ledger")
-    except (ImportError, ModuleNotFoundError) as exc:
-        raise MigrationError("cannot import lib.docket_ledger.validate_entries") from exc
-    candidate = getattr(core, "validate_entries", None)
-    if not callable(candidate):
-        raise MigrationError("lib.docket_ledger.validate_entries is unavailable")
-    return candidate
+    return validate_entries
 
 
 def migrate(source_path: Path | str, mapping_path: Path | str, output_path: Path | str,
@@ -526,14 +517,6 @@ def migrate_in_place(path: Path | str, mapping_path: Path | str | None = None,
     if dry_run:
         return len(records), report, notes
 
-    # This module loads as top-level "docket_migrate" under bin/docket (only
-    # lib/ on sys.path) and as "lib.docket_migrate" under the test suite (the
-    # repo root on sys.path). A module-level import cannot satisfy both, so
-    # core_validator's own root-plus-package-name approach is reused here.
-    root = Path(__file__).resolve().parent.parent
-    if str(root) not in sys.path:
-        sys.path.insert(0, str(root))
-    ledger_lock = importlib.import_module("lib.docket_ledger").ledger_lock
     with ledger_lock(path):
         if temp.exists():
             raise MigrationError(f"{temp} already exists; remove it and retry")

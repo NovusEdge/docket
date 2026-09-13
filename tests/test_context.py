@@ -2,8 +2,8 @@ import re
 import sys
 import unittest
 
-from lib.docket_context import build_context, build_delta, _term_weights, _blocking_paths
-from lib.docket_ledger import make_record, project
+from docket.context import build_context, build_delta, _term_weights, _blocking_paths
+from docket.ledger import make_record, project
 
 
 def entry(
@@ -279,15 +279,15 @@ class ContextTests(unittest.TestCase):
 
     def test_recency_orders_records_of_equal_scope_strength(self):
         records = [
-            entry("d1", "decision", "Older renderer decision", choice="x", scope=("lib/**",)),
-            entry("d2", "decision", "Newer renderer decision", choice="y", scope=("lib/**",)),
+            entry("d1", "decision", "Older renderer decision", choice="x", scope=("docket/**",)),
+            entry("d2", "decision", "Newer renderer decision", choice="y", scope=("docket/**",)),
         ]
-        rendered = build_context(projected(records), files=("lib/docket_context.py",), ledger="repo")
+        rendered = build_context(projected(records), files=("docket/context.py",), ledger="repo")
         self.assertLess(rendered.index("### d2 "), rendered.index("### d1 "))
 
     def test_selection_reason_names_the_score_and_components(self):
-        records = [entry("d1", "decision", "Renderer budget", choice="y", scope=("lib/**",))]
-        rendered = build_context(projected(records), files=("lib/docket_context.py",), ledger="repo")
+        records = [entry("d1", "decision", "Renderer budget", choice="y", scope=("docket/**",))]
+        rendered = build_context(projected(records), files=("docket/context.py",), ledger="repo")
         self.assertRegex(rendered, r"selection: score \d+ \| ")
         self.assertIn("scope=", rendered)
 
@@ -411,7 +411,7 @@ class ContextTests(unittest.TestCase):
         self.assertLess(rendered.index("### d1 "), rendered.index("### c2 "))
 
     def test_index_caps_and_counts_the_remainder(self):
-        from lib.docket_config import merge
+        from docket.config import merge
         records = [entry(f"c{n}", "claim", f"Premise {n}", state="accepted")
                    for n in range(1, 101)]
         settings = merge({"index": {"max_lines": 10}})
@@ -421,7 +421,7 @@ class ContextTests(unittest.TestCase):
         self.assertIn("more; docket list", rendered)
 
     def test_the_capped_index_keeps_the_highest_scoring_records(self):
-        from lib.docket_config import merge
+        from docket.config import merge
         records = [entry(f"c{n}", "claim", f"Premise {n}", state="accepted")
                    for n in range(1, 101)]
         settings = merge({"index": {"max_lines": 5}})
@@ -624,7 +624,7 @@ class TrialLengthTests(unittest.TestCase):
         return projected(records)
 
     def test_every_trial_length_matches_the_rendered_length(self):
-        import lib.docket_context as context
+        import docket.context as context
 
         context._VERIFY_TRIAL = True
         try:
@@ -686,7 +686,7 @@ class DegreeTests(unittest.TestCase):
     def test_relation_scan_stays_linear_in_ledger_size(self):
         # _degree once scanned the whole history per record, so a briefing cost
         # n^2 relation scans: 1000 records took 5.8s and 10000 did not finish.
-        import lib.docket_context as context
+        import docket.context as context
 
         records = [entry("c1", "claim", "Root premise", state="accepted")]
         for index in range(2, 202):

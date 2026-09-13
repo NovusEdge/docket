@@ -17,11 +17,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 
-try:
-    # bin/docket puts lib/ on sys.path; the tests import lib.docket_context.
-    from docket_config import DEFAULTS as _SETTINGS_DEFAULTS
-except ImportError:
-    from .docket_config import DEFAULTS as _SETTINGS_DEFAULTS
+from docket.config import DEFAULTS as _SETTINGS_DEFAULTS
 
 
 # The admission gate computes the length it once measured by rendering. Tests

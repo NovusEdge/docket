@@ -9,11 +9,11 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "lib"))
+sys.path.insert(0, str(ROOT))
 
-from docket_config import DEFAULTS, merge
-from docket_context import build_context
-from docket_ledger import project, read
+from docket.config import DEFAULTS, merge
+from docket.context import build_context
+from docket.ledger import project, read
 
 
 def tokens(text: str) -> str:

@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from lib import docket_migrate
+from docket import migrate as docket_migrate
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -334,7 +334,7 @@ class DerivationTests(unittest.TestCase):
             path = Path(work) / "ledger.jsonl"
             write_jsonl(path, source)
             docket_migrate.migrate_in_place(path)
-            from lib.docket_ledger import read as ledger_read, project
+            from docket.ledger import read as ledger_read, project
             entries = ledger_read(path)
             projected = {r["id"]: r for r in project(entries)}
         self.assertEqual(projected["q19"]["state"], "resolved")
@@ -429,7 +429,7 @@ class InPlaceTests(unittest.TestCase):
             self.assertTrue(all(r["schema"] == 2 for r in converted))
 
     def test_the_result_reads_back_through_the_ledger_reader(self):
-        from lib.docket_ledger import read as ledger_read
+        from docket.ledger import read as ledger_read
         with tempfile.TemporaryDirectory() as work:
             path = Path(work) / "ledger.jsonl"
             write_jsonl(path, self.legacy())

@@ -11,9 +11,9 @@ import unittest.mock
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import docket_update as up
+import docket.update as up
 
 
 class VersionCompare(unittest.TestCase):

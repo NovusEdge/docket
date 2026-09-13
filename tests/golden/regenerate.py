@@ -12,7 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from tests.test_context import entry, projected
-from lib.docket_context import build_context
+from docket.context import build_context
 
 SEED = 20260913
 

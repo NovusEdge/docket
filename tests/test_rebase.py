@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from lib.docket_ledger import make_record, read
-from lib.docket_rebase import RebaseError, common_prefix, renumber
+from docket.ledger import make_record, read
+from docket.rebase import RebaseError, common_prefix, renumber
 
 
 def claim(ident, text, **kwargs):

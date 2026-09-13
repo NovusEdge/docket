@@ -18,11 +18,7 @@ import copy
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-try:
-    # bin/docket puts lib/ on sys.path; the tests import lib.docket_rebase.
-    from docket_ledger import ID_RE, allocate_id
-except ImportError:
-    from .docket_ledger import ID_RE, allocate_id
+from docket.ledger import ID_RE, allocate_id
 
 
 class RebaseError(ValueError):
@@ -33,7 +29,7 @@ _REFERENCE_FIELDS = ("depends_on", "answers", "supersedes")
 
 # A migrated record carries legacy.relation_map, whose mapped_* fields
 # validation requires to equal the record's own relations
-# (lib/docket_ledger.py:236-237). Rewriting the relations without the audit map
+# (docket/ledger.py:236-237). Rewriting the relations without the audit map
 # makes append reject the record. Every record in a migrated ledger carries
 # this, so a rebase that skipped it would fail on the first tail record.
 _AUDIT_FIELDS = {

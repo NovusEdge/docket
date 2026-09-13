@@ -33,7 +33,7 @@ class LedgerPathTests(unittest.TestCase):
                     self.assertEqual(decide(tool, {"file_path": path}), "ask")
 
     def test_an_ordinary_file_is_untouched(self):
-        for path in ("lib/docket_ledger.py", "README.md", "docket/notes.jsonl",
+        for path in ("docket/ledger.py", "README.md", "docket/notes.jsonl",
                      ".docket/notes.txt"):
             with self.subTest(path=path):
                 self.assertEqual(decide("Edit", {"file_path": path}), "allow")
