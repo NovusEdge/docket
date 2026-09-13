@@ -174,6 +174,45 @@ class LinkPassTests(unittest.TestCase):
             self.assertEqual(len(caller.prompts), 1)
 
 
+class LinkBatchTests(unittest.TestCase):
+    def test_links_in_batches_and_reports_how_many(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for n in range(6):
+                doc(tmp, f"d{n}.md", f"# d{n}\n\nClaim: number {n}\n")
+            calls = []
+
+            def caller(prompt, schema):
+                if "edges" in schema.get("properties", {}):
+                    calls.append(prompt)
+                    return {"edges": []}
+                n = prompt.split("Claim: number ")[1][0]
+                return {"records": [{"kind": "claim", "text": f"Number {n}", "choice": "",
+                                     "anchor": f"Claim: number {n}", "rationale": "",
+                                     "scope": []}]}
+
+            _, report = run.two_pass([tmp], caller=caller, batch=2)
+            self.assertEqual(len(calls), 3)
+            self.assertTrue(any("3 batches" in line for line in report))
+
+    def test_a_contradiction_is_staged_as_a_question(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            doc(tmp, "a.md", "# a\n\nClaim: latency is 200ms\n")
+            doc(tmp, "b.md", "# b\n\nClaim: latency is under 50ms\n")
+
+            def caller(prompt, schema):
+                if "edges" in schema.get("properties", {}):
+                    return {"edges": [{"kind": "contradicts", "from": "p1", "to": "p2"}]}
+                text = "latency is 200ms" if "200ms" in prompt else "latency is under 50ms"
+                return {"records": [{"kind": "claim", "text": text.capitalize(), "choice": "",
+                                     "anchor": f"Claim: {text}", "rationale": "", "scope": []}]}
+
+            got, report = run.two_pass([tmp], caller=caller)
+            questions = [p for p in got if p["kind"] == "question"]
+            self.assertEqual(len(questions), 1)
+            self.assertIn("200ms", questions[0]["text"])
+            self.assertTrue(any("question" in line for line in report))
+
+
 class DryRunTests(unittest.TestCase):
     def test_reads_no_document_and_calls_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:

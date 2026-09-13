@@ -68,8 +68,16 @@ and needs the choice. A question is something it leaves open.
 For every record, `anchor` must be one line copied verbatim from the document,
 the line that carries the record. Do not paraphrase the anchor.
 
-`scope` names the files or globs the record governs, as paths. Never prose.
-Leave it empty when the document names none.
+`scope` decides whether anyone ever sees the record again, so fill it whenever
+you can. It lists the files or directories the record governs, written as paths
+or globs with no spaces: `src/auth.py`, `src/**`, `alembic/**`. Never a sentence,
+never a description of the coverage.
+
+Take the paths from the document itself: filenames it names, modules it
+discusses, directories it points at. A record about an authentication decision
+in a project whose code sits under `src/` scopes to `src/auth/**` even when the
+document never spells that path out. Leave it empty only when you can name no
+part of the tree the record touches.
 
 Where the document lists options it rejected, put them in `rationale`. Do not
 record a rejected option as its own decision.
@@ -85,9 +93,14 @@ it came from and that document's date.
 
 Propose the relations between them.
 
-`supports` means the second record is a ground for the first. `supersedes` means
-the first record replaces the second: both must be the same kind, and the first
-must come from a later date.
+`supports` means the second record is a ground for the first.
+
+`supersedes` means the first record replaces the second. Both must be the same
+kind, and the first must come from a later date.
+
+`contradicts` means the two cannot both hold. Use it when two records disagree
+and nothing shown decides which wins; do not pick a winner with `supersedes`.
+Records from documents written months apart often disagree this way.
 
 Propose nothing you cannot argue from the records shown. An empty list is a
 valid answer.
@@ -120,7 +133,8 @@ def _default_caller():
     api = OpenAI(api_key=cfg["api_key"], base_url=cfg["base_url"])
 
     def call(prompt: str, want: dict) -> dict:
-        body = client.request(prompt, want, model=cfg["model"])
+        body = client.request(prompt, want, model=cfg["model"],
+                              provider=cfg["provider"])
         reply = api.chat.completions.create(**body)
         return client.parse(reply.choices[0].message.content or "", want)
 
@@ -170,18 +184,41 @@ def _one_document(path: Path, text: str, date: str | None, caller) -> tuple[list
     return kept, notes
 
 
-def _link(proposals: list[dict], caller) -> tuple[list[dict], list[str]]:
-    """Pass 2: the relations, validated locally before they are applied."""
-    rows = json.dumps(link.payload(proposals), indent=2)
-    reply = caller(_LINK_PROMPT.format(rows=rows), LINK_SCHEMA)
-    edges, dropped = link.validate(reply.get("edges", []), proposals)
-    notes = [f"link: dropped {edge}" for edge in dropped]
-    notes.append(f"link: kept {len(edges)} edge{'' if len(edges) == 1 else 's'}")
-    return link.apply(edges, proposals), notes
+def _link(proposals: list[dict], caller, batch: int) -> tuple[list[dict], list[str]]:
+    """Pass 2: the relations, validated locally before they are applied.
+
+    One call per batch. A single call over the whole set does not scale, and a
+    batch that loses a boundary-crossing edge still keeps every document whole.
+    """
+    groups = link.batches(proposals, size=batch)
+    notes = [f"link: {len(groups)} batch{'' if len(groups) == 1 else 'es'}"]
+    linked: list[dict] = []
+    asked: list[dict] = []
+    kept = 0
+
+    for group in groups:
+        rows = json.dumps(link.payload(group), indent=2)
+        try:
+            reply = caller(_LINK_PROMPT.format(rows=rows), LINK_SCHEMA)
+        except Exception as exc:
+            notes.append(f"link: a batch failed, {exc}; its records carry no relations")
+            linked.extend(group)
+            continue
+        edges, dropped = link.validate(reply.get("edges", []), group)
+        notes.extend(f"link: dropped {edge}" for edge in dropped)
+        kept += len(edges)
+        asked.extend(link.questions(edges, group))
+        linked.extend(link.apply(edges, group))
+
+    notes.append(f"link: kept {kept} edge{'' if kept == 1 else 's'}")
+    if asked:
+        notes.append(f"link: asked {len(asked)} question"
+                     f"{'' if len(asked) == 1 else 's'} about contradictions")
+    return linked + asked, notes
 
 
 def two_pass(paths: list[str], jobs: int = 8, dry_run: bool = False,
-             caller=None) -> tuple[list[dict], list[str]]:
+             caller=None, batch: int = link.BATCH) -> tuple[list[dict], list[str]]:
     """Both passes over the given documents.
 
     A document whose call fails costs only its own records. One provider error
@@ -226,7 +263,7 @@ def two_pass(paths: list[str], jobs: int = 8, dry_run: bool = False,
         return proposals, report
 
     try:
-        proposals, notes = _link(proposals, caller)
+        proposals, notes = _link(proposals, caller, batch)
     except Exception as exc:
         report.append(f"link: failed, {exc}; proposals staged without relations")
         return proposals, report

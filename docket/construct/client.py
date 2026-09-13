@@ -11,9 +11,26 @@ from __future__ import annotations
 import json
 import os
 
-BASE_URL = "https://openrouter.ai/api/v1"
-DEFAULT_MODEL = "google/gemini-3.8-flash"
 SCHEMA_NAME = "docket_construct"
+
+# OpenRouter is the documented default: one key reaches every provider through
+# one endpoint. Gemini serves an OpenAI-compatible endpoint of its own, so the
+# same SDK reaches it with only the base URL changed, which is the path for
+# someone who already holds a Gemini key.
+PROVIDERS = {
+    "openrouter": {
+        "env": "OPENROUTER_API_KEY",
+        "base_url": "https://openrouter.ai/api/v1",
+        "model": "google/gemini-3.8-flash",
+    },
+    "gemini": {
+        "env": "GEMINI_API_KEY",
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "model": "gemini-3.8-flash",
+    },
+}
+BASE_URL = PROVIDERS["openrouter"]["base_url"]
+DEFAULT_MODEL = PROVIDERS["openrouter"]["model"]
 
 MAX_BACKOFF = 60.0
 _BASE_BACKOFF = 1.5
@@ -28,38 +45,50 @@ class SchemaViolation(ValueError):
 
 
 def config(env: dict[str, str] | None = None) -> dict:
-    """Where to call and as whom, from the environment."""
+    """Where to call and as whom, from the environment.
+
+    The first provider whose key is present wins, so OpenRouter stays the
+    default when both are set.
+    """
     env = os.environ if env is None else env
-    key = env.get("OPENROUTER_API_KEY", "")
-    if not key:
-        raise ClientError(
-            "docket construct needs OPENROUTER_API_KEY. One key reaches every "
-            "provider through one endpoint; see docs for the other paths.")
-    return {
-        "api_key": key,
-        "base_url": env.get("OPENROUTER_BASE_URL", BASE_URL),
-        "model": env.get("DOCKET_CONSTRUCT_MODEL", DEFAULT_MODEL),
-    }
+    for name, spec in PROVIDERS.items():
+        key = env.get(spec["env"], "")
+        if key:
+            return {
+                "provider": name,
+                "api_key": key,
+                "base_url": env.get("DOCKET_CONSTRUCT_BASE_URL", spec["base_url"]),
+                "model": env.get("DOCKET_CONSTRUCT_MODEL", spec["model"]),
+            }
+    wanted = " or ".join(spec["env"] for spec in PROVIDERS.values())
+    raise ClientError(
+        f"docket construct needs {wanted}. An OpenRouter key reaches every "
+        "provider through one endpoint; a Gemini key reaches Gemini.")
 
 
-def request(prompt: str, schema: dict, model: str) -> dict:
+def request(prompt: str, schema: dict, model: str,
+            provider: str = "openrouter") -> dict:
     """The request body for one extraction or linking call.
 
-    `require_parameters` is the part that matters. OpenRouter honours
-    `json_schema` per endpoint rather than per model, so the same model reached
-    through a different upstream provider may ignore the schema and fall back
-    to plain JSON. The flag routes only to providers that support it; `parse`
-    still checks, because the flag is not a guarantee.
+    On OpenRouter, `require_parameters` is the part that matters. OpenRouter
+    honours `json_schema` per endpoint rather than per model, so the same model
+    reached through a different upstream provider may ignore the schema and fall
+    back to plain JSON. The flag routes only to providers that support it, and
+    `parse` still checks, because the flag is not a guarantee.
+
+    A single-provider endpoint has nothing to route, so it gets no such field.
     """
-    return {
+    body = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "response_format": {
             "type": "json_schema",
             "json_schema": {"name": SCHEMA_NAME, "strict": True, "schema": schema},
         },
-        "extra_body": {"provider": {"require_parameters": True}},
     }
+    if provider == "openrouter":
+        body["extra_body"] = {"provider": {"require_parameters": True}}
+    return body
 
 
 _TYPES = {

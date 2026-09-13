@@ -14,9 +14,10 @@ class ConfigTests(unittest.TestCase):
     def test_refuses_to_run_without_a_key(self):
         with self.assertRaises(client.ClientError) as caught:
             client.config({})
-        # The message has to name the variable; an operator running a one-time
+        # The message has to name the variables; an operator running a one-time
         # bootstrap has no other clue what is missing.
         self.assertIn("OPENROUTER_API_KEY", str(caught.exception))
+        self.assertIn("GEMINI_API_KEY", str(caught.exception))
 
     def test_a_model_can_be_overridden(self):
         self.assertEqual(client.config({"OPENROUTER_API_KEY": "k",
@@ -25,6 +26,22 @@ class ConfigTests(unittest.TestCase):
 
     def test_has_a_default_model(self):
         self.assertTrue(client.config({"OPENROUTER_API_KEY": "k"})["model"])
+
+    def test_falls_back_to_a_gemini_key(self):
+        # Gemini serves an OpenAI-compatible endpoint, so the same SDK reaches
+        # it with only the base URL changed.
+        cfg = client.config({"GEMINI_API_KEY": "AQ.x"})
+        self.assertEqual(cfg["api_key"], "AQ.x")
+        self.assertIn("generativelanguage.googleapis.com", cfg["base_url"])
+        self.assertEqual(cfg["provider"], "gemini")
+
+    def test_a_gemini_model_carries_no_provider_prefix(self):
+        # OpenRouter names it google/gemini-...; Gemini's own endpoint does not.
+        self.assertNotIn("/", client.config({"GEMINI_API_KEY": "k"})["model"])
+
+    def test_openrouter_wins_when_both_keys_are_present(self):
+        cfg = client.config({"OPENROUTER_API_KEY": "a", "GEMINI_API_KEY": "b"})
+        self.assertEqual(cfg["provider"], "openrouter")
 
 
 class RequestTests(unittest.TestCase):
@@ -36,6 +53,13 @@ class RequestTests(unittest.TestCase):
         # providers silently fall back to json_object (c83).
         body = client.request("prompt", self.SCHEMA, model="x/y")
         self.assertIs(body["extra_body"]["provider"]["require_parameters"], True)
+
+    def test_sends_no_routing_hint_to_a_single_provider(self):
+        # require_parameters is OpenRouter's own field. Gemini's endpoint has
+        # one provider, so there is nothing to route and nothing to ask for.
+        body = client.request("prompt", self.SCHEMA, model="gemini-3.8-flash",
+                              provider="gemini")
+        self.assertNotIn("extra_body", body)
 
     def test_asks_for_the_schema_by_name_and_strictly(self):
         body = client.request("prompt", self.SCHEMA, model="x/y")

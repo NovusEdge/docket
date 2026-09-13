@@ -7,7 +7,16 @@ edges; everything here decides which of them survive.
 
 from __future__ import annotations
 
-EDGE_KINDS = ("supports", "supersedes")
+from docket.construct import schema
+
+# `contradicts` never lands on a record. Two records that disagree become a
+# question naming both, because deciding which one survives is the author's
+# call and a linker has no standing to make it.
+EDGE_KINDS = ("supports", "supersedes", "contradicts")
+
+# One call over 843 records produced 23 edges. Records from one document relate
+# most reliably, so a batch keeps documents whole and lets neighbours co-occur.
+BATCH = 120
 
 # Sent to the linker in place of the documents. The spike's 61 records are
 # about 2.8k tokens like this, against the 15k words they came from.
@@ -81,6 +90,12 @@ def validate(edges: list[dict], proposals: list[dict]) -> tuple[list[dict], list
 
             source, target = known[tail], known[head]
 
+            if kind == "contradicts":
+                # Nothing to check beyond the endpoints: a disagreement needs no
+                # shared kind, no dates, and no ordering.
+                kept.append(edge)
+                continue
+
             if kind == "supersedes":
                 if source["kind"] != target["kind"]:
                     dropped.append(f"{where}: supersession needs one kind, "
@@ -108,6 +123,64 @@ def validate(edges: list[dict], proposals: list[dict]) -> tuple[list[dict], list
     return kept, dropped
 
 
+def questions(edges: list[dict], proposals: list[dict]) -> list[dict]:
+    """One proposed question per contradiction, naming both records.
+
+    Two faithful records can disagree because their documents were written
+    months apart. Recording a silent supersedes would pick a winner the sources
+    do not; a question puts the choice in front of whoever owns it.
+
+    The question anchors on the first record's source line, so a reviewer still
+    has a document to open and the key stays stable across runs.
+    """
+    known = {_label(index): item for index, item in enumerate(proposals)}
+    asked = []
+    for edge in edges:
+        if edge.get("kind") != "contradicts":
+            continue
+        first, second = known.get(edge["from"]), known.get(edge["to"])
+        if not first or not second:
+            continue
+        asked.append(schema.proposal(
+            kind="question",
+            text=(f"Which holds? {first['text']} "
+                  f"Against: {second['text']}"),
+            anchor=first["anchor"],
+            rationale=(f"Extraction found both, from {first['source']['path']} "
+                       f"and {second['source']['path']}. Neither source settles it."),
+            source=dict(first["source"]),
+            confidence="low",
+        ))
+    return asked
+
+
+def batches(proposals: list[dict], size: int = BATCH) -> list[list[dict]]:
+    """The proposal set split into linkable chunks, documents kept whole.
+
+    A single call over the whole set does not scale: 843 records yielded 23
+    edges. Splitting loses edges that cross a boundary, and keeping each
+    document intact preserves the ones most likely to be real.
+    """
+    if size <= 0 or len(proposals) <= size:
+        return [list(proposals)]
+
+    grouped: dict[str, list[dict]] = {}
+    for item in proposals:
+        grouped.setdefault(item["source"]["path"], []).append(item)
+
+    out: list[list[dict]] = []
+    current: list[dict] = []
+    for path in sorted(grouped):
+        group = grouped[path]
+        if current and len(current) + len(group) > size:
+            out.append(current)
+            current = []
+        current.extend(group)
+    if current:
+        out.append(current)
+    return out
+
+
 def apply(edges: list[dict], proposals: list[dict]) -> list[dict]:
     """The proposals carrying their validated relations, keyed by identity.
 
@@ -121,6 +194,9 @@ def apply(edges: list[dict], proposals: list[dict]) -> list[dict]:
 
     grouped: dict[str, list[str]] = {}
     for edge in edges:
+        if edge["kind"] == "contradicts":
+            # Lands on neither record; questions() turns it into its own.
+            continue
         target_key = key_of[edge["to"]]
         if edge["kind"] == "supports":
             grouped.setdefault(edge["from"], []).append(target_key)

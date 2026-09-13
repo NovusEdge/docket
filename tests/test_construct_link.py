@@ -55,9 +55,9 @@ class ReferenceTests(unittest.TestCase):
 
     def test_drops_an_edge_of_an_unknown_kind(self):
         items = [prop("one"), prop("two")]
-        edges, dropped = link.validate([{"kind": "contradicts", "from": "p1", "to": "p2"}], items)
+        edges, dropped = link.validate([{"kind": "resembles", "from": "p1", "to": "p2"}], items)
         self.assertEqual(edges, [])
-        self.assertIn("contradicts", dropped[0])
+        self.assertIn("resembles", dropped[0])
 
 
 class SupersedesTests(unittest.TestCase):
@@ -129,6 +129,95 @@ class SupportsAcyclicTests(unittest.TestCase):
             {"kind": "supports", "from": "p2", "to": "p1"},
         ], items)
         self.assertEqual(len(edges), 2)
+
+
+class ContradictionTests(unittest.TestCase):
+    def pair(self):
+        return [prop("a", kind="claim", choice="", text="Write-gating adds 50-200ms"),
+                prop("b", kind="claim", choice="", text="Write latency target is under 50ms",
+                     path="b.md")]
+
+    def test_keeps_a_contradiction_between_two_records(self):
+        edges, dropped = link.validate(
+            [{"kind": "contradicts", "from": "p1", "to": "p2"}], self.pair())
+        self.assertEqual(len(edges), 1)
+        self.assertEqual(dropped, [])
+
+    def test_a_contradiction_needs_no_date_and_no_shared_kind(self):
+        items = [prop("a", kind="claim", choice="", date=None),
+                 prop("b", kind="decision", path="b.md")]
+        edges, dropped = link.validate(
+            [{"kind": "contradicts", "from": "p1", "to": "p2"}], items)
+        self.assertEqual(len(edges), 1)
+
+    def test_a_contradiction_becomes_a_proposed_question(self):
+        # The spec's rule: a contradiction the linker cannot resolve is a
+        # question naming both records, never a silent supersedes.
+        items = self.pair()
+        edges = [{"kind": "contradicts", "from": "p1", "to": "p2"}]
+        asked = link.questions(edges, items)
+        self.assertEqual(len(asked), 1)
+        self.assertEqual(asked[0]["kind"], "question")
+
+    def test_the_question_names_both_records(self):
+        items = self.pair()
+        asked = link.questions([{"kind": "contradicts", "from": "p1", "to": "p2"}], items)
+        text = asked[0]["text"]
+        self.assertIn("50-200ms", text)
+        self.assertIn("under 50ms", text)
+
+    def test_the_question_anchors_on_one_of_the_two_sources(self):
+        # A synthesized record still needs a line a reviewer can open.
+        items = self.pair()
+        asked = link.questions([{"kind": "contradicts", "from": "p1", "to": "p2"}], items)
+        self.assertIn(asked[0]["source"]["path"], {"a.md", "b.md"})
+        self.assertTrue(asked[0]["anchor"])
+
+    def test_the_same_contradiction_asks_the_same_question_twice_over(self):
+        items = self.pair()
+        edge = [{"kind": "contradicts", "from": "p1", "to": "p2"}]
+        self.assertEqual(link.questions(edge, items)[0]["key"],
+                         link.questions(edge, items)[0]["key"])
+
+    def test_a_contradiction_writes_no_relation_onto_either_record(self):
+        items = self.pair()
+        out = link.apply([{"kind": "contradicts", "from": "p1", "to": "p2"}], items)
+        self.assertEqual(out[0]["supports"], [])
+        self.assertEqual(out[0]["supersedes"], [])
+
+    def test_no_contradictions_asks_nothing(self):
+        self.assertEqual(link.questions([], self.pair()), [])
+
+
+class BatchTests(unittest.TestCase):
+    def items(self, n):
+        return [prop(f"anchor {i}", path=f"doc{i // 5}.md") for i in range(n)]
+
+    def test_a_small_set_is_one_batch(self):
+        self.assertEqual(len(link.batches(self.items(10), size=120)), 1)
+
+    def test_a_large_set_splits(self):
+        self.assertEqual(len(link.batches(self.items(300), size=120)), 3)
+
+    def test_every_record_lands_in_exactly_one_batch(self):
+        items = self.items(300)
+        keys = [p["key"] for batch in link.batches(items, size=120) for p in batch]
+        self.assertEqual(sorted(keys), sorted(p["key"] for p in items))
+
+    def test_a_document_is_not_split_across_batches_when_it_fits(self):
+        # Records from one document are the likeliest to relate, so splitting a
+        # document costs the edges the linker would most reliably find.
+        batches = link.batches(self.items(300), size=120)
+        for batch in batches:
+            pass
+        seen: dict[str, int] = {}
+        for index, batch in enumerate(batches):
+            for item in batch:
+                path = item["source"]["path"]
+                self.assertIn(seen.setdefault(path, index), (index,))
+
+    def test_batching_is_off_for_a_size_of_zero(self):
+        self.assertEqual(len(link.batches(self.items(300), size=0)), 1)
 
 
 class ApplyTests(unittest.TestCase):
