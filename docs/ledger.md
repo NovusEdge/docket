@@ -140,8 +140,8 @@ the union serves the renderer as a convenience.
 
 `docket context` renders projected records for a harness.
 
-Every current record appears, in one of two tiers. The full-text tier holds
-complete record blocks. The index tier names each remaining record on one line
+Current records are presented in two tiers when space permits. The full-text
+tier holds complete record blocks. The index tier names remaining records on one line
 with its ID, kind, state, and clipped text. An index line's length follows its
 score, so a near miss carries more text than a distant record. The index names
 at most `index.max_lines` records, 40 by default, in score order, and closes
@@ -176,7 +176,7 @@ parent's score per hop, and expansion stops when that falls under the floor.
 `--all` asks for every record in the full-text tier, subject to the budget. A
 record that does not fit still falls to an index line.
 
-With no `--query` and no `--file`, Docket derives file scope from the working
+With no `--query`, `--file`, or `--all`, Docket derives file scope from the working
 tree's changed and untracked files. `--no-auto-scope` disables that, and
 `--auto-scope` forces it alongside an explicit query. A clean tree scopes from
 the paths the last commit touched, because that is the likeliest starting point
@@ -244,7 +244,9 @@ conflict with `docket rebase`, not by hand and not with a union merge driver. A
 union merge keeps both branches' lines, which leaves two records holding one ID.
 Every command then fails, including the session hook.
 
-To repair a divergence, recover the other branch's ledger file and run:
+Before rebasing, recover each branch's complete ledger without conflict markers.
+The active ledger must contain a valid version from one branch. Keep the other
+branch's valid file separately, then run:
 
 ```sh
 docket rebase ../other-branch/.docket/ledger.jsonl --dry-run

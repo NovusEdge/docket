@@ -1,52 +1,64 @@
 # Docket
 
-Docket is a decision ledger for coding agents. You record what you decided and
-why. Docket hands it back to your agent when it becomes relevant again.
+Docket keeps the choices you make with a coding agent available for later work.
+Record what you decided and why, then bring that context into the next session.
 
-Agents forget. A long session gets compacted, a new session starts clean, and a
-choice you settled on Tuesday gets argued again on Thursday. Docket is the memory
-that survives that.
-
-```sh
-docket decision "Which database should the billing service use?" \
-  --choice "Postgres" \
-  --rationale "We already run Postgres, so we add no new operational burden" \
-  --scope "billing/**"
-```
-
-Records live in an append-only file. Nothing is ever edited, so when you change
-your mind, the old reasoning stays readable next to the new one.
+Use it when a project spans several conversations or when a new agent needs to
+understand an earlier choice. Your records stay in a local file called a
+**ledger**, which you can share with your team through Git.
 
 ## Start here
 
-New to Docket? The [quickstart](quickstart.md) gets you from nothing to a working
-ledger in about five minutes.
+The [quickstart](quickstart.md) walks you through your first decision and shows
+how to read it back. You can use Docket from a terminal or ask your agent to
+record things for you.
 
-After that, [Recording](recording.md) covers the day to day habit, and
-[Reading](reading.md) shows the four ways to get your records back.
-
-## Guides
-
-| Page | What it covers |
+| I want to… | Read |
 |---|---|
-| [Quickstart](quickstart.md) | Install, create a ledger, record your first decision |
-| [Recording](recording.md) | Claims, decisions, questions, and how to link them |
-| [Reading](reading.md) | `list`, `show`, `graph`, and the briefing your agent reads |
-| [Working with your agent](agents.md) | How Docket plugs into your agent and what it sees |
-| [Installation](installation.md) | Every install path, agent setup, updates, uninstall |
-| [Maintenance](maintenance.md) | Merge conflicts, broken ledgers, tuning, completion |
-| [Command reference](commands.md) | Every command and flag |
+| Set up Docket | [Installation](installation.md) |
+| Try it in a project | [Your first decision](quickstart.md) |
+| Save a choice or leave a question for later | [Recording decisions](recording.md) |
+| Find an earlier decision | [Reading your ledger](reading.md) |
+| Use Docket in an agent session | [Working with your agent](agents.md) |
+| Share a ledger with my team | [Sharing and maintenance](maintenance.md) |
 
-## Going deeper
+## What goes in a ledger?
 
-These pages are for readers who want the detail behind the design. You do not
-need them to use Docket.
+A ledger holds three kinds of record:
 
-| Page | What it covers |
-|---|---|
-| [Ledger reference](ledger.md) | Record types, states, relations, file format, scoring |
-| [Definitions](definitions.md) | The formal vocabulary the design documents use |
-| [Decision chains](decision-chains.md) | The problem, the research, and the resulting design |
-| [Outcome formalism](outcome-formalism.md) | Outcomes, chains, and claims as a formalism |
-| [Agent context goals](agent-context-goals.md) | Where agent context is heading, and what is still open |
-| [North star](north-star.md) | The target system and its build order |
+| Record | What it keeps | Example |
+|---|---|---|
+| **Claim** | A statement you want to assess or rely on | “The service already runs Postgres.” |
+| **Decision** | A choice and the reason for it | “Use Postgres for billing because we already operate it.” |
+| **Question** | Something you still need to find out | “Which database driver should we use?” |
+
+You can connect a decision to the claims behind it or to a question it answers.
+When your choice changes, add a replacement. The earlier record remains
+available so you can follow how the decision changed.
+
+## Pick up where you left off
+
+Configured agent integrations load a **briefing** from the ledger. It gives the
+agent relevant records and instructions for finding more.
+
+You can also ask for context about a particular task:
+
+```sh
+docket context --query "billing database"
+```
+
+Docket supplies the recorded context. You and your agent still need to check
+whether the evidence is current and whether a choice fits the work in front of
+you.
+
+## When you want more detail
+
+Use the [command reference](commands.md) to look up a flag. The
+[ledger reference](ledger.md) explains states, relationships, and how Docket
+chooses records for a briefing.
+
+The **Design and research** section explores the ideas behind Docket and
+proposals for future work. You can use the everyday guides without reading it.
+
+[Source code](https://github.com/NovusEdge/docket) ·
+[Releases](https://github.com/NovusEdge/docket/releases)

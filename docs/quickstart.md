@@ -1,101 +1,93 @@
-# Quickstart
+# Your first decision
 
-This page takes you from nothing to a working ledger in about five minutes. You
-need Python 3.11 or later. Docket has no Python package dependencies.
+Create a project ledger, record a choice, and read it back. If Docket is not
+installed yet, follow [Installation](installation.md) first.
 
-## 1. Install
+The commands below use a terminal. You can also ask your agent to carry out the
+same steps.
 
-```sh
-curl -fsSLO https://raw.githubusercontent.com/NovusEdge/docket/main/installer/install.py
-python3 install.py
-```
+## 1. Open your project
 
-The installer shows you its plan and waits for you to confirm it. It adds the
-`docket` command to your `PATH` and sets up any agent tools it finds on your
-machine.
-
-Start a new agent session after the installer finishes. Then check that the
-command works:
-
-```sh
-docket --version
-```
-
-The [installation page](installation.md) covers other install paths, updates,
-and uninstall.
-
-## 2. Create a ledger for your project
-
-Go to your project and run:
+In your terminal, go to the project where you want to keep decisions. Replace
+this example path with your own:
 
 ```sh
 cd ~/Projects/my-app
 docket init
 ```
 
-```
-docket: created /home/you/Projects/my-app/.docket/ledger.jsonl
-```
+Docket creates `.docket/ledger.jsonl` in your repository. If you already have a
+private ledger for this project, it copies those records into the new file.
 
-Your records now live in the repository, so your team shares them. Without
-`docket init`, Docket keeps a private ledger in your home directory instead.
-Run `docket where` any time you want to know which file is in use.
-
-## 3. Record your first decision
-
-A decision is a question plus the choice you made:
+Run this to confirm which ledger is active:
 
 ```sh
-docket decision "Which database should the billing service use?" \
+docket where
+```
+
+The output should name the `.docket/ledger.jsonl` file in your project. To share
+it with your team, include `.docket/` in a Git commit.
+
+## 2. Record a choice
+
+For this example, imagine you are adding billing to an existing service:
+
+```sh
+docket decision "Which database should billing use?" \
   --choice "Postgres" \
-  --rationale "We already run Postgres, so we add no new operational burden" \
+  --rationale "We already run Postgres for the rest of the service" \
   --scope "billing/**"
 ```
 
+In an empty ledger, Docket replies:
+
+```text
+d1  adopted  Which database should billing use?
 ```
-d1  adopted  Which database should the billing service use?
-```
 
-Docket gives each record a short ID. You use that ID to link records together
-later.
+`d1` is the record's ID. Your ID may be different if the ledger already has
+records. `adopted` means this is a choice you have committed to.
 
-The `--scope` value matters more than it looks. Docket uses it to work out which
-records matter for the files an agent is touching right now.
+The scope `billing/**` connects the decision to files under `billing/`. It helps
+Docket find the decision when you or your agent work on that part of the project.
 
-## 4. Leave a question for later
-
-Not everything gets settled today. Record the open question so nobody has to
-rediscover it:
+## 3. Leave a question for later
 
 ```sh
-docket question "Which async driver should the billing service use?" \
+docket question "Which database driver should billing use?" \
   --scope "billing/**"
 ```
 
-```
-q2  open  Which async driver should the billing service use?
-```
+In the same fresh ledger, this creates `q2`. The question stays open until you
+link a suitable answer to it.
 
-## 5. Read it back
+## 4. Read your records
 
 ```sh
 docket list
 ```
 
+You will see the adopted decision and the open question. To read the decision
+in full, use the ID printed when you recorded it:
+
+```sh
+docket show d1
 ```
-d1    adopted   Which database should the billing service use?
-      Postgres
-q2    open      Which async driver should the billing service use?
+
+You can also open `docket graph` to browse the ledger in the terminal viewer.
+
+## 5. Bring the choice into your next task
+
+```sh
+docket context --query "billing" --file billing/db.py
 ```
 
-That is the whole loop. You record a choice when you make it, and Docket hands
-it back when it becomes relevant again.
+This prints a briefing for the task. With these two records, it includes your
+database choice and the question you still need to answer.
 
-## What happens next
+If you configured an agent during installation, start a new session in this
+project. Ask it to read the Docket context and tell you what is still open.
 
-Your agent reads the ledger at the start of every session. It sees your
-decisions, your premises, and your open questions, and it sees which ones apply
-to the files in front of it. You do not have to explain the same choice twice.
-
-Read [Recording](recording.md) next for the day to day habit, or
-[Reading](reading.md) to see the other ways to get your records back.
+Continue with [Recording decisions](recording.md) to learn how to answer the
+question or replace an earlier choice. [Working with your agent](agents.md)
+shows how to use the same workflow in a conversation.

@@ -1,98 +1,130 @@
-# Maintenance
+# Sharing and maintenance
 
-Most weeks you never touch these commands. They matter on the day something goes
-wrong, so it helps to know they exist.
+Use this page to share a ledger, check a read error, or combine records from two
+branches. For setup and updates, see [Installation](installation.md).
 
-## Find your ledger
+## Share a project ledger
+
+From your project, run:
 
 ```sh
+docket init
 docket where
 ```
 
-```
-/home/you/Projects/my-app/.docket/ledger.jsonl  (project, exists)
-```
+Docket creates a ledger at `.docket/ledger.jsonl` and copies any existing private
+records for that project into it. Include `.docket/` in your normal Git commits
+so other checkouts receive the same history.
 
-A project ledger lives in the repository and your team shares it. Without one,
-Docket keeps a private ledger under your home directory and says `global`. Run
-`docket init` to promote a project to its own shared ledger.
+Without a project ledger, Docket uses a private ledger under your home directory
+for that project. `docket where` prints the active path.
 
-## When a ledger stops reading
+## Check a ledger that will not read
 
 ```sh
 docket check
 ```
 
-A clean ledger reports its record count. A broken one names the line and the
-fault. Reach for `check` first whenever a command fails or your session hook goes
-quiet, because a normal read stops at the first fault and `check` reports all of
-them.
+A valid ledger reports its record count. An invalid ledger reports the faults it
+can find, such as a repeated ID or a link to an unknown record.
 
-## Two branches both recorded
+Keep a copy of the file before attempting repairs. If it contains Git conflict
+markers, recover the two branch versions before combining their records.
 
-This is the common one. Both branches appended records after the same last line,
-so git reports a conflict on `ledger.jsonl`.
+## Combine records from two branches
 
-Do not resolve it by hand, and do not set a union merge driver on the file. Both
-approaches leave two records holding one ID, and then every command fails
-including the session hook.
+When both branches add records, they can allocate the same IDs. Combining the
+lines directly does not resolve that conflict. Use `docket rebase` to give the
+incoming records new IDs and update their links.
 
-Recover the other branch's file and run:
+Start with two complete, valid ledger files:
+
+- The active ledger contains the version you want to keep as the base.
+- A separate file contains the other branch's version.
+
+If Git has already inserted conflict markers, recover both versions first.
+The [sharing reference](ledger.md#sharing-a-ledger) explains this requirement.
+
+With the other version available in a separate checkout, preview the ID changes:
 
 ```sh
 docket rebase ../other-branch/.docket/ledger.jsonl --dry-run
-docket rebase ../other-branch/.docket/ledger.jsonl
 ```
 
-Rebase finds the prefix both files share and appends the other side's remaining
-records under fresh IDs. Links inside that tail follow the renumbering.
-`--dry-run` prints the ID map and writes nothing, so run it first.
+Check the map, then apply it and validate the result:
 
-Docket does not merge the thinking for you. If both branches decided the same
-question differently, you end up with two adopted decisions. Supersede one of
-them and say why.
+```sh
+docket rebase ../other-branch/.docket/ledger.jsonl
+docket check
+```
 
-## Upgrading an old ledger
+Docket appends the other branch's records after the shared history and updates
+links within the appended records. Commit the resulting ledger with your merge.
 
-A ledger written before 0.8 uses the old schema. Commands fail with a message
-pointing you here. Convert it in place:
+If both branches made different choices about the same issue, both choices
+remain recorded. Decide which one to keep, then
+[supersede the other](recording.md#change-an-earlier-choice).
+
+If both branches superseded the same record, rebase stops for manual resolution.
+An append failure can also leave part of the incoming history applied. Keep the
+original files and inspect the report before retrying.
+
+## Upgrade an old ledger
+
+Ledgers from before 0.8 use an earlier format. Preview their conversion first:
 
 ```sh
 docket migrate --dry-run
-docket migrate
 ```
 
-Migration keeps your original file at `ledger.jsonl.schema1`. A ledger already on
-the current schema exits clean and changes nothing.
+Read the proposed classifications and any warnings. If they need adjustment,
+use the [migration reference](ledger.md#migrating-a-schema-1-ledger) to create
+and edit a classification map.
 
-The conversion maps old states onto kinds and states, and prints a warning line
-for each edge it repairs. Read the mapping table in the
-[ledger reference](ledger.md#migrating-a-schema-1-ledger) before you run it on
-history you care about.
+When the conversion is right for your ledger:
 
-## Tuning the briefing
+```sh
+docket migrate
+docket check
+```
 
-Copy `docs/config.example.toml` from the repository to `.docket/config.toml` and
-edit it. Every value is an integer, and every value in the example file is the
-default, so you can delete the keys you do not want to change.
+Migration saves the original as `ledger.jsonl.schema1`. Running it on a current
+ledger leaves the file unchanged.
 
-An unknown key is an error rather than a silent no-op. The briefing header names
-your settings digest, so you can tell a tuned ledger from an untuned one at a
-glance.
+## Adjust the briefing size
 
-Raise `budget.target` if your agent keeps missing relevant records. Raise
-`index.max_lines` if the briefing truncates a list of IDs you wanted.
+Try a different limit for one command before changing project settings:
+
+```sh
+docket context --query "billing" --max-chars 12000
+```
+
+For lasting changes, use a `config.toml` file beside the active ledger. In a
+project ledger, that is `.docket/config.toml`.
+
+The [configuration example](config.example.toml) lists the settings and defaults.
+You can start with a small file containing only what you want to change:
+
+```toml
+[budget]
+target = 12000
+```
+
+Docket reports an invalid setting instead of ignoring it. For selection weights,
+index size, and budget behavior, see [Bounded context](ledger.md#bounded-context).
 
 ## Shell completion
+
+Docket can print a completion script for your shell:
 
 ```sh
 docket completion zsh
 ```
 
-`bash`, `zsh`, and `fish` are supported. Send the output to the file your shell
-loads completions from.
+Use `bash` or `fish` instead of `zsh` for those shells. Save the output to the
+completion location your shell uses.
 
-## Updating and removing Docket
+## Update or remove Docket
 
-Updates and uninstall live on the [installation page](installation.md#update-uninstall-and-cleanup).
-Uninstall keeps every ledger.
+Follow [Update, uninstall, and cleanup](installation.md#update-uninstall-and-cleanup).
+Uninstall keeps your ledger files.

@@ -1,434 +1,153 @@
 # Installation
 
-Docket 0.8.0 requires Python 3.11 or later and has no Python package
-dependencies. The CLI writes schema 2 records with the `claim`, `decision`, and
-`question` kinds. The pre-0.8 `add`, `open`, `ruled-out`, `--answer`, and
-`--because` interface is removed. Read [the ledger reference](ledger.md) before
-migrating a schema 1 ledger.
+Install Docket, choose the agent tools you want to connect, and check that the
+command works.
 
-An agent harness needs two integrations:
-
-1. A session-start hook runs `docket context` and adds its output to the model
-   context.
-2. An instruction document tells the model when to record a decision.
-
-Every integration reads the same ledger, so a project can use more than one
-harness.
-
-Use these links to jump to a task:
-
-- [Install with the installer](#the-installer)
-- [Install from a checkout](#manual-installation)
-- [Configure a harness](#configure-an-agent-harness)
-- [Browse the decision graph](#browse-the-decision-graph)
-- [Check verification limits](#verification-limits)
+You need **Python 3.11 or later**, Git, and an internet connection for the
+download. Docket has no Python package dependencies. A normal downloaded
+installation does not require Go.
 
 ## The installer
 
-### Choose an installer path
+### Linux and macOS
 
-- Download and run the compatibility launcher:
+Run these commands in a folder outside an existing Docket source checkout:
 
-   ```sh
-   curl -fsSLO https://raw.githubusercontent.com/NovusEdge/docket/main/installer/install.py
-   python3 install.py
-   ```
+```sh
+curl -fsSLO https://raw.githubusercontent.com/NovusEdge/docket/main/installer/install.py
+python3 install.py
+```
 
-   `curl -O` saves the file as `install.py` in the current directory. Outside a
-   checkout, the launcher downloads a native installer and verifies it against
-   the release's `SHA256SUMS` file before running it. Release recipes build
-   Linux, macOS, and Windows assets for amd64 and arm64. The matching asset must
-   be published for the launcher to use it. Set `DOCKET_INSTALLER_VERSION` to
-   select a published release tag.
+This saves `install.py` in the current folder and runs it. The launcher downloads
+the installer for your platform and checks its release checksum.
 
-- Run from an existing source checkout:
+### Windows
 
-   ```sh
-   python3 installer/install.py
-   ```
+In PowerShell, download the same file and run it with Python:
 
-   This builds the native installer locally with Go 1.26 or later and runs it
-   against that checkout. Use `just installer-build` to build it without
-   running it. The Go module, installer code, and installer tests live in
-   `installer/`.
+```powershell
+Invoke-WebRequest https://raw.githubusercontent.com/NovusEdge/docket/main/installer/install.py -OutFile install.py
+py -3 install.py
+```
 
-The installer clones the repository when you run it outside a checkout. It
-adds the command to `PATH` and, by default, configures Claude Code and any
-other harnesses it detects.
+If you use `python` instead of the `py` launcher, run `python install.py`.
+Make sure it selects Python 3.11 or later.
 
-### Verify the installation
+### Follow the setup
 
-After installation, check the version and active ledger:
+In an interactive terminal, the installer lets you choose the command location
+and agent tools. Review any proposed PATH change and the installation plan, then
+confirm it.
+
+The installer adds the `docket` command and prepares the graph viewer. Keep the
+downloaded `install.py` file if you want to use it for updates or removal later.
+
+Custom locations and unattended setup are covered in the
+[installer reference](installer-reference.md#installer-options).
+
+## Check that it works
+
+Open a new terminal and run:
 
 ```sh
 docket --version
 docket where
 ```
 
-The session-start hook runs `docket context`. A harness can pass `--query`,
-repeat `--file`, and set `--max-chars` for a task. Without a query, the output
-serves as startup context. Docket measures the budget in characters and accepts
-budgets from 512 characters upward. `--all` removes relevance filtering while
-keeping the budget.
+The first command prints the installed version. The second prints the active
+ledger's location. It can say `not created yet` before you record anything or
+run `docket init`.
 
-### Managed checkout behavior
+Start a new agent session after installation so it can load the integration.
 
-The normal managed flow clones into a temporary directory and swaps the result
-into place. It preserves a `.docket` ledger inside the managed checkout and
-replaces other local changes in that checkout. An unrelated nonempty directory
-is rejected. Running from an existing source checkout installs that checkout
-without replacing it.
-
-The native installer uses Bubble Tea, Bubbles, and Lip Gloss for its guided
-flow and prepares the native `docket-graph` viewer. It builds the viewer from
-the checkout when Go is available. Without Go, it fetches the matching viewer
-asset and verifies `GRAPH-SHA256SUMS`; the asset must be published for the
-checked-out version. The repository contains release recipes for these assets,
-but building them does not publish a release.
-
-In a terminal, the installer uses a guided flow unless you pass `--yes`,
-`--no-tty`, `--dry-run`, or `--harness`. It runs inline on an interactive
-terminal and leaves the result in scrollback. Unattended runs use plain output.
-The launcher creates no Python environment and installs no Python packages.
-
-### Guided flow
-
-For an installation, the guided flow proceeds through these steps:
-
-1. Choose where to put the `docket` command and, for a downloaded installer,
-   its checkout.
-2. Select the harnesses to configure. Each shows its detection result, and
-   detected harnesses start selected. You can also select a harness you plan
-   to install later.
-3. If the chosen location needs a `PATH` change, review the exact change and
-   confirm whether to apply it. Unix installations show the shell line and
-   destination file; Windows installations show the User PATH directory.
-4. Review the full plan, including checkout updates and external commands,
-   then confirm installation.
-
-Cancelling before confirmation leaves the installation unchanged. Cancelling
-during installation stops further actions; completed actions remain applied.
-
-### Installer options
-
-| Option | Effect |
-|---|---|
-| `--dry-run` | Print every planned operation without applying it |
-| `--harness NAME` | Configure one harness; repeat for more; skips the guided flow |
-| `--project` | Put the Claude skill and Cursor rule in this repository; hook configs keep user scope |
-| `--prefix DIR` | Put the command in `DIR` |
-| `--dir DIR` | Put the managed checkout in `DIR` |
-| `--checkout DIR` | Use an existing source checkout without replacing it |
-| `--yes` | Take every default and do not prompt |
-| `--no-tty` | Treat stdin as non-interactive and apply the same prompt defaults as `--yes` |
-| `--update` | Refresh the existing Docket checkout and native graph viewer; keep harness and PATH configuration unchanged |
-| `--uninstall` | Remove what the installer wrote |
-| `--version` | Print the installer version |
-
-`--yes` and non-interactive runs apply defaults, including a needed `PATH`
-change. Use `--dry-run` to inspect those changes first. `just verify` tests
-installation and removal in a temporary home.
-
-The uninstall keeps every ledger.
-
-After installation, `docket`, `docket -h`, and `docket --help` print the version
-and full top-level command help. Use `docket --version` for the concise version
-only.
-
-### Update, uninstall, and cleanup
-
-For a managed install, run the downloaded launcher with `--update` to
-fast-forward the managed checkout and refresh its viewer. The command must
-already be installed. This mode leaves `PATH` entries and harness configuration
-unchanged. Add `--dry-run` to review the checkout and viewer operations first.
-It cannot be combined with `--harness`, `--project`, or `--uninstall`.
-
-From a source checkout, `python3 installer/install.py --update` uses that
-checkout and does not fetch Git. It refreshes the viewer when Go is available.
-`just update` runs this source-checkout path. An explicit `--checkout DIR` also
-uses that source tree without replacing it.
-
-`just clean` removes repository build outputs, release outputs, and Python
-caches. It preserves source files, `.docket` ledgers, configuration, and shared
-Go caches.
-
-Installing a Claude or Codex plugin from this repository does not download a
-compiled viewer. For a source checkout with Go installed, run `just graph-build`
-or run the installer against that checkout. If no viewer is available,
-`docket graph` uses its compact text fallback in automatic terminal mode and
-prints installation guidance. It does not access the network or invoke Go
-while displaying a graph.
-
-## Manual installation
-
-Use this path when you want to manage the checkout yourself:
-
-1. Clone the repository:
-
-   ```sh
-   git clone https://github.com/NovusEdge/docket.git ~/Projects/docket
-   ```
-
-2. Add the command to `PATH` if you want to use it in a shell:
-
-   ```sh
-   mkdir -p ~/.local/bin
-   ln -s ~/Projects/docket/bin/docket ~/.local/bin/docket
-   ```
-
-3. To enable the interactive graph viewer, install Go 1.26 or later and run
-   this from the source checkout:
-
-   ```sh
-   just graph-build
-   ```
-
-The viewer is written to `graph/docket-graph`. Plugin files alone do not
-include this compiled executable.
-
-## Browse the decision graph
-
-Run `docket graph` in a terminal to use the native viewer when
-`graph/docket-graph` is present. It shows a compact, selectable tree and a
-detail pane. Use these keys:
-
-| Key | Action |
-|---|---|
-| `↑`/`k`, `↓`/`j` | Move through entries |
-| `space`/`enter` | Collapse or expand a branch |
-| `tab` | Switch between the tree and detail pane |
-| `/` | Search IDs, kinds, states, text, choices, and costs |
-| `q`/`Ctrl-C` | Quit |
-
-When the detail pane is focused, `PgUp`/`Ctrl-U` and `PgDn`/`Ctrl-D` scroll it;
-`h`/`left` and `l`/`right` move horizontally. Press `Enter` to apply a search
-and `Esc` to cancel it.
-
-Piped output stays static. Use `--no-interactive` or `--plain` to force static
-output, or choose `--style forest`, `--style rail`, or `--style compact`.
-`--pretty` forces colour. `--interactive` explicitly requires terminal stdin
-and stdout. The native detail pane shows every justification set. Static graph
-modes include retired entries. Forest and rail name additional supports;
-compact is a first-support tree projection. The native detail pane distinguishes
-complete `supports` formulas from `depends_on` prerequisites and shows derived
-decision applicability. Static output keeps support sets in its projection and
-shows `blocked_by` for unavailable decision prerequisites.
+Continue with [Your first decision](quickstart.md) to create a project ledger.
 
 ## Configure an agent harness
 
-Each section below gives the hook and instruction files for one harness. The
-hook examples use an absolute path, so they do not require `PATH`.
+During setup, select the tools you use. Docket supports Claude Code, Codex,
+Gemini CLI, GitHub Copilot CLI, Cursor, and OpenCode.
 
-`docket context --for gemini|copilot|cursor` wraps the ledger in the selected
-harness's hook envelope. The examples use this form, so a hook needs no shell
-pipe.
+For OpenCode, complete the [plugin file placement step](integrations.md#opencode)
+after installation so it can find the integration.
 
-### Claude Code
+For daily use, read [Working with your agent](agents.md). For plugin commands,
+hook configuration, and instruction files, see the
+[agent setup reference](integrations.md).
 
-Add the marketplace and install Docket:
+## Update, uninstall, and cleanup
 
-```text
-/plugin marketplace add NovusEdge/docket
-/plugin install docket@NovusEdge
-```
+### Update a downloaded installation
 
-Start a new session after installation. The plugin loads `hooks/hooks.json` and
-the Docket skill.
-
-### OpenAI Codex CLI
-
-The repository contains `.codex-plugin/plugin.json`. Add the marketplace and
-install Docket:
+From the folder containing the downloaded `install.py`, run:
 
 ```sh
-codex plugin marketplace add NovusEdge/docket
-codex plugin add docket@NovusEdge
+python3 install.py --update --dry-run
+python3 install.py --update
 ```
 
-Start a new Codex task after installation. Codex loads the bundled skill and
-session hook.
+On Windows, use `py -3` in place of `python3`.
 
-Set `DOCKET_AUTHOR=codex` in the hook environment when you require this author
-name.
-Docket uses automatic detection when the variable is absent.
+The first command previews the update. The second updates the managed checkout
+and refreshes the graph viewer. Agent configuration and PATH settings stay as
+they are.
 
-### OpenCode
+If you installed in custom locations, use the same `--dir` and `--prefix`
+values. There is no `docket update` command.
 
-Create `~/.config/opencode/plugins/docket/index.ts`, or
-`.opencode/plugins/docket/index.ts` for one project:
+### Remove Docket
 
-```js
-import { execFileSync } from "node:child_process"
+Use the downloaded launcher:
 
-const PYTHON = "/usr/bin/python3"
-const DOCKET = "/path/to/docket/bin/docket"
-
-export const Docket = async () => {
-  return {
-    "experimental.chat.system.transform": async (input, output) => {
-      try {
-        const ledger = execFileSync(PYTHON, [DOCKET, "context"], {
-          encoding: "utf8",
-          env: { ...process.env, DOCKET_AUTHOR: "opencode" },
-        })
-        if (ledger.trim()) output.system.push(ledger)
-      } catch {
-        return
-      }
-    },
-  }
-}
+```sh
+python3 install.py --uninstall
 ```
 
-A plugin is a named export. It is an async function that returns the hooks.
-The hook adds the ledger to the system prompt before each model call.
+Use `py -3 install.py --uninstall` on Windows. Pass any custom locations you
+used during installation.
 
-The `Plugin.define` interface belongs to the OpenCode v2 API. That API is not
-released.
+Uninstall removes Docket's integration and command files. It keeps your ledgers.
+See the [installer reference](installer-reference.md#update-uninstall-and-cleanup)
+for source-checkout updates and build cleanup.
 
-Copy `skills/docket/SKILL.md` to `.opencode/skills/docket/SKILL.md`.
-OpenCode also finds skills in `.agents/skills/`.
+## Manual installation
 
-### Gemini CLI
+If you already have a Docket source checkout, run this from its root:
 
-Put this in `~/.gemini/settings.json`, or in `.gemini/settings.json` for one
-project:
-
-```json
-{
-  "hooks": {
-    "SessionStart": [
-      {
-        "name": "docket",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/path/to/docket/bin/docket context --for gemini",
-            "timeout": 5000
-          }
-        ]
-      }
-    ]
-  }
-}
+```sh
+python3 installer/install.py
 ```
 
-The entry has no `matcher`. A lifecycle matcher is an exact string, so a regular
-expression matches no event.
+This path builds from your checkout and requires Go 1.26 or later as well as
+Python. See [Source and manual setup](installer-reference.md#manual-installation)
+for the full steps.
 
-The timeout is in milliseconds.
+## Browse the decision graph
 
-Gemini identifies a hook by its name and its command. It asks you to trust the
-hook again after the command changes.
+After you have recorded something, run:
 
-Copy `skills/docket/SKILL.md` to `.gemini/skills/docket/SKILL.md`.
-
-### GitHub Copilot CLI
-
-Put this in `.github/hooks/sessionStart.json` for a repository, or
-`~/.copilot/hooks/sessionStart.json` for yourself:
-
-```json
-{
-  "version": 1,
-  "hooks": {
-    "sessionStart": [
-      {
-        "type": "command",
-        "bash": "DOCKET_AUTHOR=copilot /path/to/docket/bin/docket context --for copilot",
-        "powershell": "$env:DOCKET_AUTHOR=\"copilot\"; & \"C:\\Path\\To\\python.exe\" \"C:\\path\\to\\docket\\bin\\docket\" context --for copilot",
-        "timeoutSec": 5
-      }
-    ]
-  }
-}
+```sh
+docket graph
 ```
 
-Copilot parses the hook output as JSON. It adds `additionalContext` to the model
-context.
+Select records in the tree to read their details. The
+[reading guide](reading.md#browse-connected-records) explains the controls.
 
-Copilot runs the `bash` field on Linux and macOS. It runs the `powershell` field
-on Windows. PowerShell requires the call operator `&` before a quoted command
-path.
+If you installed only the agent plugin, the viewer may be absent. Docket then
+shows a text graph with setup guidance. Run the installer to prepare the viewer.
 
-For instructions, Copilot reads `.github/copilot-instructions.md`. Copy the body
-of `skills/docket/SKILL.md` into it.
+## If setup fails
 
-### Cursor
-
-Use two files to install Docket for Cursor.
-
-Hook, in `.cursor/hooks.json` for the project or `~/.cursor/hooks.json` for
-yourself:
-
-```json
-{
-  "version": 1,
-  "hooks": {
-    "sessionStart": [
-      {
-        "command": "/path/to/docket/bin/docket context --for cursor"
-      }
-    ]
-  }
-}
-```
-
-Cursor calls its output field `additional_context`.
-
-Instructions go in `.cursor/rules/docket.mdc`. The file requires this
-frontmatter, or Cursor does not load it in every session:
-
-```text
----
-alwaysApply: true
----
-```
-
-### A harness with no hooks
-
-Without a session-start hook, the harness cannot run a command for each session.
-
-1. Write a current ledger snapshot to the instruction file:
-
-   ```sh
-   docket context > DOCKET_CONTEXT.md
-   ```
-
-2. Configure the harness to load `DOCKET_CONTEXT.md`.
-3. Regenerate the file after each decision.
-
-## Which instruction file each harness reads
-
-| Harness | Instruction file | Reads AGENTS.md by default |
-|---|---|---|
-| Claude Code | `CLAUDE.md`, plugin skills | no |
-| Codex CLI | `AGENTS.md` | yes |
-| Gemini CLI | `GEMINI.md`, configurable | no, `contextFileName` can point at it |
-| Copilot CLI | `.github/copilot-instructions.md` | no |
-| Cursor | `.cursor/rules/*.mdc` | no |
-
-Only Codex reads `AGENTS.md` without configuration.
-
-## Integration references
-
-- [OpenCode plugins](https://opencode.ai/v2/docs/build/plugins/)
-- [OpenCode agent skills](https://opencode.ai/docs/skills)
-- [Gemini CLI hooks](https://geminicli.com/docs/hooks/reference/)
-- [Gemini CLI extensions](https://geminicli.com/docs/extensions/reference/)
-- [GitHub Copilot CLI hooks](https://docs.github.com/en/copilot/reference/hooks-reference)
-- [Cursor hooks](https://prod.cursor.com/docs/hooks)
-- [OpenAI Codex plugins](https://help.openai.com/en/articles/20001256/)
+| What you see | What to check |
+|---|---|
+| Python version error | Run `python3 --version` or `py -3 --version` and confirm it is at least 3.11 |
+| Git is missing | Install Git and make sure `git --version` works in this terminal |
+| `docket` is not found after setup | Open a new terminal and check the command location and PATH change from the installer |
+| No download for your platform | Check the [release assets](https://github.com/NovusEdge/docket/releases/latest); downloads target Linux, macOS, and Windows on amd64 and arm64 |
+| An update cannot fast-forward | Keep any local work and reconcile the managed checkout before retrying; see [managed checkout behavior](installer-reference.md#managed-checkout-behavior) |
 
 ## Verification limits
 
-The Go installer has planner and execution tests that use temporary homes.
-`just verify` covers an install and uninstall roundtrip with a temporary home
-and source checkout. Its Linux terminal flow is checked with tmux. Cross-build
-checks cover Linux, macOS, and Windows binaries for amd64 and arm64; they do not
-verify native macOS terminal behavior, Windows registry writes, or a live
-installation on those systems.
-
-The harness examples are configuration examples; the repository does not run a
-live harness session for them. They were checked against their official formats
-on 11 September 2026; the OpenCode example uses the v1 plugin interface.
+Release builds cover Linux, macOS, and Windows, but build success does not
+establish that every native installation flow has been tested. The
+[verification notes](installer-reference.md#verification-limits) describe the
+checks and their limits.

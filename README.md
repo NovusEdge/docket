@@ -17,14 +17,17 @@ curl -fsSLO https://raw.githubusercontent.com/NovusEdge/docket/main/installer/in
 python3 install.py
 ```
 
-The installer guides you through setup and shows its plan before applying it.
+In an interactive terminal, the installer guides you through setup and asks you
+to confirm its plan before applying it.
 It supports Claude Code, Codex, Gemini CLI, Cursor, GitHub Copilot CLI, and
 OpenCode.
 
 Start a new agent session after installation. Check the installed version with
 `docket --version`.
 
-[Installation, updates, and uninstall](docs/installation.md)
+[Installation, updates, and uninstall](docs/installation.md) ·
+[Your first decision](docs/quickstart.md) ·
+[Read the docs](https://novusedge0.gitbook.io/docket-docs/)
 
 ## Record claims, choices, and questions
 
@@ -57,7 +60,8 @@ docket question "Which async driver should we use?"
 Claims start as `unassessed`. Accepting a claim records a workflow assessment.
 Verification of the claim and its evidence happens outside Docket.
 You can also link records to evidence, prerequisites, answers, and earlier
-choices they replace. See the [ledger reference](docs/ledger.md).
+choices they replace. See [Recording decisions](docs/recording.md) for a
+walkthrough.
 
 ## Browse the ledger
 
@@ -90,13 +94,14 @@ records, reports what was omitted, and includes a command to retrieve more.
 
 ## Learn more
 
-- [Installation](docs/installation.md): platforms, harness setup, updates, and graph controls.
-- [Ledger reference](docs/ledger.md): states, dependencies, evidence, and scoped context.
-- [Definitions](docs/definitions.md): what claims, decisions, and questions mean.
-- [Decision chains](docs/decision-chains.md): the reasoning behind the model.
-- [Agent context goals](docs/agent-context-goals.md): future directions for compact briefings, retrieval, and evaluation.
+- [Your first decision](docs/quickstart.md): create a project ledger and try it.
+- [Recording decisions](docs/recording.md): save choices, answer questions, and change your mind.
+- [Reading your ledger](docs/reading.md): find records and browse their connections.
+- [Working with your agent](docs/agents.md): use Docket during a conversation.
+- [Sharing and maintenance](docs/maintenance.md): share records and resolve ledger problems.
+- [Technical reference](docs/ledger.md): states, relationships, evidence, and context selection.
 - [Changelog](CHANGELOG.md): what changed in each release.
 
 **Upgrading from before 0.8?** The ledger format and commands changed.
-Follow the [migration guide](docs/ledger.md#explicit-migration-from-schema-1)
+Follow the [migration guide](docs/ledger.md#migrating-a-schema-1-ledger)
 before using an existing ledger.

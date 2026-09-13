@@ -4,24 +4,26 @@
 
 ## Getting started
 
-* [Quickstart](quickstart.md)
 * [Installation](installation.md)
+* [Your first decision](quickstart.md)
 
-## Guides
+## Everyday use
 
-* [Recording](recording.md)
+* [Recording decisions](recording.md)
 * [Reading your ledger](reading.md)
 * [Working with your agent](agents.md)
-* [Maintenance](maintenance.md)
+* [Sharing and maintenance](maintenance.md)
 
-## Reference
+## Technical reference
 
-* [Command reference](commands.md)
-* [Ledger reference](ledger.md)
+* [Commands](commands.md)
+* [Ledger format and rules](ledger.md)
+* [Installer options and behavior](installer-reference.md)
+* [Manual agent setup](integrations.md)
+
+## Design and research
+
 * [Definitions](definitions.md)
-
-## Design notes
-
 * [Decision chains](decision-chains.md)
 * [Outcome formalism](outcome-formalism.md)
 * [Agent context goals](agent-context-goals.md)
