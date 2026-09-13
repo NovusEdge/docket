@@ -13,11 +13,70 @@ stays available.
 Requires **Python 3.11+** and Git. Go 1.26+ is needed only when building from a
 source checkout.
 
-Ask your agent to handle setup:
+Expand the prompt below, copy it, and paste it into your agent:
 
-> Set up Docket for the agent I am using in this project. Follow
-> https://raw.githubusercontent.com/NovusEdge/docket/main/docs/agent-setup.md.
-> Check the installation and tell me how to start using it.
+<details>
+
+<summary>Copy setup prompt</summary>
+
+```text
+Set up Docket for the agent I am using in this project. Install the
+terminal command, native graph viewer, and integration for this agent.
+
+1. Identify the current agent, operating system, and architecture.
+   Check for Python 3.11+ and Git. The downloaded installer does not
+   require Go. Building from a source checkout requires Go 1.26+.
+   If a requirement is missing, tell me what is needed.
+
+2. Check whether Docket is already installed. Reuse its existing paths
+   and preserve my configuration and ledger. Configure only the agent
+   I am using. Ask which agent to configure if you cannot identify it.
+
+3. Download the launcher below into a temporary directory outside any
+   Docket source checkout, then read it before running it:
+   https://raw.githubusercontent.com/NovusEdge/docket/main/installer/install.py
+
+   Let the installer create the permanent checkout. Do not install
+   from a temporary clone or leave installed paths pointing into a
+   temporary directory.
+
+4. Use the launcher with --harness and the value for my agent:
+   Claude Code: claude-code
+   Codex: codex
+   Gemini CLI: gemini
+   Cursor: cursor
+   GitHub Copilot CLI: copilot
+   OpenCode: opencode
+
+   Run it with Python 3.11+ from my project directory. On Linux or
+   macOS, use python3; on Windows, use a suitable Python command such
+   as py -3. Use the launcher's absolute path between shell calls.
+
+5. Run with --dry-run first. Review the checkout location, command
+   location, PATH changes, and agent configuration. Preserve custom
+   paths with --dir and --prefix where needed. The default integration
+   is user-level. Apply the reviewed setup by running the same command
+   without --dry-run, following the environment's approval rules.
+
+6. Check that the agent can discover its integration. For OpenCode,
+   check plugin placement against the installed OpenCode version and
+   keep one active copy. Preserve unrelated settings and report any
+   manual step that remains.
+
+7. From my project, run docket --version, docket where, docket check,
+   and docket context. Use the installed command's full path if PATH
+   has not refreshed. Confirm that the native viewer binary exists.
+   An empty project may have no ledger or context yet. Do not create
+   sample records or run docket init unless I ask for a shared ledger.
+
+8. Tell me where Docket was installed, which integration was configured,
+   and which checks passed. Explain anything that still needs attention.
+   Remind me to start a new agent session in this project and ask it
+   to read Docket context. Remove only the temporary launcher files
+   created for this setup.
+```
+
+</details>
 
 Or [choose your agent and install it yourself](docs/installation.md#configure-an-agent-harness).
 Claude Code and Codex have plugin install commands. The guided installer prepares
