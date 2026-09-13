@@ -52,6 +52,11 @@ class StateFile(unittest.TestCase):
         up.write_state({"latest": "0.11.0"})
         self.assertEqual([p.name for p in up.state_dir().iterdir()], ["update.json"])
 
+    def test_non_serializable_value_leaves_no_temporary_file_behind(self):
+        with self.assertRaises(TypeError):
+            up.write_state({"latest": object()})
+        self.assertEqual(list(up.state_dir().iterdir()), [])
+
     def test_windows_state_dir_avoids_the_checkout_directory(self):
         os.environ.pop("XDG_STATE_HOME")
         os.environ["LOCALAPPDATA"] = r"C:\Users\a\AppData\Local"

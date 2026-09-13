@@ -68,6 +68,35 @@ func TestUninstallRemovesTheManagedMarker(t *testing.T) {
 	}
 }
 
+func TestUninstallRemovesTheStateDirectoryAsATree(t *testing.T) {
+	env := testEnv(nil)
+	plan, err := BuildPlan(env, Options{Uninstall: true, Prefix: "/home/a/.local/bin"})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	action, ok := findAction(plan.Actions, "remove-tree", "/home/a/.local/state/docket")
+	if !ok {
+		t.Fatalf("no state removal in plan: %#v", plan.Actions)
+	}
+	if action.Kind != "remove-tree" {
+		t.Fatalf("state removal uses %q, which fails on a non-empty directory", action.Kind)
+	}
+}
+
+func TestSourceModeInstallWritesNoManagedMarker(t *testing.T) {
+	env := testEnv(nil)
+	env.Checkout = ""
+	plan, err := BuildPlan(env, Options{Harness: []string{}, Prefix: "/home/a/.local/bin", Checkout: "/src/docket"})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	for _, action := range plan.Actions {
+		if strings.HasSuffix(action.Path, ".docket-managed") {
+			t.Fatalf("source-mode install wrote a managed marker: %#v", action)
+		}
+	}
+}
+
 func TestReadErrorsNeverProduceAWritePlan(t *testing.T) {
 	tests := []struct {
 		name, denied string
@@ -442,7 +471,7 @@ func TestShellHelpersQuoteSpacesAndComparePathEntries(t *testing.T) {
 
 func TestUpdateRefreshesAClaudePluginInstall(t *testing.T) {
 	env := testEnv(map[string]string{
-		"/home/a/.claude/plugins/installed_plugins.json": `{"plugins":{"docket@NovusEdge":[{"version":"0.8.0"}]}}`,
+		"/home/a/.claude/plugins/installed_plugins.json":  `{"plugins":{"docket@NovusEdge":[{"version":"0.8.0"}]}}`,
 		"/home/a/.claude/plugins/known_marketplaces.json": `{"NovusEdge":{"source":{"source":"github","repo":"NovusEdge/docket"}}}`,
 	})
 	env.Path = []string{"/usr/bin"}
@@ -468,7 +497,8 @@ func TestUpdateRefreshesAClaudePluginInstall(t *testing.T) {
 
 func TestUpdateReinstallsTheCodexPlugin(t *testing.T) {
 	env := testEnv(map[string]string{
-		"/home/a/.local/bin/.docket-codex.json": codexReceipt(testEnv(nil)),
+		"/home/a/.local/bin/.docket-codex.json":        codexReceipt(testEnv(nil)),
+		"/src/docket/.agents/plugins/marketplace.json": `{"name":"NovusEdge"}`,
 	}, "/home/a/.local/bin/.docket-codex.json", "/usr/bin/codex")
 	plan, err := BuildPlan(env, Options{Update: true, Prefix: "/home/a/.local/bin"})
 	if err != nil {
@@ -482,26 +512,64 @@ func TestUpdateReinstallsTheCodexPlugin(t *testing.T) {
 	}
 }
 
-func TestUpdateLeavesASymlinkInstallAlone(t *testing.T) {
-	env := testEnv(nil)
+func TestUpdateReinstallsTheCodexPluginUnderItsOwnMarketplaceName(t *testing.T) {
+	env := testEnv(map[string]string{
+		"/home/a/.local/bin/.docket-codex.json":                `{"checkout":"/opt/local-personal"}`,
+		"/opt/local-personal/.agents/plugins/marketplace.json": `{"name":"local-personal"}`,
+	}, "/home/a/.local/bin/.docket-codex.json", "/usr/bin/codex")
+	plan, err := BuildPlan(env, Options{Update: true, Prefix: "/home/a/.local/bin"})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	got := commandArgs(plan)
+	if len(got) != 2 ||
+		strings.Join(got[0], " ") != "codex plugin remove docket@local-personal" ||
+		strings.Join(got[1], " ") != "codex plugin add docket@local-personal" {
+		t.Fatalf("actions = %#v", got)
+	}
+}
+
+func TestUpdateSkipsMarketplaceUpdateForLocalSource(t *testing.T) {
+	env := testEnv(map[string]string{
+		"/home/a/.claude/plugins/installed_plugins.json":  `{"plugins":{"docket@local-personal":[{"version":"0.8.0"}]}}`,
+		"/home/a/.claude/plugins/known_marketplaces.json": `{"local-personal":{"source":{"source":"local","path":"/opt/local-personal"}}}`,
+	})
+	env.Path = []string{"/usr/bin"}
+	env.Exists = func(p string) bool { return p == "/usr/bin/claude" }
+	plan, err := BuildPlan(env, Options{Update: true, Prefix: "/home/a/.local/bin"})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	got := commandArgs(plan)
+	if len(got) != 1 || strings.Join(got[0], " ") != "claude plugin update docket@local-personal -y" {
+		t.Fatalf("actions = %#v", got)
+	}
+}
+
+func TestUpdateLeavesANoRegistrationInstallAlone(t *testing.T) {
+	env := testEnv(map[string]string{
+		"/home/a/.claude/plugins/installed_plugins.json": `{"plugins":{"other@Someone":[{"version":"1.0.0"}]}}`,
+	})
 	env.Readlink = func(p string) (string, error) {
 		if p == "/home/a/.claude/skills/docket" {
 			return "/src/docket", nil
 		}
 		return "", fs.ErrNotExist
 	}
+	env.Path = []string{"/usr/bin"}
+	env.Exists = func(p string) bool { return p == "/usr/bin/claude" }
 	plan, err := BuildPlan(env, Options{Update: true, Prefix: "/home/a/.local/bin"})
 	if err != nil {
 		t.Fatalf("BuildPlan: %v", err)
 	}
 	if len(plan.Actions) != 0 {
-		t.Fatalf("symlink install got actions: %#v", plan.Actions)
+		t.Fatalf("non-docket registration produced actions: %#v", plan.Actions)
 	}
 }
 
 func TestUpdateNotesAnAbsentHarnessCommand(t *testing.T) {
 	env := testEnv(map[string]string{
-		"/home/a/.claude/plugins/installed_plugins.json": `{"plugins":{"docket@NovusEdge":[{"version":"0.8.0"}]}}`,
+		"/home/a/.claude/plugins/installed_plugins.json":  `{"plugins":{"docket@NovusEdge":[{"version":"0.8.0"}]}}`,
 		"/home/a/.claude/plugins/known_marketplaces.json": `{"NovusEdge":{"source":{"source":"github","repo":"NovusEdge/docket"}}}`,
 	})
 	plan, err := BuildPlan(env, Options{Update: true, Prefix: "/home/a/.local/bin"})
@@ -525,4 +593,3 @@ func commandArgs(p Plan) [][]string {
 	}
 	return out
 }
-

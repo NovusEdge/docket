@@ -90,7 +90,9 @@ func buildPlan(env Environment, opts Options) (Plan, error) {
 	plan := Plan{}
 	plan.Actions = append(plan.Actions, planCommand(env, prefix)...)
 	plan.Actions = append(plan.Actions, planPathAdd(env, prefix)...)
-	plan.Actions = append(plan.Actions, planMarker(env, prefix)...)
+	if opts.Checkout == "" {
+		plan.Actions = append(plan.Actions, planMarker(env, prefix)...)
+	}
 	if selected == nil {
 		selected = []string{"claude-code"}
 		for _, h := range DetectHarnesses(env) {
@@ -166,7 +168,7 @@ func planCommand(env Environment, prefix string) []Action {
 // it from a contributor's own tree.
 func planMarker(env Environment, prefix string) []Action {
 	path := join(env, env.Checkout, ".docket-managed")
-	text, _ := json.MarshalIndent(map[string]string{"prefix": prefix}, "", "  ")
+	text, _ := json.MarshalIndent(map[string]string{"prefix": prefix, "version": version}, "", "  ")
 	body := string(text) + "\n"
 	if sameFile(env, path, body) {
 		return nil
@@ -383,18 +385,49 @@ func updateClaude(env Environment) ([]Action, []string, error) {
 	if !commandPresent(env, "claude") {
 		return nil, []string{"claude is not on PATH; its plugin was left unchanged."}, nil
 	}
+	var actions []Action
+	if claudeMarketplaceSource(env, marketplace) == "github" {
+		actions = append(actions, Action{Kind: "command", Args: []string{"claude", "plugin", "marketplace", "update", marketplace}, Label: "claude-code"})
+	}
 	// -y because the installer runs commands through CombinedOutput, which is
 	// never a TTY, and claude plugin update requires it there.
-	return []Action{
-		{Kind: "command", Args: []string{"claude", "plugin", "marketplace", "update", marketplace}, Label: "claude-code"},
-		{Kind: "command", Args: []string{"claude", "plugin", "update", "docket@" + marketplace, "-y"}, Label: "claude-code"},
-	}, nil, nil
+	actions = append(actions, Action{Kind: "command", Args: []string{"claude", "plugin", "update", "docket@" + marketplace, "-y"}, Label: "claude-code"})
+	return actions, nil, nil
+}
+
+// A marketplace registered from a local path has nothing upstream for
+// `claude plugin marketplace update` to fetch; only a GitHub-sourced
+// marketplace gets that command.
+func claudeMarketplaceSource(env Environment, marketplace string) string {
+	p := join(env, env.Home, ".claude", "plugins", "known_marketplaces.json")
+	text, ok := readText(env, p)
+	if !ok {
+		return ""
+	}
+	var known map[string]struct {
+		Source struct {
+			Source string `json:"source"`
+		} `json:"source"`
+	}
+	if err := json.Unmarshal([]byte(text), &known); err != nil {
+		return ""
+	}
+	return known[marketplace].Source.Source
 }
 
 func updateCodex(env Environment, prefix string) ([]Action, []string) {
 	receiptPath := join(env, prefix, ".docket-codex.json")
-	if _, ok := readText(env, receiptPath); !ok {
+	receiptText, ok := readText(env, receiptPath)
+	if !ok {
 		return nil, nil
+	}
+	var receipt struct{ Checkout string }
+	if err := json.Unmarshal([]byte(receiptText), &receipt); err != nil || receipt.Checkout == "" {
+		return nil, nil
+	}
+	marketplace := codexMarketplaceName(env, receipt.Checkout)
+	if marketplace == "" {
+		return nil, []string{"Codex marketplace manifest at " + receipt.Checkout + " has no name; its plugin was left unchanged."}
 	}
 	if !commandPresent(env, "codex") {
 		return nil, []string{"Codex is not on PATH; its plugin was left unchanged."}
@@ -403,9 +436,27 @@ func updateCodex(env Environment, prefix string) ([]Action, []string) {
 	// one from a local-path marketplace, so an upgrade of the marketplace
 	// alone leaves the cached copy at its old version.
 	return []Action{
-		{Kind: "command", Args: []string{"codex", "plugin", "remove", "docket@NovusEdge"}, Label: "codex"},
-		{Kind: "command", Args: []string{"codex", "plugin", "add", "docket@NovusEdge"}, Label: "codex"},
+		{Kind: "command", Args: []string{"codex", "plugin", "remove", "docket@" + marketplace}, Label: "codex"},
+		{Kind: "command", Args: []string{"codex", "plugin", "add", "docket@" + marketplace}, Label: "codex"},
 	}, nil
+}
+
+// The name comes from the marketplace's own manifest rather than being
+// assumed, so a checkout registered under a different marketplace name (for
+// example a hand-registered "local-personal") still gets the right plugin id.
+func codexMarketplaceName(env Environment, checkout string) string {
+	p := join(env, checkout, ".agents", "plugins", "marketplace.json")
+	text, ok := readText(env, p)
+	if !ok {
+		return ""
+	}
+	var manifest struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal([]byte(text), &manifest); err != nil {
+		return ""
+	}
+	return manifest.Name
 }
 
 func buildUninstall(env Environment, prefix string, project bool) (Plan, error) {
@@ -461,7 +512,7 @@ func buildUninstall(env Environment, prefix string, project bool) (Plan, error) 
 	if _, ok := readText(env, marker); ok {
 		plan.Actions = append(plan.Actions, Action{Kind: "remove", Path: marker, Label: "marker"})
 	}
-	plan.Actions = append(plan.Actions, Action{Kind: "remove", Path: updateStateDir(env), Label: "state"})
+	plan.Actions = append(plan.Actions, Action{Kind: "remove-tree", Path: updateStateDir(env), Label: "state"})
 	codexReceiptPath := join(env, prefix, ".docket-codex.json")
 	receiptText, hasReceipt := readText(env, codexReceiptPath)
 	hasReceipt = hasReceipt && receiptText == codexReceipt(env)
@@ -747,6 +798,8 @@ func DescribeAction(a Action) string {
 		return "link   " + a.Path + " -> " + a.Source
 	case "remove":
 		return "remove " + a.Path
+	case "remove-tree":
+		return "remove " + a.Path + " (recursively)"
 	case "command":
 		return "run    " + strings.Join(a.Args, " ")
 	case "path-add":

@@ -45,13 +45,18 @@ def write_state(data: dict) -> None:
     try:
         directory.mkdir(parents=True, exist_ok=True)
         handle, temporary = tempfile.mkstemp(dir=directory, suffix=".tmp")
+    except OSError:
+        return
+    try:
         with os.fdopen(handle, "w") as out:
             json.dump(data, out)
         # os.replace is atomic and overwrites an existing file on Windows,
         # where a plain rename onto one fails.
         os.replace(temporary, state_path())
     except OSError:
-        return
+        pass
+    finally:
+        Path(temporary).unlink(missing_ok=True)
 
 
 def parse_version(text: str) -> tuple[int, int, int] | None:

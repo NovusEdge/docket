@@ -28,7 +28,7 @@ type Harness struct {
 
 // Every persistent operation appears in the reviewed plan, including commands.
 type Action struct {
-	Kind string // write, link, remove, command, path-add, path-remove, checkout, checkout-update, viewer
+	Kind                      string // write, link, remove, remove-tree, command, path-add, path-remove, checkout, checkout-update, viewer
 	Path, Source, Text, Label string
 	Args                      []string
 }
