@@ -1311,6 +1311,59 @@ def cmd_completion(args: argparse.Namespace) -> int:
     return 0
 
 
+LAUNCHER_URL = "https://raw.githubusercontent.com/NovusEdge/docket/main/installer/install.py"
+
+
+def cmd_update(args: argparse.Namespace) -> int:
+    from docket_update import is_newer, read_state, shape, update_command
+
+    root = Path(__file__).resolve().parent.parent
+    running = version()
+    latest = str(read_state().get("latest", ""))
+    if args.check:
+        if not latest:
+            print("docket: no cached release information yet")
+            return 2
+        if is_newer(latest, running):
+            print(f"docket {latest.lstrip('v')} is available (running {running})")
+            return 1
+        print(f"docket {running} is up to date")
+        return 0
+
+    kind = shape(root)
+    if kind in ("plugin", "unknown"):
+        print(f"docket: this copy is managed by your harness. "
+              f"Run: {update_command(root)}")
+        return 0
+    if kind == "source":
+        command = [sys.executable, str(root / "installer" / "install.py"),
+                   "--checkout", str(root), "--update"]
+        print(" ".join(command))
+        return subprocess.call(command)
+    return _run_downloaded_update()
+
+
+def _run_downloaded_update() -> int:
+    """Fetch the current launcher and run it outside the checkout.
+
+    The bundled launcher takes its own checkout branch, which needs Go and
+    passes --checkout, and --checkout makes the planner skip the git update.
+    """
+    from urllib.request import urlopen
+
+    with tempfile.TemporaryDirectory() as work:
+        launcher = Path(work) / "install.py"
+        try:
+            with urlopen(LAUNCHER_URL, timeout=30) as response:
+                launcher.write_bytes(response.read())
+        except OSError as exc:
+            print(f"docket: could not download the installer: {exc}", file=sys.stderr)
+            return 1
+        command = [sys.executable, str(launcher), "--update"]
+        print(" ".join(command))
+        return subprocess.call(command, cwd=work)
+
+
 def cmd_update_fetch(args: argparse.Namespace) -> int:
     import time
 
@@ -1442,6 +1495,11 @@ def main(argv: list[str] | None = None) -> int:
     co = sub.add_parser("completion", help="print a shell completion script")
     co.add_argument("shell", choices=("bash", "zsh", "fish"))
     co.set_defaults(func=cmd_completion)
+
+    ud = sub.add_parser("update", help="update this Docket installation")
+    ud.add_argument("--check", action="store_true",
+                    help="report whether an update is available; change nothing")
+    ud.set_defaults(func=cmd_update)
 
     sub.add_parser("_update-fetch").set_defaults(func=cmd_update_fetch)
 

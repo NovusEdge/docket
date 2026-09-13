@@ -279,5 +279,44 @@ class ContextNotice(unittest.TestCase):
         self.assertIn("99.0.0 is available", context)
 
 
+class UpdateCommand(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.state = Path(self.tmp.name) / "state"
+
+    def run_update(self, *args):
+        environment = {**os.environ, "XDG_STATE_HOME": str(self.state)}
+        return sp.run([sys.executable, str(DOCKET), "update", *args],
+                      env=environment, capture_output=True, text=True)
+
+    def seed(self, latest):
+        (self.state / "docket").mkdir(parents=True, exist_ok=True)
+        (self.state / "docket" / "update.json").write_text(
+            json.dumps({"latest": latest, "next_check_at": 9_999_999_999}))
+
+    def test_check_reports_current(self):
+        self.seed("v0.0.1")
+        done = self.run_update("--check")
+        self.assertEqual(done.returncode, 0)
+        self.assertIn("up to date", done.stdout)
+
+    def test_check_reports_available(self):
+        self.seed("v99.0.0")
+        done = self.run_update("--check")
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("99.0.0", done.stdout)
+
+    def test_check_reports_unknown(self):
+        done = self.run_update("--check")
+        self.assertEqual(done.returncode, 2)
+
+    def test_check_changes_nothing(self):
+        self.seed("v99.0.0")
+        before = (self.state / "docket" / "update.json").read_text()
+        self.run_update("--check")
+        self.assertEqual((self.state / "docket" / "update.json").read_text(), before)
+
+
 if __name__ == "__main__":
     unittest.main()
