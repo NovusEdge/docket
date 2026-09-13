@@ -1152,13 +1152,16 @@ def update_line() -> str | None:
     """One notice line, or None. Never performs a network request."""
     from docket_update import disabled, due, notice, read_state, spawn_fetch
 
-    if disabled():
+    try:
+        if disabled():
+            return None
+        root = Path(__file__).resolve().parent.parent
+        state = read_state()
+        if due(state, time.time()):
+            spawn_fetch(Path(__file__).resolve())
+        return notice(version(), str(state.get("latest", "")), root)
+    except Exception:
         return None
-    root = Path(__file__).resolve().parent.parent
-    state = read_state()
-    if due(state, time.time()):
-        spawn_fetch(Path(__file__).resolve())
-    return notice(version(), str(state.get("latest", "")), root)
 
 
 def _print_context(text: str, args: argparse.Namespace,
@@ -1240,9 +1243,9 @@ _COMPLETION_FLAGS = (
     "--auto-scope", "--no-auto-scope", "--since", "--at",
     "--all", "--find", "--superseded", "--oneline", "--json", "--plain", "--pretty",
     "--style", "--interactive", "--no-interactive", "--for", "--version",
-    "--dry-run",
+    "--dry-run", "--check",
 )
-_COMPLETION_CMDS = ("claim", "decision", "question", "list", "show", "graph", "context", "where", "check", "rebase", "migrate", "init", "completion")
+_COMPLETION_CMDS = ("claim", "decision", "question", "list", "show", "graph", "context", "where", "check", "rebase", "migrate", "init", "completion", "update")
 
 _BASH_COMPLETION = f"""\
 _docket() {{
@@ -1311,17 +1314,20 @@ def cmd_completion(args: argparse.Namespace) -> int:
     return 0
 
 
-LAUNCHER_URL = "https://raw.githubusercontent.com/NovusEdge/docket/main/installer/install.py"
+LAUNCHER_URL_TEMPLATE = (
+    "https://raw.githubusercontent.com/NovusEdge/docket/refs/tags/{tag}/"
+    "installer/install.py"
+)
 
 
 def cmd_update(args: argparse.Namespace) -> int:
-    from docket_update import is_newer, read_state, shape, update_command
+    from docket_update import is_newer, parse_version, read_state, shape, update_command
 
     root = Path(__file__).resolve().parent.parent
     running = version()
     latest = str(read_state().get("latest", ""))
     if args.check:
-        if not latest:
+        if not latest or parse_version(latest) is None:
             print("docket: no cached release information yet")
             return 2
         if is_newer(latest, running):
@@ -1340,11 +1346,15 @@ def cmd_update(args: argparse.Namespace) -> int:
                    "--checkout", str(root), "--update"]
         print(" ".join(command))
         return subprocess.call(command)
-    return _run_downloaded_update()
+    if not latest or parse_version(latest) is None:
+        print("docket: no cached release information yet; run `docket update --check`",
+              file=sys.stderr)
+        return 2
+    return _run_downloaded_update(latest)
 
 
-def _run_downloaded_update() -> int:
-    """Fetch the current launcher and run it outside the checkout.
+def _run_downloaded_update(tag: str) -> int:
+    """Fetch the launcher from the given release tag and run it outside the checkout.
 
     The bundled launcher takes its own checkout branch, which needs Go and
     passes --checkout, and --checkout makes the planner skip the git update.
@@ -1354,7 +1364,7 @@ def _run_downloaded_update() -> int:
     with tempfile.TemporaryDirectory() as work:
         launcher = Path(work) / "install.py"
         try:
-            with urlopen(LAUNCHER_URL, timeout=30) as response:
+            with urlopen(LAUNCHER_URL_TEMPLATE.format(tag=tag), timeout=30) as response:
                 launcher.write_bytes(response.read())
         except OSError as exc:
             print(f"docket: could not download the installer: {exc}", file=sys.stderr)
@@ -1365,8 +1375,6 @@ def _run_downloaded_update() -> int:
 
 
 def cmd_update_fetch(args: argparse.Namespace) -> int:
-    import time
-
     from docket_update import run_fetch
 
     return run_fetch(time.time())
@@ -1393,7 +1401,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     p.add_argument("-h", "--help", action=HelpAction, nargs=0, help="show this help and exit")
     p.add_argument("--version", action=VersionAction, nargs=0, help="print the release and exit")
-    sub = p.add_subparsers(dest="cmd")
+    sub = p.add_subparsers(dest="cmd", metavar=(
+        "{claim,decision,question,list,show,graph,context,where,check,"
+        "rebase,migrate,init,completion,update}"))
 
     cl = sub.add_parser("claim", help="record a proposition")
     cl.add_argument("text")

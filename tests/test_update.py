@@ -1,8 +1,11 @@
+import argparse
+import importlib.util
 import json
 import os
 import sys
 import tempfile
 import unittest
+from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
@@ -213,6 +216,31 @@ class SpawnFetch(unittest.TestCase):
         self.assertEqual(recorded["kwargs"]["stdin"], devnull)
         self.assertEqual(recorded["kwargs"]["stdout"], devnull)
         self.assertEqual(recorded["kwargs"]["stderr"], devnull)
+        self.assertTrue(recorded["kwargs"]["close_fds"])
+        self.assertTrue(recorded["kwargs"]["start_new_session"])
+
+    def test_child_is_detached_on_windows(self):
+        recorded = {}
+
+        class FakePopen:
+            def __init__(self, argv, **kwargs):
+                recorded["kwargs"] = kwargs
+
+        original_popen = up.subprocess.Popen
+        original_platform = up.sys.platform
+        up.subprocess.Popen = FakePopen
+        up.sys.platform = "win32"
+        self.addCleanup(setattr, up.subprocess, "Popen", original_popen)
+        self.addCleanup(setattr, up.sys, "platform", original_platform)
+        # These flags exist only on the Windows build of subprocess; supply
+        # stand-ins so the win32 branch can run under test on any platform.
+        for name in ("DETACHED_PROCESS", "CREATE_NEW_PROCESS_GROUP", "CREATE_NO_WINDOW"):
+            if not hasattr(up.subprocess, name):
+                setattr(up.subprocess, name, 1 << len(name))
+                self.addCleanup(delattr, up.subprocess, name)
+        up.spawn_fetch(Path("/src/docket/bin/docket"))
+        self.assertTrue(
+            recorded["kwargs"]["creationflags"] & up.subprocess.DETACHED_PROCESS)
 
     def test_spawn_failure_is_swallowed(self):
         def boom(*a, **k):
@@ -271,12 +299,18 @@ class ContextNotice(unittest.TestCase):
         done = self.run_context()
         self.assertNotIn("is available", done.stdout)
 
-    def test_notice_stays_inside_the_gemini_envelope(self):
+    def test_notice_stays_inside_each_harness_envelope(self):
         self.seed("v99.0.0")
-        done = self.run_context("--for", "gemini")
-        payload = json.loads(done.stdout)
-        context = payload["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("99.0.0 is available", context)
+        envelope_keys = {
+            "gemini": lambda payload: payload["hookSpecificOutput"]["additionalContext"],
+            "copilot": lambda payload: payload["additionalContext"],
+            "cursor": lambda payload: payload["additional_context"],
+        }
+        for harness, extract in envelope_keys.items():
+            with self.subTest(harness=harness):
+                done = self.run_context("--for", harness)
+                payload = json.loads(done.stdout)
+                self.assertIn("99.0.0 is available", extract(payload))
 
 
 class UpdateCommand(unittest.TestCase):
@@ -316,6 +350,55 @@ class UpdateCommand(unittest.TestCase):
         before = (self.state / "docket" / "update.json").read_text()
         self.run_update("--check")
         self.assertEqual((self.state / "docket" / "update.json").read_text(), before)
+
+    def test_check_reports_unparseable_cache_as_unknown(self):
+        self.seed("garbage")
+        done = self.run_update("--check")
+        self.assertEqual(done.returncode, 2)
+
+
+class UpdateCommandBranches(unittest.TestCase):
+    """Exercises cmd_update's side-effecting branches via the loaded module."""
+
+    def setUp(self):
+        loader = SourceFileLoader("docket_cli_update", str(DOCKET))
+        spec = importlib.util.spec_from_loader("docket_cli_update", loader)
+        self.docket_cli = importlib.util.module_from_spec(spec)
+        loader.exec_module(self.docket_cli)
+
+    def args(self):
+        return argparse.Namespace(check=False)
+
+    def test_plugin_shape_invokes_no_harness_call(self):
+        recorded = []
+        self.addCleanup(setattr, up, "shape", up.shape)
+        up.shape = lambda root: "plugin"
+        self.docket_cli.subprocess.call = lambda *a, **k: recorded.append((a, k)) or 0
+        rc = self.docket_cli.cmd_update(self.args())
+        self.assertEqual(rc, 0)
+        self.assertEqual(recorded, [])
+
+    def test_unknown_shape_invokes_no_harness_call(self):
+        recorded = []
+        self.addCleanup(setattr, up, "shape", up.shape)
+        up.shape = lambda root: "unknown"
+        self.docket_cli.subprocess.call = lambda *a, **k: recorded.append((a, k)) or 0
+        rc = self.docket_cli.cmd_update(self.args())
+        self.assertEqual(rc, 0)
+        self.assertEqual(recorded, [])
+
+    def test_source_shape_runs_the_installer_with_checkout(self):
+        recorded = []
+        self.addCleanup(setattr, up, "shape", up.shape)
+        up.shape = lambda root: "source"
+        self.docket_cli.subprocess.call = lambda command, **k: recorded.append(command) or 0
+        rc = self.docket_cli.cmd_update(self.args())
+        self.assertEqual(rc, 0)
+        root = self.docket_cli.Path(self.docket_cli.__file__).resolve().parent.parent
+        self.assertEqual(recorded, [[
+            self.docket_cli.sys.executable, str(root / "installer" / "install.py"),
+            "--checkout", str(root), "--update",
+        ]])
 
 
 if __name__ == "__main__":
