@@ -22,7 +22,7 @@ func DiscoverEnvironment(opts Options) (Environment, error) {
 	}
 	e := Environment{Home: home, Cwd: cwd, GOOS: runtime.GOOS, Shell: os.Getenv("SHELL"), Path: filepath.SplitList(os.Getenv("PATH")),
 		ReadFile: os.ReadFile, Readlink: os.Readlink, LookPath: exec.LookPath,
-		Exists: func(p string) bool { _, err := os.Lstat(p); return err == nil }}
+		Exists: func(p string) bool { _, err := os.Lstat(p); return err == nil }, Getenv: os.Getenv}
 	e.CodexInstalled = installedCodexPlugin
 	if e.Shell == "" {
 		e.Shell = "/bin/sh"

@@ -90,6 +90,7 @@ func buildPlan(env Environment, opts Options) (Plan, error) {
 	plan := Plan{}
 	plan.Actions = append(plan.Actions, planCommand(env, prefix)...)
 	plan.Actions = append(plan.Actions, planPathAdd(env, prefix)...)
+	plan.Actions = append(plan.Actions, planMarker(env, prefix)...)
 	if selected == nil {
 		selected = []string{"claude-code"}
 		for _, h := range DetectHarnesses(env) {
@@ -158,6 +159,19 @@ func planCommand(env Environment, prefix string) []Action {
 		return nil
 	}
 	return []Action{{Kind: "link", Path: target, Source: source, Label: "command"}}
+}
+
+// The marker tells the Python CLI that this checkout is installer-owned. A
+// managed checkout is a git clone, so the presence of .git cannot distinguish
+// it from a contributor's own tree.
+func planMarker(env Environment, prefix string) []Action {
+	path := join(env, env.Checkout, ".docket-managed")
+	text, _ := json.MarshalIndent(map[string]string{"prefix": prefix}, "", "  ")
+	body := string(text) + "\n"
+	if sameFile(env, path, body) {
+		return nil
+	}
+	return []Action{{Kind: "write", Path: path, Text: body, Label: "marker"}}
 }
 
 func planPathAdd(env Environment, prefix string) []Action {
@@ -380,6 +394,11 @@ func buildUninstall(env Environment, prefix string, project bool) (Plan, error) 
 			plan.Actions = append(plan.Actions, Action{Kind: "remove", Path: rule, Label: "cursor"})
 		}
 	}
+	marker := join(env, env.Checkout, ".docket-managed")
+	if _, ok := readText(env, marker); ok {
+		plan.Actions = append(plan.Actions, Action{Kind: "remove", Path: marker, Label: "marker"})
+	}
+	plan.Actions = append(plan.Actions, Action{Kind: "remove", Path: updateStateDir(env), Label: "state"})
 	codexReceiptPath := join(env, prefix, ".docket-codex.json")
 	receiptText, hasReceipt := readText(env, codexReceiptPath)
 	hasReceipt = hasReceipt && receiptText == codexReceipt(env)
@@ -547,6 +566,22 @@ func openCodeSource(env Environment) string {
 
 func cursorRuleText() string {
 	return "---\nalwaysApply: true\n---\n\nSee docket's skill for when and how to record a decision.\n"
+}
+
+func updateStateDir(env Environment) string {
+	getenv := env.Getenv
+	if getenv == nil {
+		getenv = func(string) string { return "" }
+	}
+	if env.GOOS == "windows" {
+		if local := getenv("LOCALAPPDATA"); local != "" {
+			return join(env, local, "docket-state")
+		}
+	}
+	if xdg := getenv("XDG_STATE_HOME"); xdg != "" {
+		return join(env, xdg, "docket")
+	}
+	return join(env, env.Home, ".local", "state", "docket")
 }
 
 func codexReceipt(env Environment) string {

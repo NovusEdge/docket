@@ -25,6 +25,46 @@ func testEnv(files map[string]string, existing ...string) Environment {
 			return nil, fs.ErrNotExist
 		},
 		Readlink: func(p string) (string, error) { return "", fs.ErrNotExist },
+		Getenv:   func(string) string { return "" },
+	}
+}
+
+func TestInstallWritesTheManagedMarker(t *testing.T) {
+	env := testEnv(nil)
+	plan, err := BuildPlan(env, Options{Harness: []string{}, Prefix: "/home/a/.local/bin"})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	var found bool
+	for _, action := range plan.Actions {
+		if action.Path == "/src/docket/.docket-managed" {
+			found = true
+			if !strings.Contains(action.Text, "/home/a/.local/bin") {
+				t.Fatalf("marker omits the prefix: %q", action.Text)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("no marker action in plan: %#v", plan.Actions)
+	}
+}
+
+func TestUninstallRemovesTheManagedMarker(t *testing.T) {
+	env := testEnv(map[string]string{
+		"/src/docket/.docket-managed": `{"prefix":"/home/a/.local/bin"}`,
+	}, "/src/docket/.docket-managed")
+	plan, err := BuildPlan(env, Options{Uninstall: true, Prefix: "/home/a/.local/bin"})
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	var found bool
+	for _, action := range plan.Actions {
+		if action.Kind == "remove" && action.Path == "/src/docket/.docket-managed" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("marker not removed: %#v", plan.Actions)
 	}
 }
 
@@ -399,3 +439,4 @@ func TestShellHelpersQuoteSpacesAndComparePathEntries(t *testing.T) {
 		t.Fatal("Windows comparison should fold case")
 	}
 }
+

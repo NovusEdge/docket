@@ -17,6 +17,7 @@ type Environment struct {
 	Readlink                                                            func(string) (string, error)
 	Exists                                                              func(string) bool
 	CodexInstalled                                                      func() (bool, error)
+	Getenv                                                              func(string) string
 }
 
 type Harness struct {
