@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
+	"sort"
 	"strings"
 	"syscall"
 )
@@ -375,26 +376,31 @@ func updateClaude(env Environment) ([]Action, []string, error) {
 		return nil, nil, err
 	}
 	entries, _ := data["plugins"].(map[string]any)
-	marketplace := ""
+	// Go randomizes map iteration, so a user registered from two marketplaces
+	// would get a different plan on every run. Sort and refresh all of them.
+	var marketplaces []string
 	for key := range entries {
-		name, _, found := strings.Cut(key, "@")
-		if name == "docket" && found {
-			marketplace = key[len(name)+1:]
+		name, marketplace, found := strings.Cut(key, "@")
+		if name == "docket" && found && marketplace != "" {
+			marketplaces = append(marketplaces, marketplace)
 		}
 	}
-	if marketplace == "" {
+	if len(marketplaces) == 0 {
 		return nil, nil, nil
 	}
+	sort.Strings(marketplaces)
 	if !commandPresent(env, "claude") {
 		return nil, []string{"claude is not on PATH; its plugin was left unchanged."}, nil
 	}
 	var actions []Action
-	if claudeMarketplaceSource(env, marketplace) == "github" {
-		actions = append(actions, Action{Kind: "command", Args: []string{"claude", "plugin", "marketplace", "update", marketplace}, Label: "claude-code"})
+	for _, marketplace := range marketplaces {
+		if claudeMarketplaceSource(env, marketplace) == "github" {
+			actions = append(actions, Action{Kind: "command", Args: []string{"claude", "plugin", "marketplace", "update", marketplace}, Label: "claude-code"})
+		}
+		// -y because the installer runs commands through CombinedOutput, which
+		// is never a TTY, and claude plugin update requires it there.
+		actions = append(actions, Action{Kind: "command", Args: []string{"claude", "plugin", "update", "docket@" + marketplace, "-y"}, Label: "claude-code"})
 	}
-	// -y because the installer runs commands through CombinedOutput, which is
-	// never a TTY, and claude plugin update requires it there.
-	actions = append(actions, Action{Kind: "command", Args: []string{"claude", "plugin", "update", "docket@" + marketplace, "-y"}, Label: "claude-code"})
 	return actions, nil, nil
 }
 

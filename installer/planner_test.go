@@ -495,6 +495,37 @@ func TestUpdateRefreshesAClaudePluginInstall(t *testing.T) {
 	}
 }
 
+func TestUpdateRefreshesEveryClaudeMarketplaceInOrder(t *testing.T) {
+	env := testEnv(map[string]string{
+		"/home/a/.claude/plugins/installed_plugins.json":  `{"plugins":{"docket@NovusEdge":[{"version":"0.8.0"}],"docket@dev":[{"version":"0.9.0"}],"docket@":[{"version":"0.1.0"}]}}`,
+		"/home/a/.claude/plugins/known_marketplaces.json": `{"NovusEdge":{"source":{"source":"github","repo":"NovusEdge/docket"}}}`,
+	})
+	env.Path = []string{"/usr/bin"}
+	env.Exists = func(p string) bool { return p == "/usr/bin/claude" }
+	// Map iteration is randomized, so the same input must plan the same way
+	// every run. A degenerate "docket@" key names no marketplace and is dropped.
+	for i := 0; i < 20; i++ {
+		plan, err := BuildPlan(env, Options{Update: true, Prefix: "/home/a/.local/bin"})
+		if err != nil {
+			t.Fatalf("BuildPlan: %v", err)
+		}
+		want := []string{
+			"claude plugin marketplace update NovusEdge",
+			"claude plugin update docket@NovusEdge -y",
+			"claude plugin update docket@dev -y",
+		}
+		got := commandArgs(plan)
+		if len(got) != len(want) {
+			t.Fatalf("actions = %#v", got)
+		}
+		for j := range want {
+			if strings.Join(got[j], " ") != want[j] {
+				t.Fatalf("action %d = %v, want %q", j, got[j], want[j])
+			}
+		}
+	}
+}
+
 func TestUpdateWritesTheManagedMarker(t *testing.T) {
 	env := testEnv(nil)
 	plan, err := BuildPlan(env, Options{Update: true, Prefix: "/home/a/.local/bin"})

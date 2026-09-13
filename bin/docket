@@ -1340,8 +1340,12 @@ def cmd_update(args: argparse.Namespace, root: Path | None = None) -> int:
         return 0
 
     kind = shape(root)
-    if kind in ("plugin", "unknown"):
+    if kind == "plugin":
         print(f"docket: this copy is managed by your harness. "
+              f"Run: {update_command(root)}")
+        return 0
+    if kind == "unknown":
+        print(f"docket: this copy has no installer and no repository. "
               f"Run: {update_command(root)}")
         return 0
     if kind == "source":

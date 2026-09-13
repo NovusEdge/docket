@@ -18,6 +18,7 @@ Ledger commands use the file that `docket where` reports. Run
 | `docket init` | Create a project ledger and copy any existing private records into it |
 | `docket migrate` | Convert a pre-0.8 ledger to the current schema |
 | `docket rebase` | Renumber another branch's records onto this ledger |
+| `docket update` | Update this Docket installation; `--check` reports without changing anything |
 | `docket completion SHELL` | Print a shell completion script |
 
 ## Recording
