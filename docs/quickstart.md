@@ -4,7 +4,8 @@ Create a project ledger, record a choice, and read it back. If Docket is not
 installed yet, follow [Installation](installation.md) first.
 
 The commands below use a terminal. You can also ask your agent to carry out the
-same steps.
+same steps. With a plugin-only installation, use the agent's bundled Docket
+command or run the installer to make `docket` available in your shell.
 
 ## 1. Open your project
 

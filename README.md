@@ -10,22 +10,20 @@ stays available.
 
 ## Install
 
-Requires **Python 3.11+**, with no Python package dependencies.
+Requires **Python 3.11+** and Git. Go 1.26+ is needed only when building from a
+source checkout.
 
-```sh
-curl -fsSLO https://raw.githubusercontent.com/NovusEdge/docket/main/installer/install.py
-python3 install.py
-```
+Ask your agent to handle setup:
 
-In an interactive terminal, the installer guides you through setup and asks you
-to confirm its plan before applying it.
-It supports Claude Code, Codex, Gemini CLI, Cursor, GitHub Copilot CLI, and
-OpenCode.
+> Set up Docket for the agent I am using in this project. Follow
+> https://raw.githubusercontent.com/NovusEdge/docket/main/docs/agent-setup.md.
+> Check the installation and tell me how to start using it.
 
-Start a new agent session after installation. Check the installed version with
-`docket --version`.
+Or [choose your agent and install it yourself](docs/installation.md#configure-an-agent-harness).
+Claude Code and Codex have plugin install commands. The guided installer prepares
+the terminal command, graph viewer, and selected agent integrations.
 
-[Installation, updates, and uninstall](docs/installation.md) ·
+[Requirements and setup](docs/installation.md) ·
 [Your first decision](docs/quickstart.md) ·
 [Read the docs](https://novusedge0.gitbook.io/docket-docs/)
 

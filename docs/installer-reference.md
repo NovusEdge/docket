@@ -1,23 +1,19 @@
 # Installer reference
 
 Use this page for custom install locations, unattended setup, source builds, and
-installer behavior. For the normal setup and update steps, see
-[Installation](installation.md). Manual agent configuration is in the
+installer behavior. For setup by an agent, use the
+[shared setup instructions](agent-setup.md). For the normal setup and update
+steps, see [Installation](installation.md). Manual agent configuration is in the
 [agent setup reference](integrations.md).
 
 ## The installer
 
 ### Choose an installer path
 
-- Download and run the compatibility launcher:
+- Download the launcher into a temporary folder using the
+  [installation steps](installation.md#the-installer).
 
-   ```sh
-   curl -fsSLO https://raw.githubusercontent.com/NovusEdge/docket/main/installer/install.py
-   python3 install.py
-   ```
-
-   `curl -O` saves the file as `install.py` in the current directory. Outside a
-   checkout, the launcher downloads a native installer and verifies it against
+   Outside a checkout, the launcher downloads a native installer and verifies it against
    the release's `SHA256SUMS` file before running it. Release recipes build
    Linux, macOS, and Windows assets for amd64 and arm64. The matching asset must
    be published for the launcher to use it. Set `DOCKET_INSTALLER_VERSION` to

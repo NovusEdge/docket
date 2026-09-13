@@ -15,7 +15,8 @@ record things for you.
 
 | I want to… | Read |
 |---|---|
-| Set up Docket | [Installation](installation.md) |
+| Ask my agent to set up Docket | [Copy the setup prompt](installation.md#let-your-agent-handle-setup) |
+| Install Docket myself | [Choose an install route](installation.md#configure-an-agent-harness) |
 | Try it in a project | [Your first decision](quickstart.md) |
 | Save a choice or leave a question for later | [Recording decisions](recording.md) |
 | Find an earlier decision | [Reading your ledger](reading.md) |

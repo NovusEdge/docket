@@ -4,7 +4,7 @@
 
 ## Getting started
 
-* [Installation](installation.md)
+* [Set up Docket](installation.md)
 * [Your first decision](quickstart.md)
 
 ## Everyday use
@@ -20,6 +20,7 @@
 * [Ledger format and rules](ledger.md)
 * [Installer options and behavior](installer-reference.md)
 * [Manual agent setup](integrations.md)
+* [Setup instructions for agents](agent-setup.md)
 
 ## Design and research
 
