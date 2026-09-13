@@ -339,13 +339,25 @@ func planCopilot(env Environment) ([]Action, error) {
 	return jsonWrite(p, data, "copilot")
 }
 
+// OpenCode discovers plugins with the glob {plugin,plugins}/*.{ts,js} and
+// include:"file", so a file one level down at plugins/docket/index.ts never
+// loads. Installs before 0.11.0 wrote that path; remove it here.
 func planOpenCode(env Environment) []Action {
-	p := join(env, env.Home, ".config", "opencode", "plugins", "docket", "index.ts")
+	var actions []Action
+	nested := join(env, env.Home, ".config", "opencode", "plugins", "docket", "index.ts")
+	if text, ok := readText(env, nested); ok && ownedOpenCode(env, text) {
+		actions = append(actions, Action{Kind: "remove", Path: nested, Label: "opencode"})
+	}
+	p := openCodePluginPath(env)
 	text := openCodeSource(env)
 	if sameFile(env, p, text) {
-		return nil
+		return actions
 	}
-	return []Action{{Kind: "write", Path: p, Text: text, Label: "opencode"}}
+	return append(actions, Action{Kind: "write", Path: p, Text: text, Label: "opencode"})
+}
+
+func openCodePluginPath(env Environment) string {
+	return join(env, env.Home, ".config", "opencode", "plugins", "docket.ts")
 }
 
 func buildUpdate(env Environment, prefix string, checkout string) (Plan, error) {
@@ -544,9 +556,13 @@ func buildUninstall(env Environment, prefix string, project bool) (Plan, error) 
 	if err != nil {
 		return Plan{}, err
 	}
-	oc := join(env, env.Home, ".config", "opencode", "plugins", "docket", "index.ts")
-	if text, ok := readText(env, oc); ok && ownedOpenCode(env, text) {
-		plan.Actions = append(plan.Actions, Action{Kind: "remove", Path: oc, Label: "opencode"})
+	for _, oc := range []string{
+		openCodePluginPath(env),
+		join(env, env.Home, ".config", "opencode", "plugins", "docket", "index.ts"),
+	} {
+		if text, ok := readText(env, oc); ok && ownedOpenCode(env, text) {
+			plan.Actions = append(plan.Actions, Action{Kind: "remove", Path: oc, Label: "opencode"})
+		}
 	}
 	if project {
 		rule := join(env, env.Cwd, ".cursor", "rules", "docket.mdc")

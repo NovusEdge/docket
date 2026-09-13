@@ -52,15 +52,14 @@ Create `~/.config/opencode/plugins/docket.ts`, or
 `.opencode/plugins/docket.ts` for one project. These locations follow the
 [OpenCode plugin guide](https://opencode.ai/docs/plugins/).
 
-The current Docket installer writes `plugins/docket/index.ts`. OpenCode's
+The installer writes `plugins/docket.ts` for you. Its
 [plugin loader](https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/config/plugin.ts)
-scans files directly inside `plugins/`, so that nested file is not discovered
-automatically. If you used the installer, move its `index.ts` to
-`plugins/docket.ts` after checking that the destination does not already exist.
-Otherwise, create the file below. Keep one active copy to avoid duplicate context.
+scans files directly inside `plugins/`, so a file one level down is never
+discovered.
 
-The installer does not manage the manually placed `docket.ts` file. Update or
-remove it yourself when changing this integration.
+Installers before 0.11.0 wrote `plugins/docket/index.ts`, which OpenCode never
+loaded. A new install or an update removes that file. Keep one active copy to
+avoid duplicate context.
 
 ```js
 import { execFileSync } from "node:child_process"
