@@ -18,16 +18,73 @@ download example also uses `curl`; Windows uses PowerShell.
 
 ## Let your agent handle setup
 
-Paste this into your agent:
+Expand the prompt below, copy it, and paste it into your agent:
 
-> Set up Docket for the agent I am using in this project. Follow the instructions
-> at https://raw.githubusercontent.com/NovusEdge/docket/main/docs/agent-setup.md.
-> Check the installation and tell me what I need to do to start using it.
+<details>
 
-The [shared setup guide](agent-setup.md) tells the agent how to check your
-environment, select its integration, review the installation plan, and verify
-the result. It uses a permanent installation location and preserves existing
-configuration.
+<summary>Copy setup prompt</summary>
+
+```text
+Set up Docket for the agent I am using in this project. Install the
+terminal command, native graph viewer, and integration for this agent.
+
+1. Identify the current agent, operating system, and architecture.
+   Check for Python 3.11+ and Git. The downloaded installer does not
+   require Go. Building from a source checkout requires Go 1.26+.
+   If a requirement is missing, tell me what is needed.
+
+2. Check whether Docket is already installed. Reuse its existing paths
+   and preserve my configuration and ledger. Configure only the agent
+   I am using. Ask which agent to configure if you cannot identify it.
+
+3. Download the launcher below into a temporary directory outside any
+   Docket source checkout, then read it before running it:
+   https://raw.githubusercontent.com/NovusEdge/docket/main/installer/install.py
+
+   Let the installer create the permanent checkout. Do not install
+   from a temporary clone or leave installed paths pointing into a
+   temporary directory.
+
+4. Use the launcher with --harness and the value for my agent:
+   Claude Code: claude-code
+   Codex: codex
+   Gemini CLI: gemini
+   Cursor: cursor
+   GitHub Copilot CLI: copilot
+   OpenCode: opencode
+
+   Run it with Python 3.11+ from my project directory. On Linux or
+   macOS, use python3; on Windows, use a suitable Python command such
+   as py -3. Use the launcher's absolute path between shell calls.
+
+5. Run with --dry-run first. Review the checkout location, command
+   location, PATH changes, and agent configuration. Preserve custom
+   paths with --dir and --prefix where needed. The default integration
+   is user-level. Apply the reviewed setup by running the same command
+   without --dry-run, following the environment's approval rules.
+
+6. Check that the agent can discover its integration. For OpenCode,
+   check plugin placement against the installed OpenCode version and
+   keep one active copy. Preserve unrelated settings and report any
+   manual step that remains.
+
+7. From my project, run docket --version, docket where, docket check,
+   and docket context. Use the installed command's full path if PATH
+   has not refreshed. Confirm that the native viewer binary exists.
+   An empty project may have no ledger or context yet. Do not create
+   sample records or run docket init unless I ask for a shared ledger.
+
+8. Tell me where Docket was installed, which integration was configured,
+   and which checks passed. Explain anything that still needs attention.
+   Remind me to start a new agent session in this project and ask it
+   to read Docket context. Remove only the temporary launcher files
+   created for this setup.
+```
+
+</details>
+
+The prompt covers environment checks, installation, and verification. The
+[setup reference for agents](agent-setup.md) has additional platform examples.
 
 After setup, start a new agent session in your project. You can then ask it to
 record decisions or follow [Your first decision](quickstart.md).
@@ -168,11 +225,21 @@ command and agent integrations use the permanent checkout.
 
 ## Update, uninstall, and cleanup
 
-For a plugin-only installation, use that agent's plugin manager to update or
-remove Docket.
+`docket` checks for a newer release once a day and prints a notice above your
+agent's context briefing when one exists, naming the command for your install
+shape. The check runs in a detached background process so it never delays a
+session start; the result is cached at
+`$XDG_STATE_HOME/docket/update.json` (`~/.local/state/docket/update.json` by
+default). Set `DOCKET_NO_UPDATE_CHECK=1` to disable both the check and the
+notice. Run `docket update --check` to ask directly, or `docket update` to
+apply it.
 
-For an installer-managed installation, download the launcher again using the
-steps above, then run:
+For a plugin-only installation, `docket update` prints the plugin manager
+command for your harness rather than changing anything itself; run that
+command, or update through the harness yourself.
+
+For an installer-managed installation, `docket update` is the short form.
+Equivalently, download the launcher again using the steps above and run:
 
 ```sh
 python3 "$docket_setup_dir/install.py" --update --dry-run
@@ -183,7 +250,8 @@ On Windows, use `py -3 $docketSetupScript` in place of
 `python3 "$docket_setup_dir/install.py"`.
 
 The preview shows the proposed changes. The update refreshes the managed
-checkout and graph viewer while keeping agent configuration and PATH settings.
+checkout and graph viewer, refreshes the docket plugin in any harness where
+it is also installed, and keeps agent configuration and PATH settings.
 
 To remove an installer-managed installation:
 
@@ -192,7 +260,7 @@ python3 "$docket_setup_dir/install.py" --uninstall
 ```
 
 Use the same `--dir` and `--prefix` values if you installed in custom locations.
-Uninstall keeps your ledgers. There is no `docket update` command.
+Uninstall keeps your ledgers.
 
 Use the downloaded launcher for these operations. Running `installer/install.py`
 inside the permanent checkout selects the source-build path and requires Go.
