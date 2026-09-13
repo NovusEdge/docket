@@ -69,3 +69,62 @@ def is_newer(latest: str, running: str) -> bool:
     if left is None or right is None:
         return False
     return left > right
+
+
+REPOSITORY = "https://github.com/NovusEdge/docket"
+
+_HARNESS_ANCHORS = ((".claude", "claude"), (".codex", "codex"))
+
+
+def plugin_origin(root: Path) -> tuple[str, str] | None:
+    """(harness, marketplace) when root is a harness plugin cache copy.
+
+    Both harnesses lay the cache out as .../plugins/cache/<marketplace>/
+    <plugin>/<version>, so the anchor directory is what tells them apart.
+    """
+    parts = root.parts
+    if "plugins" not in parts:
+        return None
+    index = parts.index("plugins")
+    tail = parts[index + 1:]
+    if len(tail) < 2 or tail[0] != "cache":
+        return None
+    marketplace = tail[1]
+    for anchor, harness in _HARNESS_ANCHORS:
+        if anchor in parts[:index]:
+            return harness, marketplace
+    return None
+
+
+def shape(root: Path) -> str:
+    # The marker is tested first because a managed checkout is a git clone,
+    # so a .git test would classify every managed install as a source tree.
+    if (root / ".docket-managed").exists():
+        return "managed"
+    if plugin_origin(root):
+        return "plugin"
+    if (root / ".git").exists():
+        return "source"
+    return "unknown"
+
+
+def update_command(root: Path) -> str:
+    origin = plugin_origin(root)
+    if origin:
+        harness, marketplace = origin
+        if harness == "claude":
+            return (f"claude plugin update docket@{marketplace} -y, "
+                    "then restart Claude Code")
+        return (f"codex plugin remove docket@{marketplace} && "
+                f"codex plugin add docket@{marketplace}")
+    if shape(root) == "unknown":
+        return f"reinstall from {REPOSITORY}"
+    return "docket update"
+
+
+def notice(running: str, latest: str, root: Path) -> str | None:
+    if not latest or not is_newer(latest, running):
+        return None
+    tag = latest.lstrip("v")
+    return (f"# docket: {tag} is available (running {running}). "
+            f"Run: {update_command(root)}")

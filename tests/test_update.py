@@ -59,5 +59,70 @@ class StateFile(unittest.TestCase):
         self.assertEqual(up.state_dir("win32").name, "docket-state")
 
 
+class Shape(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+
+    def test_marker_wins_over_git_directory(self):
+        (self.root / ".git").mkdir()
+        (self.root / ".docket-managed").write_text("{}")
+        self.assertEqual(up.shape(self.root), "managed")
+
+    def test_git_directory_alone_is_a_source_tree(self):
+        (self.root / ".git").mkdir()
+        self.assertEqual(up.shape(self.root), "source")
+
+    def test_claude_cache_copy_is_plugin_only(self):
+        root = Path("/home/a/.claude/plugins/cache/NovusEdge/docket/0.8.0")
+        self.assertEqual(up.plugin_origin(root), ("claude", "NovusEdge"))
+        self.assertEqual(up.shape(root), "plugin")
+
+    def test_codex_cache_copy_is_plugin_only(self):
+        root = Path("/home/a/.codex/plugins/cache/local-personal/docket/0.8.0")
+        self.assertEqual(up.plugin_origin(root), ("codex", "local-personal"))
+
+    def test_bare_directory_is_unknown(self):
+        self.assertEqual(up.shape(self.root), "unknown")
+
+
+class Notice(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        (self.root / ".git").mkdir()
+
+    def test_current_version_produces_no_notice(self):
+        self.assertIsNone(up.notice("0.11.0", "0.11.0", self.root))
+
+    def test_absent_latest_produces_no_notice(self):
+        self.assertIsNone(up.notice("0.10.0", "", self.root))
+
+    def test_checkout_notice_names_the_subcommand(self):
+        line = up.notice("0.10.0", "0.11.0", self.root)
+        self.assertIn("0.11.0 is available (running 0.10.0)", line)
+        self.assertIn("Run: docket update", line)
+
+    def test_claude_notice_names_the_harness_command_and_restart(self):
+        root = Path("/home/a/.claude/plugins/cache/NovusEdge/docket/0.8.0")
+        line = up.notice("0.8.0", "0.11.0", root)
+        self.assertIn("claude plugin update docket@NovusEdge -y", line)
+        self.assertIn("restart", line)
+        self.assertNotIn("docket update", line.replace("docket@NovusEdge", ""))
+
+    def test_codex_notice_uses_remove_then_add(self):
+        root = Path("/home/a/.codex/plugins/cache/local-personal/docket/0.8.0")
+        line = up.notice("0.8.0", "0.11.0", root)
+        self.assertIn("codex plugin remove docket@local-personal", line)
+        self.assertIn("codex plugin add docket@local-personal", line)
+
+    def test_unknown_shape_names_the_repository(self):
+        bare = Path(self.tmp.name) / "bare"
+        bare.mkdir()
+        self.assertIn("github.com/NovusEdge/docket", up.notice("0.8.0", "0.11.0", bare))
+
+
 if __name__ == "__main__":
     unittest.main()
