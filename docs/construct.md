@@ -4,8 +4,34 @@ A project that already has years of design notes starts with an empty ledger.
 `docket construct` reads those documents and proposes records from them, so you
 begin with the decisions your team already made instead of a blank file.
 
-Construct never writes to your ledger. It stages proposals, you read them, and
-you accept the ones that are right. That acceptance is what the ledger records.
+{% hint style="success" %}
+Construct never writes to your ledger on its own. It stages proposals, you read
+them, and you accept the ones that are right. That acceptance is what the ledger
+records.
+{% endhint %}
+
+```mermaid
+flowchart TD
+    src[("Your design docs<br/>*.md")]
+
+    subgraph staging["Staging — your ledger is untouched"]
+        dry["<b>--dry-run</b><br/><i>lists files, calls nothing</i>"]
+        run["<b>docket construct</b><br/><i>one call per document</i>"]
+        prop[(".docket/proposed.jsonl")]
+        review["<b>--review</b><br/><i>read each record<br/>against its anchor</i>"]
+        mark["Set state to<br/>accepted or rejected"]
+    end
+
+    accept["<b>--accept</b>"]
+    ledger[(".docket/ledger.jsonl")]
+
+    src --> dry --> run --> prop --> review --> mark
+    mark -->|"more to read"| prop
+    prop --> accept --> ledger
+
+    classDef write fill:#fde68a,stroke:#b45309,color:#000
+    class accept,ledger write
+```
 
 ## Before you start
 
@@ -45,7 +71,9 @@ overrides.
 
 ## See what it would read
 
-Run this first. It lists the documents and calls nothing, so it needs no key:
+{% hint style="info" %}
+Run this first. It lists the documents and calls nothing, so it needs no key.
+{% endhint %}
 
 ```sh
 docket construct --dry-run context/decisions context/specs
@@ -129,9 +157,11 @@ you never want to see again.
 docket construct --accept
 ```
 
+{% hint style="warning" %}
 This is the only step that touches your ledger. It allocates real record IDs,
 rewrites the relations to use them, and appends through the ordinary writer, so
 numbering and locking behave as they do for a record you write by hand.
+{% endhint %}
 
 Take one document at a time:
 
