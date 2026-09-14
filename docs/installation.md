@@ -200,19 +200,6 @@ in one setup. It downloads the release for your platform and clones Docket into
 a permanent directory. You do not need to clone the repository yourself or
 install Go.
 
-```mermaid
-flowchart TD
-    start(["python3 install.py"]) --> check{"Run from inside a<br/>Docket source checkout?"}
-
-    check -->|No| download["Verify the release checksum,<br/>then run the released<br/>Go installer for your platform"]
-    check -->|Yes| build["Build the Go installer<br/>under installer/<br/><i>requires Go</i>"]
-
-    download --> setup["Setup screen:<br/>select agent tools,<br/>review the PATH change,<br/>confirm the plan"]
-    build --> setup
-
-    setup --> done(["docket on your PATH,<br/>graph viewer ready,<br/>integrations written"])
-```
-
 {% tabs %}
 {% tab title="Linux and macOS" %}
 Download the launcher into a temporary folder:

@@ -20,17 +20,6 @@ A project with a `.docket/ledger.jsonl` uses that file, and none of these
 variables apply. The global store holds ledgers for projects that have not
 committed one. Run `docket where` to see which file is in use.
 
-```mermaid
-flowchart TD
-    start(["docket, run in your project"]) --> q{"Project has<br/>.docket/ledger.jsonl?"}
-    q -->|Yes| proj[("that file")]
-    q -->|No| home{"DOCKET_HOME set?"}
-    home -->|Yes| dh[("$DOCKET_HOME")]
-    home -->|No| cc{"CLAUDE_CONFIG_DIR set?"}
-    cc -->|Yes| ccd[("$CLAUDE_CONFIG_DIR/docket")]
-    cc -->|No| def[("~/.claude/docket")]
-```
-
 `CLAUDE_CONFIG_DIR` exists so an isolated Claude profile keeps its own ledgers
 instead of sharing yours.
 
