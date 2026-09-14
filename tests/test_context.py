@@ -235,17 +235,20 @@ class ContextTests(unittest.TestCase):
             self.assertTrue(output.endswith("\n"))
 
     def test_record_blocks_compact_repeated_decision_metadata_without_loss(self):
-        records = [
-            entry(
-                "d1",
-                "decision",
-                "Select the stable API",
-                state="adopted",
-                choice="v2",
-                alternatives=("v2", "v1"),
-                rationale="v2",
-            )
-        ]
+        # Recording refuses these echoes now, so this shape reaches the renderer
+        # only from a ledger written before that rule.
+        legacy = entry(
+            "d1",
+            "decision",
+            "Select the stable API",
+            state="adopted",
+            choice="v2",
+            alternatives=("v1",),
+            rationale="v1 lost on migration cost",
+        )
+        legacy["alternatives"] = ["v2", "v1"]
+        legacy["rationale"] = "v2"
+        records = [legacy]
         rendered = build_context(projected(records), ledger="repo")
         self.assertIn('alternatives: ["v1"]', rendered)
         self.assertNotIn('alternatives: ["v2", "v1"]', rendered)

@@ -3,7 +3,7 @@ import json
 import sys
 
 from docket import env
-from docket.ledger import LedgerError, append, make_record
+from docket.ledger import LedgerError, append, make_record, reasoning_hints
 
 
 def _shared_fields(args: argparse.Namespace) -> dict:
@@ -50,6 +50,9 @@ def _append_cli(kind: str, args: argparse.Namespace) -> int:
         print(str(exc), file=sys.stderr)
         return 1
     print(f"{entry['id']}  {entry['state']}  {entry['text']}")
+    # Hints go to stderr so a caller piping the record line is unaffected.
+    for hint in reasoning_hints(entry):
+        print(f"docket: {entry['id']}: {hint}", file=sys.stderr)
     return 0
 
 

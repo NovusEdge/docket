@@ -26,9 +26,9 @@ Acceptance is a workflow status. It does not establish that the proposition is
 true.
 
 Use a **decision** for a commitment to a choice. Its state is `adopted` by
-default or `revoked`. `--choice` is required. Repeat `--alternative` for other
-recorded options; the choice is included automatically. Use `--decided-by` for
-self-reported attribution when the recorder and decision owner differ.
+default or `revoked`. `--choice` is required. Repeat `--alternative` for each
+option the choice beat. Use `--decided-by` for self-reported attribution when
+the recorder and decision owner differ.
 
 ```sh
 docket decision "Which database should the service use?" \
@@ -104,6 +104,31 @@ record are rejected.
 The common options are `--scope` (repeatable), `--rationale`, `--supports`,
 `--depends-on`, `--answers`, `--supersedes`, `--evidence` (repeatable),
 `--revisit`, `--cost`, and `--pin`.
+
+## What recording refuses, and what it only warns about
+
+Two forms are refused outright. `--alternative` may not repeat the choice, and
+`--rationale` may not restate the choice or the question. Both are the shapes a
+recorder reaches for to fill a field it has nothing for, and a field that looks
+filled while saying nothing is worse than an empty one. Leave the option off
+instead. A decision that had no contender is a real decision.
+
+Everything else prints a hint on stderr and records anyway, because each of
+these fields is legitimately empty for some records:
+
+| Field | Leave it empty when | Fill it when |
+|---|---|---|
+| `--scope` | the record governs the whole repository | any narrower path set applies; an unscoped record competes for room in every briefing |
+| `--alternative` | nothing else was under consideration | another option was live and lost |
+| `--rationale` | the choice line already carries the reason | the reason is not visible in the choice |
+| `--cost` | reversing the decision costs nothing beyond the edit | reversal touches released artifacts, stored data, or other people's work |
+
+Scope leads the hints for a reason. Twenty records once shared one scope through
+a migration, and a session editing documentation was briefed on Windows registry
+semantics.
+
+`--depends-on` is narrower than the rest. Use it only for an operational
+prerequisite, never as a second `--supports`. Most decisions have none.
 
 ## Read current context and history
 

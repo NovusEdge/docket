@@ -243,5 +243,62 @@ class ValidationScalingTests(unittest.TestCase):
             ledger.validate_entries(made + [again])
 
 
+class ReasoningTests(unittest.TestCase):
+    def decision(self, **kwargs):
+        fields = {"state": "adopted", "choice": "Postgres", "author": "test"}
+        fields.update(kwargs)
+        return ledger.make_record("decision", "Which database?", **fields)
+
+    def test_alternatives_that_only_echo_the_choice_are_refused(self):
+        for alternatives in (["Postgres"], ["postgres"], ["  Postgres  ", "Postgres"]):
+            with self.subTest(alternatives=alternatives):
+                with self.assertRaisesRegex(ledger.LedgerError, "an option the choice beat"):
+                    self.decision(alternatives=alternatives)
+
+    def test_a_real_alternative_is_kept_and_the_choice_is_not_added(self):
+        record = self.decision(alternatives=["SQLite"])
+        self.assertEqual(record["alternatives"], ["SQLite"])
+
+    def test_no_alternative_is_allowed(self):
+        self.assertEqual(self.decision()["alternatives"], [])
+
+    def test_a_rationale_that_restates_the_choice_is_refused(self):
+        with self.assertRaisesRegex(ledger.LedgerError, "why the choice won"):
+            self.decision(rationale="Postgres")
+
+    def test_a_rationale_that_restates_the_question_is_refused(self):
+        with self.assertRaisesRegex(ledger.LedgerError, "why the choice won"):
+            self.decision(rationale="which database?")
+
+    def test_a_real_rationale_passes(self):
+        record = self.decision(rationale="The team already runs it in production.")
+        self.assertEqual(record["rationale"], "The team already runs it in production.")
+
+    def test_an_old_record_with_the_echo_still_reads(self):
+        # validate_record guards structure only. A ledger written before this
+        # rule must stay readable.
+        record = self.decision(alternatives=["SQLite"])
+        record["id"] = "d1"
+        record["alternatives"] = ["Postgres", "SQLite"]
+        record["rationale"] = "Postgres"
+        ledger.validate_record(record)
+
+    def test_hints_name_the_empty_fields_with_scope_first(self):
+        hints = ledger.reasoning_hints(self.decision())
+        self.assertEqual(
+            [hint.split(":")[0] for hint in hints],
+            ["no --scope", "no --alternative", "no --rationale", "no --cost"],
+        )
+
+    def test_a_complete_record_draws_no_hints(self):
+        record = self.decision(
+            scope=["db/**"],
+            alternatives=["SQLite"],
+            rationale="The team already runs it in production.",
+            cost_if_wrong="A migration off Postgres costs a release.",
+        )
+        self.assertEqual(ledger.reasoning_hints(record), [])
+
+
 if __name__ == "__main__":
     unittest.main()

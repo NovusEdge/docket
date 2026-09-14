@@ -70,6 +70,59 @@ def _copy_defaults(record: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _normalized(value: str) -> str:
+    return " ".join(value.split()).casefold()
+
+
+def _reject_empty_reasoning(record: dict[str, Any]) -> None:
+    """Refuse a decision whose reasoning fields only echo the choice.
+
+    Requiring the choice to appear in ``alternatives`` made a one-element list
+    the shortest valid answer, and 38 of the first 56 decisions took it. The
+    fields then read as filled while carrying nothing. An empty list is a
+    legitimate answer here, so neither field is mandatory; only the echo is
+    refused, which leaves no reason to invent an alternative that never existed.
+
+    This runs when a record is written, never when one is read. A ledger
+    recorded under the old rule stays readable.
+    """
+    choice = _normalized(record.get("choice", ""))
+    alternatives = [_normalized(item) for item in record.get("alternatives", [])]
+    if choice and alternatives and all(item == choice for item in alternatives):
+        raise _error(
+            "record",
+            "decision alternatives must name an option the choice beat; leave "
+            "--alternative off when the decision had no contender",
+        )
+    rationale = _normalized(record.get("rationale", ""))
+    if rationale and rationale in (choice, _normalized(record.get("text", ""))):
+        raise _error(
+            "record",
+            "decision rationale must say why the choice won; leave --rationale off "
+            "when the choice line already carries the reason",
+        )
+
+
+def reasoning_hints(record: dict[str, Any]) -> list[str]:
+    """Fields left empty that usually carry something, worst first.
+
+    These are hints, never refusals. Each field is legitimately empty for some
+    records, so a reader of the hint decides. Scope leads: a record with no
+    scope competes for room in every briefing, which is how twenty installer
+    decisions came to brief a session editing documentation.
+    """
+    hints = []
+    if not record.get("scope"):
+        hints.append("no --scope: this record competes for room in every briefing")
+    if record.get("kind") == "decision" and not record.get("alternatives"):
+        hints.append("no --alternative: name what the choice beat, if anything did")
+    if not record.get("rationale"):
+        hints.append("no --rationale: say why, when the text does not")
+    if not record.get("cost_if_wrong"):
+        hints.append("no --cost: say what breaks if this turns out wrong")
+    return hints
+
+
 def make_record(
     kind: str,
     text: str,
@@ -133,9 +186,8 @@ def make_record(
             if isinstance(alternatives, list)
             else (alternatives if alternatives is not None else [])
         )
-        if choice and choice not in record["alternatives"]:
-            record["alternatives"].insert(0, choice)
         record["decided_by"] = decided_by if decided_by is not None else ""
+        _reject_empty_reasoning(record)
     elif choice is not None or alternatives is not None or decided_by is not None:
         raise _error("record", "choice, alternatives, and decided_by are decision-only fields")
     # Validate the complete shape before append allocates the global ID.  The
@@ -246,8 +298,6 @@ def validate_record(
             raise _error(record_id, "decision choice must be a non-empty string")
         if not _is_string_list(record.get("alternatives")):
             raise _error(record_id, "decision alternatives must be a list of non-empty strings")
-        if record["choice"] not in record["alternatives"]:
-            raise _error(record_id, "decision choice must be included in alternatives")
         if not isinstance(record.get("decided_by", ""), str):
             raise _error(record_id, "decision decided_by must be a string")
     elif "choice" in record or "alternatives" in record:
