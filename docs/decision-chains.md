@@ -39,6 +39,35 @@ are AND terms, and sets are OR alternatives:
 A decision can also declare `depends_on` prerequisites. This operational
 relation is separate from support and has no OR interpretation.
 
+```mermaid
+flowchart TD
+    subgraph setA["support set A — all must hold"]
+        c1["c1 · claim<br/>Postgres handles our write volume"]
+        c2["c2 · claim<br/>The team already runs Postgres"]
+    end
+
+    subgraph setB["support set B — alternative"]
+        c3["c3 · claim<br/>Managed Postgres is in budget"]
+    end
+
+    d1["d1 · decision<br/>Billing uses Postgres"]
+    d2["d2 · decision<br/>Migrations run on deploy"]
+    q1["q1 · question<br/>Which driver should billing use?"]
+
+    c1 -->|supports| d1
+    c2 -->|supports| d1
+    c3 -->|supports| d1
+    d2 -->|prerequisite of| d1
+    d1 -->|answers| q1
+
+    classDef claim fill:#dbeafe,stroke:#1d4ed8,color:#000
+    classDef decision fill:#dcfce7,stroke:#15803d,color:#000
+    classDef question fill:#fef3c7,stroke:#b45309,color:#000
+    class c1,c2,c3 claim
+    class d1,d2 decision
+    class q1 question
+```
+
 The session hook loads a bounded context briefing:
 
 1. Rank pinned records first at startup.
