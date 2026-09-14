@@ -1,8 +1,75 @@
 """The provider boundary. No network: the SDK is never imported here."""
 
+import os
+import tempfile
 import unittest
+from pathlib import Path
 
 from docket.construct import client
+
+
+class DotenvTests(unittest.TestCase):
+    """Only the keys construct asks for, and never into the environment.
+
+    A .env holds every secret a project has. Loading the file wholesale would
+    put database passwords and signing keys into the process for the sake of
+    one API key.
+    """
+
+    def env(self, body):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        (root / ".env").write_text(body)
+        return root
+
+    def test_reads_a_named_key(self):
+        root = self.env("OPENROUTER_API_KEY=sk-or-x\n")
+        self.assertEqual(client.dotenv_key(root, "OPENROUTER_API_KEY"), "sk-or-x")
+
+    def test_ignores_every_other_key(self):
+        root = self.env("DATABASE_URL=postgres://u:p@h/db\nOPENROUTER_API_KEY=k\n")
+        self.assertIsNone(client.dotenv_key(root, "GEMINI_API_KEY"))
+        self.assertNotIn("DATABASE_URL", os.environ)
+
+    def test_strips_quotes(self):
+        root = self.env('OPENROUTER_API_KEY="sk-or-x"\n')
+        self.assertEqual(client.dotenv_key(root, "OPENROUTER_API_KEY"), "sk-or-x")
+
+    def test_strips_an_export_prefix(self):
+        root = self.env("export OPENROUTER_API_KEY=sk-or-x\n")
+        self.assertEqual(client.dotenv_key(root, "OPENROUTER_API_KEY"), "sk-or-x")
+
+    def test_skips_a_comment(self):
+        root = self.env("# OPENROUTER_API_KEY=old\nOPENROUTER_API_KEY=new\n")
+        self.assertEqual(client.dotenv_key(root, "OPENROUTER_API_KEY"), "new")
+
+    def test_returns_none_for_an_empty_value(self):
+        root = self.env("OPENROUTER_API_KEY=\n")
+        self.assertIsNone(client.dotenv_key(root, "OPENROUTER_API_KEY"))
+
+    def test_returns_none_when_there_is_no_file(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.assertIsNone(client.dotenv_key(Path(tmp.name), "OPENROUTER_API_KEY"))
+
+    def test_a_real_environment_variable_wins(self):
+        # A .env is a project default. An exported variable is the operator
+        # saying which key to use for this run.
+        root = self.env("OPENROUTER_API_KEY=from-file\n")
+        cfg = client.config({"OPENROUTER_API_KEY": "from-shell"}, root=root)
+        self.assertEqual(cfg["api_key"], "from-shell")
+
+    def test_config_falls_back_to_the_file(self):
+        root = self.env("OPENROUTER_API_KEY=from-file\n")
+        self.assertEqual(client.config({}, root=root)["api_key"], "from-file")
+
+    def test_config_names_the_file_it_searched(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        with self.assertRaises(client.ClientError) as caught:
+            client.config({}, root=Path(tmp.name))
+        self.assertIn(".env", str(caught.exception))
 
 
 class ConfigTests(unittest.TestCase):

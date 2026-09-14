@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
+
+from docket.env import project_root
 
 SCHEMA_NAME = "docket_construct"
 
@@ -44,15 +47,47 @@ class SchemaViolation(ValueError):
     """A response that did not conform to the schema it was asked for."""
 
 
-def config(env: dict[str, str] | None = None) -> dict:
-    """Where to call and as whom, from the environment.
+def dotenv_key(root: Path, name: str) -> str | None:
+    """One key read out of `root/.env`, or None.
+
+    A lookup, never a loader. A .env holds every secret a project has, and
+    loading it wholesale would put database passwords and signing keys into the
+    process for the sake of one API key. Nothing here touches os.environ.
+    """
+    path = root / ".env"
+    try:
+        body = path.read_text(errors="replace")
+    except OSError:
+        return None
+
+    for line in body.splitlines():
+        line = line.strip()
+        if line.startswith("#"):
+            continue
+        # `export FOO=bar` is as common in a .env as `FOO=bar`, because the same
+        # file gets sourced by a shell.
+        if line.startswith("export "):
+            line = line[len("export "):].lstrip()
+        field, sep, value = line.partition("=")
+        if sep and field.strip() == name:
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+                value = value[1:-1]
+            return value or None
+    return None
+
+
+def config(env: dict[str, str] | None = None, root: Path | None = None) -> dict:
+    """Where to call and as whom, from the environment or the project's .env.
 
     The first provider whose key is present wins, so OpenRouter stays the
-    default when both are set.
+    default when both are set. An exported variable beats the file: a .env is a
+    project default, and an export is the operator naming a key for this run.
     """
     env = os.environ if env is None else env
+    root = project_root() if root is None else root
     for name, spec in PROVIDERS.items():
-        key = env.get(spec["env"], "")
+        key = env.get(spec["env"], "") or dotenv_key(root, spec["env"]) or ""
         if key:
             return {
                 "provider": name,
@@ -62,8 +97,9 @@ def config(env: dict[str, str] | None = None) -> dict:
             }
     wanted = " or ".join(spec["env"] for spec in PROVIDERS.values())
     raise ClientError(
-        f"docket construct needs {wanted}. An OpenRouter key reaches every "
-        "provider through one endpoint; a Gemini key reaches Gemini.")
+        f"docket construct needs {wanted}, in the environment or in "
+        f"{root / '.env'}. An OpenRouter key reaches every provider through "
+        "one endpoint; a Gemini key reaches Gemini.")
 
 
 def request(prompt: str, schema: dict, model: str,

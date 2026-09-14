@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from docket.construct import run
+from docket.construct import client, run
 
 
 class SchemaShapeTests(unittest.TestCase):
@@ -108,6 +108,62 @@ class PathSpellingTests(unittest.TestCase):
             relative, _ = run.two_pass([str(root / "./one.md")],
                                        caller=FakeCaller(reply), root=root)
             self.assertEqual(absolute[0]["key"], relative[0]["key"])
+
+
+class FailedRunTests(unittest.TestCase):
+    """A run where nothing worked must not report success.
+
+    A bad key took 60 documents to 60 identical 401s, and construct printed
+    "staged 0 proposals" and exited 0.
+    """
+
+    def docs(self, tmp, count=3):
+        for index in range(count):
+            doc(tmp, f"d{index}.md", f"# {index}\n\nClaim: a{index}\n")
+
+    def test_refuses_a_run_where_every_document_failed(self):
+        def boom(*_args, **_kwargs):
+            raise RuntimeError("upstream said no")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self.docs(tmp)
+            with self.assertRaises(run.RunError) as caught:
+                run.two_pass([tmp], caller=boom, untracked=True, sleep=lambda _s: None)
+            self.assertIn("3", str(caught.exception))
+
+    def test_keeps_a_run_where_one_document_failed(self):
+        seen = []
+
+        def flaky(prompt, schema):
+            seen.append(prompt)
+            if "d1.md" in prompt:
+                raise RuntimeError("upstream said no")
+            return {"records": [{"kind": "claim", "text": "A", "choice": "",
+                                 "anchor": "Claim: a0", "rationale": "",
+                                 "scope": [], "confidence": "high"}]}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self.docs(tmp, count=2)
+            got, report = run.two_pass([tmp], caller=flaky, untracked=True,
+                                       sleep=lambda _s: None)
+            self.assertEqual(len(got), 1)
+            self.assertTrue(any("d1.md" in line for line in report))
+
+    def test_an_authentication_failure_stops_the_run(self):
+        # One 401 settles the question for every remaining document. Repeating
+        # it 60 times spends 60 calls to learn what the first one said.
+        calls = []
+
+        def unauthorized(*_args, **_kwargs):
+            calls.append(1)
+            raise client.ClientError("401 Missing Authentication header")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self.docs(tmp, count=20)
+            with self.assertRaises(client.ClientError):
+                run.two_pass([tmp], caller=unauthorized, jobs=2, untracked=True,
+                             sleep=lambda _s: None)
+            self.assertLess(len(calls), 20)
 
 
 class DiscoveryTests(unittest.TestCase):
@@ -415,7 +471,10 @@ class RetryTests(unittest.TestCase):
             def limited(prompt, schema):
                 raise RuntimeError("429 rate limited")
 
-            run.two_pass([tmp], caller=limited, sleep=waits.append)
+            # The only document fails, so the run refuses. The backoff it made
+            # on the way there is what this checks.
+            with self.assertRaises(run.RunError):
+                run.two_pass([tmp], caller=limited, sleep=waits.append)
             self.assertTrue(waits)
             self.assertEqual(waits, sorted(waits))
 
@@ -426,9 +485,9 @@ class RetryTests(unittest.TestCase):
             def limited(prompt, schema):
                 raise RuntimeError("429 rate limited")
 
-            got, report = run.two_pass([tmp], caller=limited, sleep=lambda s: None)
-            self.assertEqual(got, [])
-            self.assertTrue(any("429" in line for line in report))
+            with self.assertRaises(run.RunError) as caught:
+                run.two_pass([tmp], caller=limited, sleep=lambda s: None)
+            self.assertIn("every document failed", str(caught.exception))
 
     def test_does_not_retry_an_error_that_is_not_a_rate_limit(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -439,7 +498,8 @@ class RetryTests(unittest.TestCase):
                 tries["n"] += 1
                 raise RuntimeError("400 malformed schema")
 
-            run.two_pass([tmp], caller=broken, sleep=lambda s: None)
+            with self.assertRaises(run.RunError):
+                run.two_pass([tmp], caller=broken, sleep=lambda s: None)
             self.assertEqual(tries["n"], 1)
 
 

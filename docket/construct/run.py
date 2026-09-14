@@ -187,7 +187,7 @@ def documents(paths: list[str], exclude: tuple[str, ...] = EXCLUDE,
 
 def _default_caller():
     """The real provider call. Imported here, never at module scope."""
-    from openai import OpenAI
+    from openai import AuthenticationError, OpenAI, PermissionDeniedError
 
     cfg = client.config()
     api = OpenAI(api_key=cfg["api_key"], base_url=cfg["base_url"])
@@ -195,7 +195,13 @@ def _default_caller():
     def call(prompt: str, want: dict) -> dict:
         body = client.request(prompt, want, model=cfg["model"],
                               provider=cfg["provider"])
-        reply = api.chat.completions.create(**body)
+        try:
+            reply = api.chat.completions.create(**body)
+        except (AuthenticationError, PermissionDeniedError) as exc:
+            # Raised as ClientError so the driver stops the whole run. Every
+            # remaining document carries the same key and gets the same answer.
+            raise client.ClientError(
+                f"{cfg['provider']} rejected the key: {exc}") from None
         return client.parse(reply.choices[0].message.content or "", want)
 
     return call
@@ -373,6 +379,8 @@ def two_pass(paths: list[str], jobs: int = 8, dry_run: bool = False,
              for path in found}
 
     proposals: list[dict] = []
+    failed = 0
+    fatal: client.ClientError | None = None
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
         futures = {
             pool.submit(_one_document, names[path], bodies[path], dates[path],
@@ -383,11 +391,27 @@ def two_pass(paths: list[str], jobs: int = 8, dry_run: bool = False,
             path = futures[future]
             try:
                 kept, notes = future.result()
+            except client.ClientError as exc:
+                # A rejected key answers for every remaining document. Cancelling
+                # what has not started spends one call to learn it, never 60.
+                fatal = exc
+                for pending in futures:
+                    pending.cancel()
+                break
+            except concurrent.futures.CancelledError:
+                continue
             except Exception as exc:
+                failed += 1
                 report.append(f"{path}: extraction failed, {exc}")
                 continue
             proposals.extend(kept)
             report.extend(notes)
+
+    if fatal is not None:
+        raise fatal
+    if failed == len(found):
+        raise RunError(
+            f"every document failed: {failed} of {failed}. Nothing was staged.")
 
     proposals.sort(key=lambda item: (item["source"]["path"], item.get("line", 0)))
 
