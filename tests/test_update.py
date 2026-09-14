@@ -495,6 +495,47 @@ class UpdateCommandBranches(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(urls, [self.docket_cli.LAUNCHER_URL_TEMPLATE.format(tag="v0.9.0")])
 
+    def test_managed_shape_passes_the_checkout_and_recorded_prefix(self):
+        # The launcher runs in a temporary directory, so it resolves neither
+        # the checkout nor the prefix the marker records inside it.
+        self.addCleanup(setattr, up, "shape", up.shape)
+        up.shape = lambda root: "managed"
+        root = self.docket_cli.ROOT
+        marker = root / ".docket-managed"
+        existing = marker.read_text(encoding="utf-8") if marker.exists() else None
+        marker.write_text(json.dumps({"prefix": "/opt/bin", "version": "0.13.0"}), encoding="utf-8")
+        if existing is None:
+            self.addCleanup(marker.unlink)
+        else:
+            self.addCleanup(marker.write_text, existing, encoding="utf-8")
+        recorded = []
+        self.docket_cli.subprocess.call = lambda command, **k: recorded.append(command) or 0
+        with unittest.mock.patch(
+            "urllib.request.urlopen", lambda url, timeout=30: io.BytesIO(b"# launcher")
+        ):
+            rc = self.docket_cli.cmd_update(self.args())
+        self.assertEqual(rc, 0)
+        self.assertEqual(recorded[0][-5:], ["--update", "--dir", str(root), "--prefix", "/opt/bin"])
+
+    def test_managed_shape_omits_the_prefix_when_no_marker_records_one(self):
+        self.addCleanup(setattr, up, "shape", up.shape)
+        up.shape = lambda root: "managed"
+        root = self.docket_cli.ROOT
+        marker = root / ".docket-managed"
+        existing = marker.read_text(encoding="utf-8") if marker.exists() else None
+        marker.write_text("not json", encoding="utf-8")
+        if existing is None:
+            self.addCleanup(marker.unlink)
+        else:
+            self.addCleanup(marker.write_text, existing, encoding="utf-8")
+        recorded = []
+        self.docket_cli.subprocess.call = lambda command, **k: recorded.append(command) or 0
+        with unittest.mock.patch(
+            "urllib.request.urlopen", lambda url, timeout=30: io.BytesIO(b"# launcher")
+        ):
+            self.docket_cli.cmd_update(self.args())
+        self.assertEqual(recorded[0][-3:], ["--update", "--dir", str(root)])
+
     def test_managed_shape_falls_back_to_main_branch_without_a_cached_tag(self):
         self.addCleanup(setattr, up, "shape", up.shape)
         up.shape = lambda root: "managed"

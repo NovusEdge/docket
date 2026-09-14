@@ -375,10 +375,26 @@ def cmd_update(args: argparse.Namespace, root: Path | None = None) -> int:
         print(" ".join(command))
         return subprocess.call(command)
     tag = latest if latest and parse_version(latest) is not None else None
-    return _run_downloaded_update(tag)
+    return _run_downloaded_update(tag, root)
 
 
-def _run_downloaded_update(tag: str | None) -> int:
+def _managed_prefix(root: Path) -> str:
+    """The command directory this checkout was installed under, or "".
+
+    The installer writes the prefix into .docket-managed, and --update
+    validates the installed command against the checkout it pairs with. The
+    downloaded launcher runs outside the checkout and cannot find either one
+    on its own, so both travel as arguments.
+    """
+    try:
+        marker = json.loads((root / ".docket-managed").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    prefix = marker.get("prefix") if isinstance(marker, dict) else None
+    return prefix if isinstance(prefix, str) else ""
+
+
+def _run_downloaded_update(tag: str | None, root: Path) -> int:
     """Fetch the launcher and run it outside the checkout.
 
     The bundled launcher takes its own checkout branch, which needs Go and
@@ -397,7 +413,9 @@ def _run_downloaded_update(tag: str | None) -> int:
         except OSError as exc:
             print(f"docket: could not download the installer: {exc}", file=sys.stderr)
             return 1
-        command = [sys.executable, str(launcher), "--update"]
+        command = [sys.executable, str(launcher), "--update", "--dir", str(root)]
+        if prefix := _managed_prefix(root):
+            command += ["--prefix", prefix]
         print(" ".join(command))
         return subprocess.call(command, cwd=work)
 
