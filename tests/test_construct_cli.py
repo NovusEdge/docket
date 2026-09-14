@@ -21,7 +21,8 @@ def prop(anchor, path="context/a.md", confidence="low", scope=None, text="Questi
 
 def args(**over):
     fields = {"paths": [], "review": False, "accept": False, "source": None,
-              "jobs": 4, "dry_run": False}
+              "jobs": 4, "dry_run": False, "exclude": [], "no_exclude": False,
+              "untracked": False}
     fields.update(over)
     return argparse.Namespace(**fields)
 

@@ -89,6 +89,7 @@ class PathSpellingTests(unittest.TestCase):
             (other / "docs").mkdir(parents=True)
             subprocess.run(["git", "-C", str(other), "init", "-q"], check=True)
             doc(other, "docs/one.md", "# one\n\nClaim: a\n")
+            subprocess.run(["git", "-C", str(other), "add", "docs/one.md"], check=True)
             caller = FakeCaller({"records": [
                 {"kind": "claim", "text": "A", "choice": "", "anchor": "Claim: a",
                  "rationale": "", "scope": []}]})
@@ -116,6 +117,59 @@ class DiscoveryTests(unittest.TestCase):
             doc(tmp, "a/two.md", "# two\n")
             doc(tmp, "a/skip.txt", "not markdown")
             self.assertEqual(len(run.documents([str(Path(tmp) / "a")])), 2)
+
+    def test_skips_a_document_git_does_not_track(self):
+        # 326 of 891 proposals in the first real run came from untracked
+        # documents: scratch, drafts, and another tool's output.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            doc(root, "kept.md", "# kept\n")
+            doc(root, "scratch.md", "# scratch\n")
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            subprocess.run(["git", "add", "kept.md"], cwd=root, check=True)
+            names = [p.name for p in run.documents([str(root)])]
+            self.assertEqual(names, ["kept.md"])
+
+    def test_reads_an_untracked_document_when_asked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            doc(root, "scratch.md", "# scratch\n")
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            names = [p.name for p in run.documents([str(root)], untracked=True)]
+            self.assertEqual(names, ["scratch.md"])
+
+    def test_reads_everything_outside_a_repository(self):
+        # No git, no tracking to filter on. Refusing every document there would
+        # make construct useless on a plain directory of notes.
+        with tempfile.TemporaryDirectory() as tmp:
+            doc(tmp, "one.md", "# one\n")
+            self.assertEqual(len(run.documents([tmp])), 1)
+
+    def test_excludes_a_path_segment_by_default(self):
+        # 582 of 891 proposals came from an archive/ path, 304 of them from a
+        # directory named 2026-06-stale-audit.
+        with tempfile.TemporaryDirectory() as tmp:
+            doc(tmp, "live/one.md", "# one\n")
+            doc(tmp, "archive/old.md", "# old\n")
+            names = [p.name for p in run.documents([tmp])]
+            self.assertEqual(names, ["one.md"])
+
+    def test_reads_an_excluded_path_when_the_exclusion_is_dropped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            doc(tmp, "archive/old.md", "# old\n")
+            self.assertEqual(len(run.documents([tmp], exclude=())), 1)
+
+    def test_excludes_only_a_whole_segment(self):
+        # archived-designs/ is not archive/.
+        with tempfile.TemporaryDirectory() as tmp:
+            doc(tmp, "archived-designs/one.md", "# one\n")
+            self.assertEqual(len(run.documents([tmp])), 1)
+
+    def test_reads_a_named_file_the_filters_would_have_dropped(self):
+        # Naming one document is an explicit instruction, never a walk.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = doc(tmp, "archive/old.md", "# old\n")
+            self.assertEqual(run.documents([str(path)]), [path])
 
     def test_accepts_a_single_file(self):
         with tempfile.TemporaryDirectory() as tmp:

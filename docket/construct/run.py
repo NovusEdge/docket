@@ -128,15 +128,60 @@ class RunError(RuntimeError):
     """The run cannot proceed at all."""
 
 
-def documents(paths: list[str]) -> list[Path]:
-    """Every markdown file the given paths name, in a stable order."""
+EXCLUDE = ("archive",)
+
+
+def _tracked(root: Path) -> set[Path] | None:
+    """Every markdown file git tracks under root, or None outside a repository.
+
+    None and the empty set mean different things. A directory with no
+    repository has no tracking to filter on, and refusing every document there
+    would make construct useless on a plain folder of notes.
+    """
+    try:
+        done = subprocess.run(["git", "-C", str(root), "ls-files", "-z", "--", "*.md"],
+                              capture_output=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode != 0:
+        return None
+    text = done.stdout.decode("utf-8", errors="surrogateescape")
+    return {(root / name).resolve() for name in text.split("\0") if name}
+
+
+def _walk(root: Path, exclude: tuple[str, ...], untracked: bool) -> list[Path]:
+    """The markdown under one directory, past both filters.
+
+    The first real run staged 891 proposals, 326 from documents git does not
+    track and 582 from an archive path. Neither filter subsumes the other: 26
+    of the 47 archive documents were tracked.
+    """
+    tracked = None if untracked else _tracked(root)
+    found = []
+    for path in sorted(root.rglob("*.md")):
+        # A whole segment, never a substring: archived-designs/ is not archive/.
+        if exclude and set(path.parts) & set(exclude):
+            continue
+        if tracked is not None and path.resolve() not in tracked:
+            continue
+        found.append(path)
+    return found
+
+
+def documents(paths: list[str], exclude: tuple[str, ...] = EXCLUDE,
+              untracked: bool = False) -> list[Path]:
+    """Every markdown file the given paths name, in a stable order.
+
+    A named file is read whatever the filters say. Naming one document is an
+    explicit instruction; the filters only shape a walk.
+    """
     found: list[Path] = []
     for name in paths:
         path = Path(name)
         if path.is_file():
             found.append(path)
         elif path.is_dir():
-            found.extend(sorted(path.rglob("*.md")))
+            found.extend(_walk(path, exclude, untracked))
     return sorted(dict.fromkeys(found))
 
 
@@ -300,13 +345,15 @@ def _relative(path: Path, root: Path) -> str:
 
 def two_pass(paths: list[str], jobs: int = 8, dry_run: bool = False,
              caller=None, batch: int = link.BATCH,
-             root: Path | None = None, sleep=time.sleep) -> tuple[list[dict], list[str]]:
+             root: Path | None = None, sleep=time.sleep,
+             exclude: tuple[str, ...] = EXCLUDE,
+             untracked: bool = False) -> tuple[list[dict], list[str]]:
     """Both passes over the given documents.
 
     A document whose call fails costs only its own records. One provider error
     out of 180 should not discard the other 179.
     """
-    found = documents(paths)
+    found = documents(paths, exclude=exclude, untracked=untracked)
     if not found:
         raise RunError(f"no markdown found under {', '.join(paths)}")
 

@@ -163,6 +163,13 @@ def main(argv: list[str] | None = None) -> int:
                     help="append accepted proposals to the ledger")
     cs.add_argument("--source", help="with --accept, take only this document's records")
     cs.add_argument("--jobs", type=int, default=8, help="concurrent extraction calls")
+    cs.add_argument("--exclude", action="append", metavar="DIR", default=[],
+                    help="also skip this directory name anywhere in a walk; "
+                         "repeat to add more")
+    cs.add_argument("--no-exclude", action="store_true",
+                    help="read every directory, including archive")
+    cs.add_argument("--untracked", action="store_true",
+                    help="also read documents git does not track")
     cs.add_argument("--dry-run", action="store_true",
                     help="list the documents that would be read; call nothing")
     cs.set_defaults(func=cmd_construct)

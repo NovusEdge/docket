@@ -173,9 +173,13 @@ def _extract(args: argparse.Namespace, staged: Path) -> int:
             print(MISSING_SDK, file=sys.stderr)
             return 1
 
+    exclude = () if args.no_exclude else run.EXCLUDE + tuple(args.exclude)
+
     try:
         proposals, report = run.two_pass(args.paths, jobs=args.jobs,
-                                         dry_run=args.dry_run)
+                                         dry_run=args.dry_run,
+                                         exclude=exclude,
+                                         untracked=args.untracked)
     except run.RunError as exc:
         print(f"docket: {exc}", file=sys.stderr)
         return 1
