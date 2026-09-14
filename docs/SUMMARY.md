@@ -12,11 +12,13 @@
 * [Recording decisions](recording.md)
 * [Reading your ledger](reading.md)
 * [Working with your agent](agents.md)
+* [Bootstrapping from old documents](construct.md)
 * [Sharing and maintenance](maintenance.md)
 
 ## Technical reference
 
 * [Commands](commands.md)
+* [Environment variables](environment.md)
 * [Ledger format and rules](ledger.md)
 * [Installer options and behavior](installer-reference.md)
 * [Manual agent setup](integrations.md)
