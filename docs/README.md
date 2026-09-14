@@ -1,11 +1,24 @@
 # Docket
 
-Docket keeps the choices you make with a coding agent available for later work.
-Record what you decided and why, then bring that context into the next session.
+Docket tracks the decisions a project makes across sessions, and checks what
+breaks when one of them changes.
 
-Use it when a project spans several conversations or when a new agent needs to
-understand an earlier choice. Your records stay in a local file called a
-**ledger**, which you can share with your team through Git.
+A record is one of three kinds. A **claim** is a statement the work depends on.
+A **decision** is a choice, with the reason for it. A **question** is something
+still open.
+
+Records are only ever added. Nothing is changed or deleted. A later record can
+replace an earlier one, and the earlier one stays in the file, so you can read
+back how a choice changed.
+
+Records link to each other. A record lists the ones it rests on, and a decision
+lists the ones it depends on. Mark a claim rejected, and every decision that
+depends on it is flagged as blocked.
+
+A coding agent reads the current records before it works, so what you already
+settled is there from the start.
+
+The records are one file in your project, shared through Git.
 
 ## Start here
 
@@ -25,7 +38,8 @@ record things for you.
 
 ## What goes in a ledger?
 
-A ledger holds three kinds of record:
+The file holding the records is called a **ledger**. The rest of this
+documentation uses that name. It holds three kinds of record:
 
 | Record | What it keeps | Example |
 |---|---|---|
