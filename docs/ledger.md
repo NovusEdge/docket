@@ -42,9 +42,32 @@ state `resolved` in a derived view.
   record. A superseded record remains available with its original line, state,
   and provenance, but it is not current support.
 
+One line carries one recorded state. The other two readings are derived at read
+time, and they can disagree with each other:
+
+```mermaid
+flowchart LR
+    line[("d7 · decision<br/>state: adopted")]
+
+    rec["Recorded state<br/>adopted"]
+    eff["Effective state<br/>blocked by a prerequisite"]
+    cur["Superseded by d9<br/>readable, not support"]
+
+    line --> rec
+    line --> eff
+    line --> cur
+
+    classDef stored fill:#dbeafe,stroke:#1d4ed8,color:#000
+    classDef derived fill:#f3e8ff,stroke:#7e22ce,color:#000
+    class rec stored
+    class eff,cur derived
+```
+
+{% hint style="warning" %}
 Acceptance and adoption are workflow statuses. Their values do not establish
 that a claim is true or a decision is correct. Evidence supplies provenance;
 the ledger does not guarantee its freshness or truth.
+{% endhint %}
 
 ## Common fields
 

@@ -99,14 +99,50 @@ record decisions or follow [Your first decision](quickstart.md).
 
 If you prefer to do the setup yourself, choose your tool:
 
-| Your tool | Setup |
-|---|---|
-| Claude Code | [Install the Claude Code plugin](#claude-code) |
-| Codex | [Install the Codex plugin](#codex) |
-| Gemini CLI | [Use the installer and select Gemini CLI](#gemini-cli-cursor-and-github-copilot-cli) |
-| Cursor | [Use the installer and select Cursor](#gemini-cli-cursor-and-github-copilot-cli) |
-| GitHub Copilot CLI | [Use the installer and select Copilot](#gemini-cli-cursor-and-github-copilot-cli) |
-| OpenCode | [Install and place the OpenCode plugin](#opencode) |
+<table data-view="cards">
+<thead><tr>
+<th></th>
+<th></th>
+<th data-hidden data-card-target data-type="content-ref"></th>
+</tr></thead>
+<tbody>
+<tr>
+<td><strong>Claude Code</strong></td>
+<td>Install the plugin from the marketplace.</td>
+<td><a href="#claude-code">#claude-code</a></td>
+</tr>
+<tr>
+<td><strong>Codex</strong></td>
+<td>Install the plugin from the marketplace.</td>
+<td><a href="#codex">#codex</a></td>
+</tr>
+<tr>
+<td><strong>Gemini CLI</strong></td>
+<td>Run the installer and select Gemini CLI.</td>
+<td><a href="#gemini-cli-cursor-and-github-copilot-cli">#gemini-cli-cursor-and-github-copilot-cli</a></td>
+</tr>
+<tr>
+<td><strong>Cursor</strong></td>
+<td>Run the installer and select Cursor.</td>
+<td><a href="#gemini-cli-cursor-and-github-copilot-cli">#gemini-cli-cursor-and-github-copilot-cli</a></td>
+</tr>
+<tr>
+<td><strong>GitHub Copilot CLI</strong></td>
+<td>Run the installer and select Copilot.</td>
+<td><a href="#gemini-cli-cursor-and-github-copilot-cli">#gemini-cli-cursor-and-github-copilot-cli</a></td>
+</tr>
+<tr>
+<td><strong>OpenCode</strong></td>
+<td>Run the installer, then place the plugin file.</td>
+<td><a href="#opencode">#opencode</a></td>
+</tr>
+<tr>
+<td><strong>Something else</strong></td>
+<td>Configure the hook and command by hand.</td>
+<td><a href="#manual-installation">#manual-installation</a></td>
+</tr>
+</tbody>
+</table>
 
 ### Claude Code
 
@@ -164,8 +200,21 @@ in one setup. It downloads the release for your platform and clones Docket into
 a permanent directory. You do not need to clone the repository yourself or
 install Go.
 
-### Linux and macOS
+```mermaid
+flowchart TD
+    start(["python3 install.py"]) --> check{"Run from inside a<br/>Docket source checkout?"}
 
+    check -->|No| download["Verify the release checksum,<br/>then run the released<br/>Go installer for your platform"]
+    check -->|Yes| build["Build the Go installer<br/>under installer/<br/><i>requires Go</i>"]
+
+    download --> setup["Setup screen:<br/>select agent tools,<br/>review the PATH change,<br/>confirm the plan"]
+    build --> setup
+
+    setup --> done(["docket on your PATH,<br/>graph viewer ready,<br/>integrations written"])
+```
+
+{% tabs %}
+{% tab title="Linux and macOS" %}
 Download the launcher into a temporary folder:
 
 ```sh
@@ -180,23 +229,12 @@ Then run it from the same terminal:
 python3 "$docket_setup_dir/install.py"
 ```
 
-The launcher checks the native installer's release checksum before running it.
-In an interactive terminal, setup lets you select agent tools, review any PATH
-change, and confirm the plan.
+The installation normally lives at `~/.local/share/docket`, with the command in
+`~/.local/bin`. If `XDG_DATA_HOME` is set, the checkout defaults to
+`$XDG_DATA_HOME/docket`. You can change either location during setup.
+{% endtab %}
 
-<!-- TODO(screenshot): the installer setup screen, on the agent-tool selection
-     step with two or three tools checked. This is the only interactive screen a
-     new user meets, and prose cannot show the selection state. Capture at 100
-     columns or narrower so it stays readable on the GitBook page. -->
-
-
-The temporary folder holds only the launcher. The installation normally lives
-at `~/.local/share/docket`, with the command in `~/.local/bin`. If
-`XDG_DATA_HOME` is set, the checkout defaults to `$XDG_DATA_HOME/docket`.
-You can change either location during setup.
-
-### Windows
-
+{% tab title="Windows" %}
 In PowerShell, download the launcher to a new temporary folder:
 
 ```powershell
@@ -212,12 +250,25 @@ Then run it:
 py -3 $docketSetupScript
 ```
 
+{% hint style="info" %}
 If you use `python` instead of the `py` launcher, run
 `python $docketSetupScript`. It must select Python 3.11 or later.
+{% endhint %}
 
-The checkout normally lives at `%LOCALAPPDATA%\docket` on Windows.
-`XDG_DATA_HOME`, when set, takes precedence. Review the destination and User
-PATH change in the setup screen.
+The checkout normally lives at `%LOCALAPPDATA%\docket`. `XDG_DATA_HOME`, when
+set, takes precedence. Review the destination and User PATH change in the setup
+screen.
+{% endtab %}
+{% endtabs %}
+
+The launcher checks the native installer's release checksum before running it.
+In an interactive terminal, setup lets you select agent tools, review any PATH
+change, and confirm the plan. The temporary folder holds only the launcher.
+
+<!-- TODO(screenshot): the installer setup screen, on the agent-tool selection
+     step with two or three tools checked. This is the only interactive screen a
+     new user meets, and prose cannot show the selection state. Capture at 100
+     columns or narrower so it stays readable on the GitBook page. -->
 
 ### Check that it works
 

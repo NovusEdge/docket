@@ -8,6 +8,19 @@ relevant context when a conversation resumes or gets compacted.
 Records live in an append-only ledger. When a choice changes, the old reasoning
 stays available.
 
+```mermaid
+flowchart LR
+    agent(["Your coding agent"])
+    rec["docket claim<br/>docket decision<br/>docket question"]
+    led[(".docket/ledger.jsonl")]
+    ctx["docket context<br/>run by the session hook"]
+
+    agent -->|"records what it settled"| rec
+    rec --> led
+    led --> ctx
+    ctx -->|"briefs the next session"| agent
+```
+
 ## Install
 
 Requires **Python 3.11+** and Git. Go 1.26+ is needed only when building from a

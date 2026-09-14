@@ -232,6 +232,18 @@ func first(values ...string) string {
 	return ""
 }
 
+// Settled choices report a path. The end of a path identifies it, so drop the
+// middle and keep both ends on one line: a wrapped fact costs the review
+// viewport a row it already budgeted for.
+func elide(text string, width int) string {
+	if lipgloss.Width(text) <= width || width < 8 {
+		return text
+	}
+	keep := width - 1
+	head := keep / 2
+	return ansi.Truncate(text, head, "…") + ansi.TruncateLeft(text, lipgloss.Width(text)-(keep-head), "")
+}
+
 func (m tuiModel) Init() tea.Cmd {
 	return tea.Batch(func() tea.Msg { return tuiReadyMsg{} }, tea.RequestBackgroundColor, m.spin.Tick)
 }
@@ -513,7 +525,13 @@ func (m *tuiModel) refreshReview() {
 }
 
 func (m tuiModel) View() tea.View {
-	return tea.NewView(m.render())
+	view := tea.NewView(m.render())
+	// Inline rendering leaves the taller earlier frames on screen whenever a
+	// frame shrinks, so the review list and a band of blank rows sat above the
+	// final one. The alt screen owns the whole terminal and restores it on exit,
+	// which is why RunTUI prints the summary afterwards.
+	view.AltScreen = true
+	return view
 }
 
 func (m tuiModel) render() string {
@@ -531,20 +549,20 @@ func (m tuiModel) render() string {
 	compact := m.height < 12
 	blocks := []string{heading}
 	if !compact {
-		blocks = append(blocks, muted.Render(ansi.Truncate(scope, width, "…")), "")
+		blocks = append(blocks, muted.Render(elide(scope, width)), "")
 	}
 	if !compact && m.phase > phasePrefix {
-		blocks = append(blocks, muted.Render("prefix: "+m.opts.Prefix))
+		blocks = append(blocks, muted.Render(elide("prefix: "+m.opts.Prefix, width)))
 	}
 	if !compact && m.phase > phaseCheckout && m.opts.Checkout == "" && !m.opts.Uninstall {
-		blocks = append(blocks, muted.Render("checkout: "+m.opts.Dir))
+		blocks = append(blocks, muted.Render(elide("checkout: "+m.opts.Dir, width)))
 	}
 	if !compact && m.phase > phaseHarnesses && !m.opts.Uninstall {
 		selection := strings.Join(m.opts.Harness, ", ")
 		if selection == "" {
 			selection = "NONE"
 		}
-		blocks = append(blocks, muted.Render("harnesses: "+selection))
+		blocks = append(blocks, muted.Render(elide("harnesses: "+selection, width)))
 	}
 	if !compact && m.phase > phaseConstruct && !m.opts.Uninstall {
 		selection := m.opts.Construct
@@ -591,27 +609,10 @@ func (m tuiModel) render() string {
 		blocks = append(blocks, m.progressLines(good, bad)...)
 		blocks = append(blocks, muted.Render("ctrl+c cancels after the current action"))
 	case phaseDone:
-		switch {
-		case m.cancelled:
-			blocks = append(blocks, bad.Render("cancelled"))
-			blocks = append(blocks, m.progressLines(good, bad)...)
-			blocks = append(blocks, "No further changes were started.")
-		case m.err != nil:
-			blocks = append(blocks, bad.Render("failed: ")+m.err.Error())
-			blocks = append(blocks, m.progressLines(good, bad)...)
-			blocks = append(blocks, "Fix the error and run the installer again.")
-		default:
-			blocks = append(blocks, good.Render("done"))
-			blocks = append(blocks, m.progressLines(good, bad)...)
-			if m.opts.Uninstall {
-				blocks = append(blocks, "Removal finished. Decision ledgers kept.")
-			} else {
-				blocks = append(blocks, fmt.Sprintf("%d operations completed. Run docket --version in a new shell.", len(m.progress)))
-			}
-		}
+		blocks = append(blocks, m.summaryLines()...)
 	}
 	for i, block := range blocks {
-		blocks[i] = ansi.Hardwrap(block, width, false)
+		blocks[i] = ansi.Wrap(block, width, "")
 	}
 	content := strings.Join(blocks, "\n")
 	lines := strings.Split(content, "\n")
@@ -622,7 +623,34 @@ func (m tuiModel) render() string {
 		top, bottom := 2, max(2, m.height-3)
 		lines = append(append(append([]string{}, lines[:top]...), muted.Render("…")), lines[len(lines)-bottom:]...)
 	}
-	return lipgloss.NewStyle().PaddingLeft(2).Width(width).Render(strings.Join(lines, "\n"))
+	// Blocks are already wrapped to width. A Width() here would count the left
+	// padding against that budget and wrap every full-width line a second time.
+	return lipgloss.NewStyle().PaddingLeft(2).Render(strings.Join(lines, "\n"))
+}
+
+// summary reports the outcome after the program leaves the alt screen, which
+// takes every interactive frame with it.
+func (m tuiModel) summary() string {
+	return lipgloss.NewStyle().PaddingLeft(2).Render(strings.Join(m.summaryLines(), "\n"))
+}
+
+func (m tuiModel) summaryLines() []string {
+	muted, accent, good, bad := m.palette()
+	switch {
+	case m.cancelled:
+		return append(append([]string{bad.Render("cancelled")},
+			m.progressLines(good, bad)...), "No further changes were started.")
+	case m.err != nil:
+		return append(append([]string{bad.Render("failed: ") + m.err.Error()},
+			m.progressLines(good, bad)...), "Fix the error and run the installer again.")
+	case m.opts.Uninstall:
+		return []string{good.Render("done") + muted.Render(fmt.Sprintf("  %d operations", len(m.progress))),
+			"", "Removal finished. Decision ledgers kept."}
+	}
+	// The per-action transcript already scrolled past during the apply phase.
+	// Repeating it pushes the one line the user must act on below the fold.
+	return []string{good.Render("done") + muted.Render(fmt.Sprintf("  %d operations", len(m.progress))),
+		"", "Open a new shell, then run " + accent.Bold(true).Render("docket --version")}
 }
 
 func (m tuiModel) progressLines(good, bad lipgloss.Style) []string {
@@ -669,6 +697,9 @@ func RunTUI(env Environment, opts Options) int {
 		return 1
 	}
 	result, ok := final.(tuiModel)
+	if ok {
+		fmt.Println(result.summary())
+	}
 	if ok && result.cancelled {
 		return 130
 	}

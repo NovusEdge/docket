@@ -22,18 +22,40 @@ The records are one file in your project, shared through Git.
 
 ## Start here
 
-The [quickstart](quickstart.md) walks you through your first decision and shows
-how to read it back. You can use Docket from a terminal or ask your agent to
-record things for you.
+<table data-view="cards">
+<thead><tr>
+<th></th>
+<th></th>
+<th data-hidden data-card-target data-type="content-ref"></th>
+</tr></thead>
+<tbody>
+<tr>
+<td><strong>Set up Docket</strong></td>
+<td>Paste a prompt and let your agent do it, or install it yourself.</td>
+<td><a href="installation.md">installation.md</a></td>
+</tr>
+<tr>
+<td><strong>Your first decision</strong></td>
+<td>Record a choice in a real project and read it back.</td>
+<td><a href="quickstart.md">quickstart.md</a></td>
+</tr>
+<tr>
+<td><strong>Command reference</strong></td>
+<td>Look up a command or a flag.</td>
+<td><a href="commands.md">commands.md</a></td>
+</tr>
+</tbody>
+</table>
+
+You can use Docket from a terminal or ask your agent to record things for you.
+Once it is set up:
 
 | I want to… | Read |
 |---|---|
-| Ask my agent to set up Docket | [Copy the setup prompt](installation.md#let-your-agent-handle-setup) |
-| Install Docket myself | [Choose an install route](installation.md#configure-an-agent-harness) |
-| Try it in a project | [Your first decision](quickstart.md) |
 | Save a choice or leave a question for later | [Recording decisions](recording.md) |
 | Find an earlier decision | [Reading your ledger](reading.md) |
 | Use Docket in an agent session | [Working with your agent](agents.md) |
+| Start from years of existing design notes | [Constructing on existing projects](construct.md) |
 | Share a ledger with my team | [Sharing and maintenance](maintenance.md) |
 
 ## What goes in a ledger?
@@ -68,8 +90,7 @@ you.
 
 ## When you want more detail
 
-Use the [command reference](commands.md) to look up a flag. The
-[ledger reference](ledger.md) explains states, relationships, and how Docket
+The [ledger reference](ledger.md) explains states, relationships, and how Docket
 chooses records for a briefing.
 
 The **Design and research** section explores the ideas behind Docket and

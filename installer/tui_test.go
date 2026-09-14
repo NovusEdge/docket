@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -254,6 +255,66 @@ func TestEveryPhaseFitsShortTerminalAndKeepsFooterVisible(t *testing.T) {
 		if last == "" {
 			t.Fatalf("phase %v lost its footer", phase)
 		}
+	}
+}
+
+func TestSuccessLeadsWithTheNextStepAndDropsTheTranscript(t *testing.T) {
+	m := newTUIModel(tuiTestEnv(t), Options{}, nil)
+	m.phase = phaseDone
+	for i := range 14 {
+		m.progress = append(m.progress, Progress{Action: Action{Kind: "write", Path: fmt.Sprintf("/a/long/enough/path/to/wrap/at/eighty/columns/file-%02d.json", i)}})
+	}
+	m = updateTUI(t, m, tea.WindowSizeMsg{Width: 80, Height: 40})
+	view := m.View().Content
+	if !strings.Contains(view, "docket --version") {
+		t.Fatal("final view lost the next step")
+	}
+	if strings.Contains(view, "file-07.json") {
+		t.Fatal("final view still repeats the apply transcript")
+	}
+	if height := lipgloss.Height(view); height > 12 {
+		t.Fatalf("final view is %d lines; it must stay short enough to read at a glance", height)
+	}
+}
+
+func TestSettledChoicesNeverWrapToASecondLine(t *testing.T) {
+	env := tuiTestEnv(t)
+	env.DefaultPrefix = "/home/somebody/with/a/genuinely/long/home/directory/name/.local/share/docket/bin"
+	m := newTUIModel(env, Options{}, nil)
+	m.phase, m.opts.Prefix = phaseDone, env.DefaultPrefix
+	m = updateTUI(t, m, tea.WindowSizeMsg{Width: 60, Height: 40})
+	for _, line := range strings.Split(m.View().Content, "\n") {
+		if !strings.Contains(line, "prefix:") {
+			continue
+		}
+		if !strings.Contains(line, "docket/bin") {
+			t.Fatalf("prefix line %q dropped the end of the path instead of eliding its middle", line)
+		}
+		return
+	}
+	t.Fatal("final view never reported the prefix")
+}
+
+func TestSummarySurvivesTheAltScreen(t *testing.T) {
+	completed := Progress{Action: Action{Kind: "write", Path: "/tmp/docket"}}
+	for _, tc := range []struct {
+		name  string
+		setup func(*tuiModel)
+		want  string
+	}{
+		{"success", func(*tuiModel) {}, "docket --version"},
+		{"uninstall", func(m *tuiModel) { m.opts.Uninstall = true }, "Decision ledgers kept"},
+		{"cancelled", func(m *tuiModel) { m.cancelled = true }, "/tmp/docket"},
+		{"failed", func(m *tuiModel) { m.err = errors.New("write failed") }, "write failed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTUIModel(tuiTestEnv(t), Options{}, nil)
+			m.phase, m.progress = phaseDone, []Progress{completed}
+			tc.setup(&m)
+			if !strings.Contains(m.summary(), tc.want) {
+				t.Fatalf("printed summary omitted %q: %q", tc.want, m.summary())
+			}
+		})
 	}
 }
 
