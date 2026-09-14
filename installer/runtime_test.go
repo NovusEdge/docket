@@ -166,6 +166,45 @@ func TestSwapCheckoutPreservesProjectLedger(t *testing.T) {
 	}
 }
 
+// Every clone since the repository began tracking .docket carries one, so a
+// reinstall over an existing checkout always has a ledger on both sides.
+func TestSwapCheckoutPrefersTheInstalledLedgerOverTheClonedOne(t *testing.T) {
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "checkout")
+	staged := filepath.Join(dir, "staged")
+	if err := os.MkdirAll(filepath.Join(dest, ".docket"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	ledger := filepath.Join(dest, ".docket", "ledger.jsonl")
+	if err := os.WriteFile(ledger, []byte("mine\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(staged, ".docket"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(staged, ".docket", "ledger.jsonl"), []byte("shipped\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(staged, ".docket", "stale.jsonl"), []byte("x\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(staged, "bin"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(staged, "bin", "docket"), []byte("new"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := swapCheckout(staged, dest); err != nil {
+		t.Fatalf("reinstall over an existing checkout failed: %v", err)
+	}
+	if b, _ := os.ReadFile(ledger); string(b) != "mine\n" {
+		t.Fatalf("clone overwrote the installed ledger: %q", b)
+	}
+	if _, err := os.Stat(filepath.Join(dest, ".docket", "stale.jsonl")); !os.IsNotExist(err) {
+		t.Fatal("clone's ledger files merged into the installed ledger")
+	}
+}
+
 func TestCheckoutRefusesUnrelatedDirectory(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "important"), []byte("keep"), 0600); err != nil {

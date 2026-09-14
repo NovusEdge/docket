@@ -264,13 +264,17 @@ func swapCheckout(staged, dest string) error {
 	} else if err != nil {
 		return err
 	}
-	// Project ledgers are user data, even when stored inside the managed checkout.
+	// Project ledgers are user data, even when stored inside the managed
+	// checkout. Every clone ships the repository's own .docket, so the staged
+	// copy is never the user's; the destination copy replaces it outright.
+	// Merging the two would leave records from the clone in the user's ledger.
 	ledger := filepath.Join(dest, ".docket")
 	if _, err := os.Lstat(ledger); err == nil {
-		if _, err := os.Lstat(filepath.Join(staged, ".docket")); !errors.Is(err, os.ErrNotExist) {
-			return errors.New("new checkout contains .docket; refusing to overwrite the existing ledger")
+		stagedLedger := filepath.Join(staged, ".docket")
+		if err := os.RemoveAll(stagedLedger); err != nil {
+			return fmt.Errorf("preserve ledger: %w", err)
 		}
-		if err := copyTree(ledger, filepath.Join(staged, ".docket")); err != nil {
+		if err := copyTree(ledger, stagedLedger); err != nil {
 			return fmt.Errorf("preserve ledger: %w", err)
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
