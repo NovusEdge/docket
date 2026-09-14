@@ -232,6 +232,18 @@ func first(values ...string) string {
 	return ""
 }
 
+// Settled choices report a path. The end of a path identifies it, so drop the
+// middle and keep both ends on one line: a wrapped fact costs the review
+// viewport a row it already budgeted for.
+func elide(text string, width int) string {
+	if lipgloss.Width(text) <= width || width < 8 {
+		return text
+	}
+	keep := width - 1
+	head := keep / 2
+	return ansi.Truncate(text, head, "…") + ansi.TruncateLeft(text, lipgloss.Width(text)-(keep-head), "")
+}
+
 func (m tuiModel) Init() tea.Cmd {
 	return tea.Batch(func() tea.Msg { return tuiReadyMsg{} }, tea.RequestBackgroundColor, m.spin.Tick)
 }
@@ -531,20 +543,20 @@ func (m tuiModel) render() string {
 	compact := m.height < 12
 	blocks := []string{heading}
 	if !compact {
-		blocks = append(blocks, muted.Render(ansi.Truncate(scope, width, "…")), "")
+		blocks = append(blocks, muted.Render(elide(scope, width)), "")
 	}
 	if !compact && m.phase > phasePrefix {
-		blocks = append(blocks, muted.Render("prefix: "+m.opts.Prefix))
+		blocks = append(blocks, muted.Render(elide("prefix: "+m.opts.Prefix, width)))
 	}
 	if !compact && m.phase > phaseCheckout && m.opts.Checkout == "" && !m.opts.Uninstall {
-		blocks = append(blocks, muted.Render("checkout: "+m.opts.Dir))
+		blocks = append(blocks, muted.Render(elide("checkout: "+m.opts.Dir, width)))
 	}
 	if !compact && m.phase > phaseHarnesses && !m.opts.Uninstall {
 		selection := strings.Join(m.opts.Harness, ", ")
 		if selection == "" {
 			selection = "NONE"
 		}
-		blocks = append(blocks, muted.Render("harnesses: "+selection))
+		blocks = append(blocks, muted.Render(elide("harnesses: "+selection, width)))
 	}
 	if !compact && m.phase > phaseConstruct && !m.opts.Uninstall {
 		selection := m.opts.Construct
@@ -601,17 +613,19 @@ func (m tuiModel) render() string {
 			blocks = append(blocks, m.progressLines(good, bad)...)
 			blocks = append(blocks, "Fix the error and run the installer again.")
 		default:
-			blocks = append(blocks, good.Render("done"))
-			blocks = append(blocks, m.progressLines(good, bad)...)
+			// The per-action transcript already scrolled past during the apply
+			// phase. Repeating it here pushes the one line the user must act on
+			// below the fold of a short terminal.
+			blocks = append(blocks, good.Render("done")+muted.Render(fmt.Sprintf("  %d operations", len(m.progress))), "")
 			if m.opts.Uninstall {
 				blocks = append(blocks, "Removal finished. Decision ledgers kept.")
 			} else {
-				blocks = append(blocks, fmt.Sprintf("%d operations completed. Run docket --version in a new shell.", len(m.progress)))
+				blocks = append(blocks, "Open a new shell, then run "+accent.Bold(true).Render("docket --version"))
 			}
 		}
 	}
 	for i, block := range blocks {
-		blocks[i] = ansi.Hardwrap(block, width, false)
+		blocks[i] = ansi.Wrap(block, width, "")
 	}
 	content := strings.Join(blocks, "\n")
 	lines := strings.Split(content, "\n")
@@ -622,7 +636,9 @@ func (m tuiModel) render() string {
 		top, bottom := 2, max(2, m.height-3)
 		lines = append(append(append([]string{}, lines[:top]...), muted.Render("…")), lines[len(lines)-bottom:]...)
 	}
-	return lipgloss.NewStyle().PaddingLeft(2).Width(width).Render(strings.Join(lines, "\n"))
+	// Blocks are already wrapped to width. A Width() here would count the left
+	// padding against that budget and wrap every full-width line a second time.
+	return lipgloss.NewStyle().PaddingLeft(2).Render(strings.Join(lines, "\n"))
 }
 
 func (m tuiModel) progressLines(good, bad lipgloss.Style) []string {
