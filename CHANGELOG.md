@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Recording hints on stderr when `--scope`, `--alternative`, `--rationale` or
+  `--cost` is empty, and records the entry anyway. Each field is legitimately
+  empty for some records. Scope leads the list, because a record with no scope
+  competes for room in every briefing.
+
+### Changed
+
+- Recording refuses a decision whose `alternatives` only repeat the choice, and
+  one whose `rationale` restates the choice or the question. The old rule
+  required the choice to appear in `alternatives`, which made a one-element list
+  the shortest valid answer; 38 of the first 90 records took it. An empty
+  `alternatives` list is legal, so no recorder needs to invent a contender that
+  never existed. The checks run when a record is written. Validation on read
+  still checks structure alone, so an existing ledger reads unchanged.
+
+### Fixed
+
+- A reinstall over an existing checkout failed. The installer refused to swap
+  when both the old tree and the staged clone held `.docket`, which every clone
+  has carried since the repository began tracking its own ledger. The installed
+  ledger now replaces the clone's outright.
+- The ledger guard hook let `git restore`, `git checkout --`, `find -delete`,
+  `sort -o` and `uniq IN OUT` through. Those four programs sat on the reader
+  allowlist by name, and their arguments went unread.
+- `docket update` lost a custom installation. It passed only `--update` to the
+  downloaded launcher, which runs outside the checkout and could resolve neither
+  the checkout nor the recorded prefix.
+
+## [0.13.0] - 2026-09-14
+
+### Added
+
 - `docket construct` reaches OpenAI and Anthropic directly, alongside OpenRouter
   and Gemini. `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` select them, and
   `DOCKET_CONSTRUCT_PROVIDER` names one when several keys are set.
