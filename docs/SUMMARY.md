@@ -12,7 +12,7 @@
 * [Recording decisions](recording.md)
 * [Reading your ledger](reading.md)
 * [Working with your agent](agents.md)
-* [Bootstrapping from old documents](construct.md)
+* [Constructing on existing projects](construct.md)
 * [Sharing and maintenance](maintenance.md)
 
 ## Technical reference

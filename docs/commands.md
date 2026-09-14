@@ -107,7 +107,7 @@ conversion, `--emit-map PATH` to write the derived classification map, and
 
 See [Maintenance](maintenance.md) for when to reach for these.
 
-## Bootstrapping
+## Constructing
 
 `docket construct PATHS` reads the markdown under `PATHS` and stages ledger
 proposals in `.docket/proposed.jsonl`. It writes nothing to the ledger.
@@ -120,5 +120,5 @@ each one quotes.
 `docket construct --accept` appends the proposals you marked `accepted`.
 `--source PATH` takes one document's records and leaves the rest staged.
 
-This command needs the `openai` SDK and an API key. See [Bootstrapping from old
-documents](construct.md) and [Environment variables](environment.md).
+This command needs the `openai` SDK and an API key. See [Constructing on existing
+projects](construct.md) and [Environment variables](environment.md).

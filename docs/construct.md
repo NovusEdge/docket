@@ -1,4 +1,4 @@
-# Bootstrapping a ledger from old documents
+# Constructing on existing projects
 
 A project that already has years of design notes starts with an empty ledger.
 `docket construct` reads those documents and proposes records from them, so you

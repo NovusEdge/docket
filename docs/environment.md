@@ -44,8 +44,7 @@ versions.
 
 ## `docket construct`
 
-These apply to `docket construct` alone. See [Bootstrapping a ledger from old
-documents](construct.md).
+These apply to `docket construct` alone. See [Constructing on existing projects](construct.md).
 
 | Variable | Effect |
 |---|---|
