@@ -295,6 +295,29 @@ func TestSettledChoicesNeverWrapToASecondLine(t *testing.T) {
 	t.Fatal("final view never reported the prefix")
 }
 
+func TestSummarySurvivesTheAltScreen(t *testing.T) {
+	completed := Progress{Action: Action{Kind: "write", Path: "/tmp/docket"}}
+	for _, tc := range []struct {
+		name  string
+		setup func(*tuiModel)
+		want  string
+	}{
+		{"success", func(*tuiModel) {}, "docket --version"},
+		{"uninstall", func(m *tuiModel) { m.opts.Uninstall = true }, "Decision ledgers kept"},
+		{"cancelled", func(m *tuiModel) { m.cancelled = true }, "/tmp/docket"},
+		{"failed", func(m *tuiModel) { m.err = errors.New("write failed") }, "write failed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTUIModel(tuiTestEnv(t), Options{}, nil)
+			m.phase, m.progress = phaseDone, []Progress{completed}
+			tc.setup(&m)
+			if !strings.Contains(m.summary(), tc.want) {
+				t.Fatalf("printed summary omitted %q: %q", tc.want, m.summary())
+			}
+		})
+	}
+}
+
 func TestFailureAndCancellationRetainCompletedActions(t *testing.T) {
 	completed := Progress{Action: Action{Kind: "write", Path: "/tmp/docket"}}
 	for _, tc := range []struct {
