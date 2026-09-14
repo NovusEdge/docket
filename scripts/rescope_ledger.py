@@ -41,14 +41,14 @@ PATHS = {
 # from this table keeps bin/docket: d80 and d82 both decide what the entry
 # point is, which is still this file.
 BIN_ROUTES = {
-    "d12": "docket/env.py",            # where the ledger lives by default
-    "d13": "docket/env.py",            # provenance capture
-    "q15": "docket/env.py",            # justification sets
-    "c20": "docket/env.py",            # retirement reporting
-    "d78": "docket/cli/query.py",      # the update notice line
-    "d36": "docket/cli/graph.py",      # graph browsing
-    "d77": "docket/cli/admin.py",      # the update command
-    "d14": "docs/installation.md",     # which harnesses ship config
+    "d12": "docket/env.py",  # where the ledger lives by default
+    "d13": "docket/env.py",  # provenance capture
+    "q15": "docket/env.py",  # justification sets
+    "c20": "docket/env.py",  # retirement reporting
+    "d78": "docket/cli/query.py",  # the update notice line
+    "d36": "docket/cli/graph.py",  # graph browsing
+    "d77": "docket/cli/admin.py",  # the update command
+    "d14": "docs/installation.md",  # which harnesses ship config
     # Nothing in the CLI: d16 puts defects in GitHub issues, and d43, d44 and
     # d45 decide the record and context model, which docket/** already covers.
     "d16": None,
@@ -98,8 +98,9 @@ def rescope(entry: dict) -> list[str] | None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dry-run", action="store_true",
-                        help="print the changes and write nothing")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="print the changes and write nothing"
+    )
     parser.add_argument("--ledger", type=Path, default=LEDGER)
     args = parser.parse_args(argv)
 
@@ -122,7 +123,8 @@ def main(argv: list[str] | None = None) -> int:
         out.append(json.dumps(entry, ensure_ascii=False, separators=(",", ":")))
 
     unrouted = sorted(
-        json.loads(line)["id"] for line in lines
+        json.loads(line)["id"]
+        for line in lines
         if "bin/docket" in (json.loads(line).get("scope") or [])
         and json.loads(line)["id"] not in BIN_ROUTES
     )

@@ -1,0 +1,43 @@
+# Ruff config lives here rather than in a pyproject.toml, because docket has no
+# packaging metadata: it ships through its own installer and imports nothing but
+# the standard library.
+#
+# Run it without installing anything:
+#     uvx ruff@0.16.7 check .
+#     uvx ruff@0.16.7 format .
+
+target-version = "py311"
+line-length = 100
+
+[per-file-target-version]
+# The download launcher must parse on an old interpreter so it can print the
+# 3.11 requirement rather than a SyntaxError.
+"installer/install.py" = "py38"
+
+[lint]
+# UP and B are deliberately absent. Both are worth adopting, and both want
+# judgement per site: UP031 would rewrite installer/install.py, whose whole job
+# is to parse on an interpreter too old to run docket. Add them in their own
+# change, not alongside the gate.
+select = ["E", "F", "I", "W"]
+ignore = [
+    "E741",  # `l` and `i` read fine as loop and column indices here.
+    # `ruff format` is the line-length authority and already wraps everything it
+    # can. Every line left over is a single string literal it cannot split: a
+    # shell completion script, or briefing text that ships byte-for-byte.
+    "E501",
+]
+
+[lint.per-file-ignores]
+# Each of these inserts the checkout on sys.path before importing docket, so
+# the imports cannot come first.
+"tests/*.py" = ["E402"]
+"scripts/*.py" = ["E402"]
+"experiments/**/*.py" = ["E402"]
+"bin/docket" = ["E402"]
+
+[lint.isort]
+known-first-party = ["docket"]
+
+[format]
+docstring-code-format = false

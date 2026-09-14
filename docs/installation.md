@@ -184,6 +184,12 @@ The launcher checks the native installer's release checksum before running it.
 In an interactive terminal, setup lets you select agent tools, review any PATH
 change, and confirm the plan.
 
+<!-- TODO(screenshot): the installer setup screen, on the agent-tool selection
+     step with two or three tools checked. This is the only interactive screen a
+     new user meets, and prose cannot show the selection state. Capture at 100
+     columns or narrower so it stays readable on the GitBook page. -->
+
+
 The temporary folder holds only the launcher. The installation normally lives
 at `~/.local/share/docket`, with the command in `~/.local/bin`. If
 `XDG_DATA_HOME` is set, the checkout defaults to `$XDG_DATA_HOME/docket`.

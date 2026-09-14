@@ -16,8 +16,12 @@ def _match(e: dict, term: str) -> bool:
 # guessing pretty puts escape codes in a model's context window; wrongly
 # guessing plain costs a person one flag, so the asymmetry decides it.
 _AGENT_ENV_VARS = (
-    "CLAUDE_SESSION_ID", "CLAUDE_CODE_BRIDGE_SESSION_ID", "SESSION_ID",
-    "AI_AGENT", "CODEX_SANDBOX", "CODEX_HOME",
+    "CLAUDE_SESSION_ID",
+    "CLAUDE_CODE_BRIDGE_SESSION_ID",
+    "SESSION_ID",
+    "AI_AGENT",
+    "CODEX_SANDBOX",
+    "CODEX_HOME",
 )
 
 
@@ -43,19 +47,42 @@ def _use_glyphs() -> bool:
 
 
 _STATE_COLOR = {
-    "accepted": "2", "adopted": "2", "resolved": "2",
-    "rejected": "1", "revoked": "1", "disputed": "1",
-    "unassessed": "3", "open": "3",
+    "accepted": "2",
+    "adopted": "2",
+    "resolved": "2",
+    "rejected": "1",
+    "revoked": "1",
+    "disputed": "1",
+    "unassessed": "3",
+    "open": "3",
 }  # green, red, yellow
 _DIM = "8"
 
 _GRAPH_GLYPHS = {
-    "bullet": "●", "open": "○", "retired": "⊘", "vert": "│", "tee": "├─ ", "elbow": "└─ ",
-    "hbar": "─", "ltee": "├", "join": "┴", "cross": "┼", "corner": "╯",
+    "bullet": "●",
+    "open": "○",
+    "retired": "⊘",
+    "vert": "│",
+    "tee": "├─ ",
+    "elbow": "└─ ",
+    "hbar": "─",
+    "ltee": "├",
+    "join": "┴",
+    "cross": "┼",
+    "corner": "╯",
 }
 _GRAPH_GLYPHS_ASCII = {
-    "bullet": "*", "open": "o", "retired": "x", "vert": "|", "tee": "+- ", "elbow": "`- ",
-    "hbar": "-", "ltee": "+", "join": "+", "cross": "+", "corner": "'",
+    "bullet": "*",
+    "open": "o",
+    "retired": "x",
+    "vert": "|",
+    "tee": "+- ",
+    "elbow": "`- ",
+    "hbar": "-",
+    "ltee": "+",
+    "join": "+",
+    "cross": "+",
+    "corner": "'",
 }
 
 

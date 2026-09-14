@@ -8,10 +8,14 @@ from docket.ledger import LedgerError, append, make_record
 
 def _shared_fields(args: argparse.Namespace) -> dict:
     from docket.ledger import parse_evidence
+
     return {
         "scope": args.scope or [],
         "rationale": args.rationale or "",
-        "supports": [[ref.strip() for ref in group.split(",") if ref.strip()] for group in (args.supports or [])],
+        "supports": [
+            [ref.strip() for ref in group.split(",") if ref.strip()]
+            for group in (args.supports or [])
+        ],
         "depends_on": [ref.strip() for ref in (args.depends_on or "").split(",") if ref.strip()],
         "answers": [ref.strip() for ref in (args.answers or "").split(",") if ref.strip()],
         "supersedes": [ref.strip() for ref in (args.supersedes or "").split(",") if ref.strip()],
@@ -29,7 +33,14 @@ def _append_cli(kind: str, args: argparse.Namespace) -> int:
     try:
         fields = _shared_fields(args)
         if kind == "decision":
-            fields.update({"state": args.state, "choice": args.choice, "alternatives": args.alternative or [], "decided_by": args.decided_by})
+            fields.update(
+                {
+                    "state": args.state,
+                    "choice": args.choice,
+                    "alternatives": args.alternative or [],
+                    "decided_by": args.decided_by,
+                }
+            )
         elif kind == "claim":
             fields["state"] = args.state
         entry = make_record(kind, args.text, **fields)

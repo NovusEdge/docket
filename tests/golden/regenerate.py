@@ -11,8 +11,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from tests.test_context import entry, projected
 from docket.context import build_context
+from tests.test_context import entry, projected
 
 SEED = 20260913
 
@@ -29,8 +29,13 @@ def ledger(count):
                 fields["depends_on"] = (target,)
         ident = f"{kind[0]}{number}"
         records.append((ident, kind))
-        yield entry(ident, kind, f"Record {ident} about module {number % 7}",
-                    scope=(f"lib/mod{number % 7}/**",), **fields)
+        yield entry(
+            ident,
+            kind,
+            f"Record {ident} about module {number % 7}",
+            scope=(f"lib/mod{number % 7}/**",),
+            **fields,
+        )
 
 
 def snapshots():
@@ -43,8 +48,9 @@ def snapshots():
             # hid the index allowance and the trim ladder from these snapshots.
             for budget in (900, 8000, None):
                 key = f"n{count}_q{query or 'none'}_f{'yes' if files else 'no'}_b{budget or 'default'}"
-                cases[key] = build_context(projected_records, query=query, files=files,
-                                           ledger="repo", max_chars=budget)
+                cases[key] = build_context(
+                    projected_records, query=query, files=files, ledger="repo", max_chars=budget
+                )
     return cases
 
 

@@ -35,9 +35,11 @@ class CorpusTests(unittest.TestCase):
 
     def test_nearly_every_document_resolves_a_date(self):
         dated = sum(
-            1 for f in self.files
-            if extract.resolve_date(str(f.relative_to(_root)),
-                                    f.read_text(errors="replace"), self.git)
+            1
+            for f in self.files
+            if extract.resolve_date(
+                str(f.relative_to(_root)), f.read_text(errors="replace"), self.git
+            )
         )
         # Measured at 96.5% over 372 documents. A drop means a date convention
         # changed, or the head window stopped covering where dates are written.
@@ -61,8 +63,7 @@ class CorpusTests(unittest.TestCase):
         random.seed(20260914)
         for _ in range(20):
             a, b = random.sample(self.files, 2)
-            lines = [l for l in a.read_text(errors="replace").splitlines()
-                     if len(l.strip()) > 40]
+            lines = [l for l in a.read_text(errors="replace").splitlines() if len(l.strip()) > 40]
             if not lines:
                 continue
             probe = _as_a_model_would(random.choice(lines))

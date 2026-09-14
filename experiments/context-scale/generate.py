@@ -26,14 +26,22 @@ def ledger(count: int) -> list[dict]:
         area = AREAS[index % len(AREAS)]
         if index % 3 == 0:
             record = make_record(
-                "decision", f"Decision {index} about {area}", choice=f"option {index}",
-                scope=[f"{area}/**"], author="bench", record_id=f"d{index}",
+                "decision",
+                f"Decision {index} about {area}",
+                choice=f"option {index}",
+                scope=[f"{area}/**"],
+                author="bench",
+                record_id=f"d{index}",
                 depends_on=[f"c{index - 1}"] if index > 3 else [],
             )
         else:
             record = make_record(
-                "claim", f"Claim {index} about {area}", state="accepted",
-                scope=[f"{area}/**"], author="bench", record_id=f"c{index}",
+                "claim",
+                f"Claim {index} about {area}",
+                state="accepted",
+                scope=[f"{area}/**"],
+                author="bench",
+                record_id=f"c{index}",
             )
         records.append(record)
     return records

@@ -21,8 +21,7 @@ class ConfigTests(unittest.TestCase):
             write(home, "[budget]\ntarget = 12000\n")
             settings, identity = load(home)
         self.assertEqual(settings["budget"]["target"], 12000)
-        self.assertEqual(settings["budget"]["outer_multiple"],
-                         DEFAULTS["budget"]["outer_multiple"])
+        self.assertEqual(settings["budget"]["outer_multiple"], DEFAULTS["budget"]["outer_multiple"])
         self.assertEqual(settings["weights"], DEFAULTS["weights"])
         self.assertNotEqual(identity, "default")
 
@@ -39,11 +38,11 @@ class ConfigTests(unittest.TestCase):
 
     def test_the_example_file_states_the_defaults(self):
         import tomllib
+
         example = Path(__file__).resolve().parent.parent / "docs" / "config.example.toml"
         # Every value in the example is documented as the default. A drifting
         # example teaches a wrong number and silently changes a tuned briefing.
-        self.assertEqual(merge(tomllib.loads(example.read_text(encoding="utf-8"))),
-                         DEFAULTS)
+        self.assertEqual(merge(tomllib.loads(example.read_text(encoding="utf-8"))), DEFAULTS)
 
     def test_unknown_section_and_key_are_rejected(self):
         with self.assertRaises(ConfigError):
@@ -85,8 +84,9 @@ class ConfigTests(unittest.TestCase):
         history = projected(records)
         tuned = merge({"weights": {"scope_glob": 10}})
         plain = build_context(history, files=("lib/render.py",), ledger="repo")
-        changed = build_context(history, files=("lib/render.py",), ledger="repo",
-                                settings=tuned, settings_id="abcd1234")
+        changed = build_context(
+            history, files=("lib/render.py",), ledger="repo", settings=tuned, settings_id="abcd1234"
+        )
         self.assertIn("scope=700", plain)
         self.assertIn("scope=10", changed)
         self.assertIn("| settings: abcd1234", changed)

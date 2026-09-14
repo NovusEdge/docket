@@ -95,7 +95,7 @@ def plugin_origin(root: Path) -> tuple[str, str] | None:
             index = i
     if index is None or index == 0:
         return None
-    tail = parts[index + 1:]
+    tail = parts[index + 1 :]
     if len(tail) < 2:
         return None
     marketplace = tail[1]
@@ -122,10 +122,8 @@ def update_command(root: Path) -> str:
     if origin:
         harness, marketplace = origin
         if harness == "claude":
-            return (f"claude plugin update docket@{marketplace} -y, "
-                    "then restart Claude Code")
-        return (f"codex plugin remove docket@{marketplace} && "
-                f"codex plugin add docket@{marketplace}")
+            return f"claude plugin update docket@{marketplace} -y, then restart Claude Code"
+        return f"codex plugin remove docket@{marketplace} && codex plugin add docket@{marketplace}"
     if shape(root) == "unknown":
         return f"reinstall from {REPOSITORY}"
     return "docket update"
@@ -135,8 +133,7 @@ def notice(running: str, latest: str, root: Path) -> str | None:
     if not latest or not is_newer(latest, running):
         return None
     tag = latest.lstrip("v")
-    return (f"# docket: {tag} is available (running {running}). "
-            f"Run: {update_command(root)}")
+    return f"# docket: {tag} is available (running {running}). Run: {update_command(root)}"
 
 
 RELEASES_URL = "https://api.github.com/repos/NovusEdge/docket/releases/latest"
@@ -179,8 +176,9 @@ def run_fetch(now: float) -> int:
         delay = min(FAILURE_SECONDS * (2 ** (failures - 1)), FAILURE_CAP)
         write_state({**state, "failures": failures, "next_check_at": now + delay})
         return 1
-    write_state({"latest": latest, "checked_at": now, "failures": 0,
-                 "next_check_at": now + SUCCESS_SECONDS})
+    write_state(
+        {"latest": latest, "checked_at": now, "failures": 0, "next_check_at": now + SUCCESS_SECONDS}
+    )
     return 0
 
 

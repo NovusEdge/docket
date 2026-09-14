@@ -13,7 +13,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from docket import migrate as docket_migrate
 
-
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "migrate_ledger.py"
 
@@ -128,9 +127,10 @@ class MigrationTests(unittest.TestCase):
             self.assertEqual(audit["source_depends_on"], [])
             self.assertEqual(audit["mapped_depends_on"], ["d1"])
             self.assertIn("depends_on", audit["overrides"])
-            self.assertEqual(source.read_text().splitlines(), [
-                json.dumps(record) for record in self.source_records()
-            ])
+            self.assertEqual(
+                source.read_text().splitlines(),
+                [json.dumps(record) for record in self.source_records()],
+            )
 
     def test_cross_kind_supersession_requires_explicit_treatment(self):
         migrator = load_migrator()
@@ -250,9 +250,17 @@ class MigrationTests(unittest.TestCase):
             mapping = work / "map.json"
             mapping.write_text(json.dumps(self.mapping()))
             result = subprocess.run(
-                [sys.executable, str(SCRIPT), str(source),
-                 "--map", str(mapping), "--output", str(work / "new.jsonl")],
-                capture_output=True, text=True,
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    str(source),
+                    "--map",
+                    str(mapping),
+                    "--output",
+                    str(work / "new.jsonl"),
+                ],
+                capture_output=True,
+                text=True,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue((work / "new.jsonl").exists())
@@ -260,8 +268,15 @@ class MigrationTests(unittest.TestCase):
 
 class DerivationTests(unittest.TestCase):
     def test_a_settled_record_becomes_an_adopted_decision(self):
-        source = [{"id": "d1", "state": "settled", "question": "Ship it?",
-                   "answer": "Yes, on Friday.", "because": []}]
+        source = [
+            {
+                "id": "d1",
+                "state": "settled",
+                "question": "Ship it?",
+                "answer": "Yes, on Friday.",
+                "because": [],
+            }
+        ]
         derived = docket_migrate.derive_mapping(source)
         self.assertEqual(derived["d1"]["kind"], "decision")
         self.assertEqual(derived["d1"]["state"], "adopted")
@@ -271,41 +286,53 @@ class DerivationTests(unittest.TestCase):
     def test_a_ruled_out_record_stays_adopted(self):
         # A ruled-out record commits to not doing something and still applies.
         # A revoked decision renders as unusable support.
-        source = [{"id": "d1", "state": "ruled-out", "question": "Delete the key?",
-                   "answer": "No. Another team still sends it.", "because": []}]
+        source = [
+            {
+                "id": "d1",
+                "state": "ruled-out",
+                "question": "Delete the key?",
+                "answer": "No. Another team still sends it.",
+                "because": [],
+            }
+        ]
         derived = docket_migrate.derive_mapping(source)
         self.assertEqual(derived["d1"]["kind"], "decision")
         self.assertEqual(derived["d1"]["state"], "adopted")
         self.assertEqual(derived["d1"]["choice"], "No. Another team still sends it.")
 
     def test_an_open_record_becomes_a_question(self):
-        source = [{"id": "d1", "state": "open", "question": "Which validator?",
-                   "answer": "Undecided.", "because": []}]
+        source = [
+            {
+                "id": "d1",
+                "state": "open",
+                "question": "Which validator?",
+                "answer": "Undecided.",
+                "because": [],
+            }
+        ]
         derived = docket_migrate.derive_mapping(source)
         self.assertEqual(derived["d1"]["kind"], "question")
         self.assertEqual(derived["d1"]["state"], "open")
         self.assertNotIn("choice", derived["d1"])
 
     def test_an_unknown_state_is_rejected_and_named(self):
-        source = [{"id": "d1", "state": "parked", "question": "Q", "answer": "A",
-                   "because": []}]
+        source = [{"id": "d1", "state": "parked", "question": "Q", "answer": "A", "because": []}]
         with self.assertRaises(docket_migrate.MigrationError) as caught:
             docket_migrate.derive_mapping(source)
         self.assertIn("parked", str(caught.exception))
         self.assertIn("d1", str(caught.exception))
 
     def test_a_settled_record_without_an_answer_is_rejected(self):
-        source = [{"id": "d1", "state": "settled", "question": "Q", "answer": "",
-                   "because": []}]
+        source = [{"id": "d1", "state": "settled", "question": "Q", "answer": "", "because": []}]
         with self.assertRaises(docket_migrate.MigrationError) as caught:
             docket_migrate.derive_mapping(source)
         self.assertIn("d1", str(caught.exception))
 
     def test_the_derived_map_passes_read_mapping(self):
-        source = [{"id": "d1", "state": "settled", "question": "Q1", "answer": "A1",
-                   "because": []},
-                  {"id": "d2", "state": "open", "question": "Q2", "answer": "A2",
-                   "because": ["d1"]}]
+        source = [
+            {"id": "d1", "state": "settled", "question": "Q1", "answer": "A1", "because": []},
+            {"id": "d2", "state": "open", "question": "Q2", "answer": "A2", "because": ["d1"]},
+        ]
         with tempfile.TemporaryDirectory() as work:
             path = Path(work) / "map.json"
             path.write_text(json.dumps(docket_migrate.derive_mapping(source)))
@@ -321,11 +348,21 @@ class DerivationTests(unittest.TestCase):
 
     def test_a_settled_record_superseding_an_open_record_becomes_an_answer(self):
         source = [
-            {"id": "d19", "state": "open", "question": "SSH reachability?",
-             "answer": "", "because": []},
-            {"id": "d25", "state": "settled",
-             "question": "SSH reachability for GCE instances (closes d19)",
-             "answer": "Yes.", "because": [], "supersedes": ["d19"]},
+            {
+                "id": "d19",
+                "state": "open",
+                "question": "SSH reachability?",
+                "answer": "",
+                "because": [],
+            },
+            {
+                "id": "d25",
+                "state": "settled",
+                "question": "SSH reachability for GCE instances (closes d19)",
+                "answer": "Yes.",
+                "because": [],
+                "supersedes": ["d19"],
+            },
         ]
         derived = docket_migrate.derive_mapping(source)
         self.assertEqual(derived["d25"]["supersedes"], [])
@@ -334,7 +371,9 @@ class DerivationTests(unittest.TestCase):
             path = Path(work) / "ledger.jsonl"
             write_jsonl(path, source)
             docket_migrate.migrate_in_place(path)
-            from docket.ledger import read as ledger_read, project
+            from docket.ledger import project
+            from docket.ledger import read as ledger_read
+
             entries = ledger_read(path)
             projected = {r["id"]: r for r in project(entries)}
         self.assertEqual(projected["q19"]["state"], "resolved")
@@ -342,8 +381,14 @@ class DerivationTests(unittest.TestCase):
     def test_an_open_record_superseding_an_open_record_keeps_supersedes(self):
         source = [
             {"id": "d6", "state": "open", "question": "Q6", "answer": "", "because": []},
-            {"id": "d19", "state": "open", "question": "Q19", "answer": "",
-             "because": [], "supersedes": ["d6"]},
+            {
+                "id": "d19",
+                "state": "open",
+                "question": "Q19",
+                "answer": "",
+                "because": [],
+                "supersedes": ["d6"],
+            },
         ]
         derived = docket_migrate.derive_mapping(source)
         self.assertNotIn("supersedes", derived["d19"])
@@ -351,10 +396,20 @@ class DerivationTests(unittest.TestCase):
 
     def test_a_support_edge_into_a_question_is_dropped(self):
         source = [
-            {"id": "d1", "state": "open", "question": "How do they authenticate?",
-             "answer": "", "because": []},
-            {"id": "d6", "state": "settled", "question": "Ship the connector?",
-             "answer": "Yes.", "because": [["d1"]]},
+            {
+                "id": "d1",
+                "state": "open",
+                "question": "How do they authenticate?",
+                "answer": "",
+                "because": [],
+            },
+            {
+                "id": "d6",
+                "state": "settled",
+                "question": "Ship the connector?",
+                "answer": "Yes.",
+                "because": [["d1"]],
+            },
         ]
         derived = docket_migrate.derive_mapping(source)
         self.assertEqual(derived["d6"]["supports"], [])
@@ -370,10 +425,14 @@ class DerivationTests(unittest.TestCase):
     def test_a_justification_set_keeps_its_non_question_member(self):
         source = [
             {"id": "d1", "state": "open", "question": "Q1", "answer": "", "because": []},
-            {"id": "d2", "state": "settled", "question": "Q2", "answer": "Yes.",
-             "because": []},
-            {"id": "d3", "state": "settled", "question": "Q3", "answer": "Yes.",
-             "because": [["d1", "d2"]]},
+            {"id": "d2", "state": "settled", "question": "Q2", "answer": "Yes.", "because": []},
+            {
+                "id": "d3",
+                "state": "settled",
+                "question": "Q3",
+                "answer": "Yes.",
+                "because": [["d1", "d2"]],
+            },
         ]
         derived = docket_migrate.derive_mapping(source)
         self.assertEqual(derived["d3"]["supports"], [["d2"]])
@@ -381,8 +440,14 @@ class DerivationTests(unittest.TestCase):
     def test_both_rules_emit_a_note_naming_both_records(self):
         source = [
             {"id": "d1", "state": "open", "question": "Q1", "answer": "", "because": []},
-            {"id": "d2", "state": "settled", "question": "Q2 (closes d1)", "answer": "Yes.",
-             "because": [], "supersedes": ["d1"]},
+            {
+                "id": "d2",
+                "state": "settled",
+                "question": "Q2 (closes d1)",
+                "answer": "Yes.",
+                "because": [],
+                "supersedes": ["d1"],
+            },
         ]
         notes: list[str] = []
         docket_migrate.derive_mapping(source, notes=notes)
@@ -390,29 +455,54 @@ class DerivationTests(unittest.TestCase):
 
         source = [
             {"id": "d1", "state": "open", "question": "Q1", "answer": "", "because": []},
-            {"id": "d6", "state": "settled", "question": "Q6", "answer": "Yes.",
-             "because": [["d1"]]},
+            {
+                "id": "d6",
+                "state": "settled",
+                "question": "Q6",
+                "answer": "Yes.",
+                "because": [["d1"]],
+            },
         ]
         notes = []
         docket_migrate.derive_mapping(source, notes=notes)
         self.assertEqual(
             notes,
-            ["d6 is justified by d1, a question; support edge dropped and "
-             "kept in legacy.relation_map.source_because"],
+            [
+                "d6 is justified by d1, a question; support edge dropped and "
+                "kept in legacy.relation_map.source_because"
+            ],
         )
 
 
 class InPlaceTests(unittest.TestCase):
     def legacy(self) -> list[dict]:
         return [
-            {"id": "d1", "ts": "2026-01-01T00:00:00+00:00", "state": "settled",
-             "question": "Ship it?", "answer": "Yes.", "because": [],
-             "supersedes": [], "cost_if_wrong": "", "session": "", "author": "",
-             "branch": ""},
-            {"id": "d2", "ts": "2026-01-02T00:00:00+00:00", "state": "ruled-out",
-             "question": "Delete the key?", "answer": "No.", "because": ["d1"],
-             "supersedes": [], "cost_if_wrong": "", "session": "", "author": "",
-             "branch": ""},
+            {
+                "id": "d1",
+                "ts": "2026-01-01T00:00:00+00:00",
+                "state": "settled",
+                "question": "Ship it?",
+                "answer": "Yes.",
+                "because": [],
+                "supersedes": [],
+                "cost_if_wrong": "",
+                "session": "",
+                "author": "",
+                "branch": "",
+            },
+            {
+                "id": "d2",
+                "ts": "2026-01-02T00:00:00+00:00",
+                "state": "ruled-out",
+                "question": "Delete the key?",
+                "answer": "No.",
+                "because": ["d1"],
+                "supersedes": [],
+                "cost_if_wrong": "",
+                "session": "",
+                "author": "",
+                "branch": "",
+            },
         ]
 
     def test_conversion_replaces_the_file_and_keeps_the_original(self):
@@ -430,6 +520,7 @@ class InPlaceTests(unittest.TestCase):
 
     def test_the_result_reads_back_through_the_ledger_reader(self):
         from docket.ledger import read as ledger_read
+
         with tempfile.TemporaryDirectory() as work:
             path = Path(work) / "ledger.jsonl"
             write_jsonl(path, self.legacy())

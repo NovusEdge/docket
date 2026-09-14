@@ -8,13 +8,11 @@ from docket.rebase import RebaseError, common_prefix, renumber
 
 
 def claim(ident, text, **kwargs):
-    return make_record("claim", text, state="accepted", author="t",
-                       record_id=ident, **kwargs)
+    return make_record("claim", text, state="accepted", author="t", record_id=ident, **kwargs)
 
 
 def decision(ident, text, **kwargs):
-    return make_record("decision", text, choice="yes", author="t",
-                       record_id=ident, **kwargs)
+    return make_record("decision", text, choice="yes", author="t", record_id=ident, **kwargs)
 
 
 class RebaseTests(unittest.TestCase):
@@ -66,8 +64,11 @@ class RebaseTests(unittest.TestCase):
         # requires mapped_* to equal the record's relations.
         theirs[2]["legacy"] = {
             "raw": {"because": ["c2"]},
-            "relation_map": {"source_because": ["c2"], "mapped_depends_on": ["c2"],
-                             "overrides": []},
+            "relation_map": {
+                "source_because": ["c2"],
+                "mapped_depends_on": ["c2"],
+                "overrides": [],
+            },
         }
         mine = base + [claim("c2", "Mine")]
         tail, _ = renumber(mine, theirs)

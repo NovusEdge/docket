@@ -55,6 +55,12 @@ docket graph
 When the native viewer is installed, this opens a tree and a detail pane in your
 terminal. Select a record in the tree to read its details.
 
+<!-- TODO(screenshot): the graph viewer with a decision selected, its support
+     and depends_on edges visible in the tree, and the detail pane filled. The
+     key table below names the controls but shows nothing of the two-pane
+     layout. Use a ledger with enough records that the tree has real depth. -->
+
+
 | Key | Action |
 |---|---|
 | Arrow keys or `j` and `k` | Move through records |

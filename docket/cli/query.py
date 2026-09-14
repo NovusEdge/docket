@@ -10,9 +10,8 @@ import sys
 import textwrap
 import time
 
-from docket import ROOT, version
+from docket import ROOT, env, version
 from docket.cli.term import _DIM, _STATE_COLOR, _c, _match, _use_color
-from docket import env
 from docket.env import LEDGER, justification_sets, read, retired_by
 from docket.ledger import ID_RE, LedgerError, project
 
@@ -74,13 +73,22 @@ def cmd_list(args: argparse.Namespace) -> int:
         gone = f"  (superseded by {retired[e['id']]})" if e.get("id") in retired else ""
 
         id_str = _c(_STATE_COLOR.get(e["state"], _DIM), f"{e['id']:<{_LIST_ID_W}}", use_color)
-        state_str = _c(_STATE_COLOR.get(e["state"], _DIM), f"{e['state']:<{_LIST_STATE_W}}", use_color)
+        state_str = _c(
+            _STATE_COLOR.get(e["state"], _DIM), f"{e['state']:<{_LIST_STATE_W}}", use_color
+        )
 
         avail = max(width - _LIST_HEAD_W, 20)
         wrapped = textwrap.wrap(e["text"] + dep + gone, width=avail) or [""]
-        print(f"{id_str} {state_str} " + _list_dim_tail(_list_dim_tail(wrapped[0], "<-", use_color), "(superseded by", use_color))
+        print(
+            f"{id_str} {state_str} "
+            + _list_dim_tail(
+                _list_dim_tail(wrapped[0], "<-", use_color), "(superseded by", use_color
+            )
+        )
         for line in wrapped[1:]:
-            line = _list_dim_tail(_list_dim_tail(line, "<-", use_color), "(superseded by", use_color)
+            line = _list_dim_tail(
+                _list_dim_tail(line, "<-", use_color), "(superseded by", use_color
+            )
             print(" " * _LIST_HEAD_W + line)
 
         detail = e.get("choice", e.get("rationale", ""))
@@ -118,12 +126,17 @@ def cmd_show(args: argparse.Namespace) -> int:
     def field(label: str, value: str) -> None:
         """One labelled field, wrapped under a hanging indent past the label."""
         indent = " " * (len(label) + 4)
-        for i, line in enumerate(textwrap.wrap(f"  {label}: {value}", width=width,
-                                               subsequent_indent=indent) or [f"  {label}:"]):
+        for i, line in enumerate(
+            textwrap.wrap(f"  {label}: {value}", width=width, subsequent_indent=indent)
+            or [f"  {label}:"]
+        ):
             print(line)
 
-    for line in textwrap.wrap(f"{e['id']}  {e.get('kind', '')}  {e.get('state', '')}  {e.get('text', '')}",
-                              width=width, subsequent_indent=" " * 15):
+    for line in textwrap.wrap(
+        f"{e['id']}  {e.get('kind', '')}  {e.get('state', '')}  {e.get('text', '')}",
+        width=width,
+        subsequent_indent=" " * 15,
+    ):
         print(line)
     field("Choice", e.get("choice", ""))
     field("Rationale", e.get("rationale", ""))
@@ -147,7 +160,9 @@ def cmd_show(args: argparse.Namespace) -> int:
     if e.get("cost_if_wrong"):
         field("Cost if wrong", e["cost_if_wrong"])
     field("Recorded state", e.get("recorded_state", e.get("state", "")))
-    print(f"  Author: {e.get('author', '')}  Session: {e.get('session', '')}  Branch: {e.get('branch', '')}")
+    print(
+        f"  Author: {e.get('author', '')}  Session: {e.get('session', '')}  Branch: {e.get('branch', '')}"
+    )
     return 0
 
 
@@ -184,8 +199,9 @@ def auto_scope_files(limit: int = _AUTO_SCOPE_LIMIT) -> tuple[str, ...]:
     """
 
     try:
-        top = subprocess.run(["git", "rev-parse", "--show-toplevel"],
-                             capture_output=True, text=True, timeout=3)
+        top = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, timeout=3
+        )
     except (OSError, subprocess.SubprocessError):
         return ()
     if top.returncode != 0:
@@ -215,8 +231,7 @@ def auto_scope_files(limit: int = _AUTO_SCOPE_LIMIT) -> tuple[str, ...]:
         # git collapses an untracked nested repository to a directory entry
         # with a trailing slash. A scope matches files, so such an entry can
         # never match and would spend a slot in the cap.
-        groups.append([path for path in text.split("\0")
-                       if path and not path.endswith("/")])
+        groups.append([path for path in text.split("\0") if path and not path.endswith("/")])
 
     # Interleave the two sources. Taking the head of a concatenated list let a
     # branch with more than `limit` modified files starve every untracked one,
@@ -234,9 +249,21 @@ def auto_scope_files(limit: int = _AUTO_SCOPE_LIMIT) -> tuple[str, ...]:
         # a combined diff prints nothing for either.
         try:
             done = subprocess.run(
-                ["git", "diff-tree", "-m", "--root", "--no-commit-id",
-                 "--name-only", "-r", "-z", "HEAD"],
-                cwd=root, capture_output=True, timeout=3)
+                [
+                    "git",
+                    "diff-tree",
+                    "-m",
+                    "--root",
+                    "--no-commit-id",
+                    "--name-only",
+                    "-r",
+                    "-z",
+                    "HEAD",
+                ],
+                cwd=root,
+                capture_output=True,
+                timeout=3,
+            )
         except (OSError, subprocess.SubprocessError):
             return ()
         # A repository with no commits has no HEAD, so git exits non-zero and
@@ -244,8 +271,9 @@ def auto_scope_files(limit: int = _AUTO_SCOPE_LIMIT) -> tuple[str, ...]:
         if done.returncode == 0:
             text = done.stdout.decode("utf-8", errors="surrogateescape")
             # -m prints one diff per parent, so a merge repeats a path.
-            paths = list(dict.fromkeys(
-                path for path in text.split("\0") if path and not path.endswith("/")))
+            paths = list(
+                dict.fromkeys(path for path in text.split("\0") if path and not path.endswith("/"))
+            )
     return tuple(paths[:limit])
 
 
@@ -267,8 +295,7 @@ def update_line() -> str | None:
         return None
 
 
-def _print_context(text: str, args: argparse.Namespace,
-                   notice: str | None = None) -> int:
+def _print_context(text: str, args: argparse.Namespace, notice: str | None = None) -> int:
     body = f"{notice}\n{text}" if notice else text
     if not body:
         return 0
@@ -280,8 +307,10 @@ def _print_context(text: str, args: argparse.Namespace,
 
 
 def cmd_context(args: argparse.Namespace) -> int:
+    from docket.config import ConfigError
+    from docket.config import load as load_settings
     from docket.context import build_context as render_context
-    from docket.config import ConfigError, load as load_settings
+
     try:
         settings, settings_id = load_settings(env.ledger_path().parent)
     except ConfigError as exc:
@@ -297,6 +326,7 @@ def cmd_context(args: argparse.Namespace) -> int:
         return 2
     if args.since:
         from docket.context import build_delta
+
         try:
             raw = read(env.ledger_path())
         except (LedgerError, OSError) as exc:
@@ -307,19 +337,24 @@ def cmd_context(args: argparse.Namespace) -> int:
         ident = args.since.partition("@")[0]
         cutoff = int(ident[1:]) if ID_RE.fullmatch(ident) else -1
         prefix = [item for item in raw if int(item["id"][1:]) <= cutoff]
-        delta = build_delta(project(raw), since=args.since,
-                            baseline=project(prefix),
-                            max_chars=args.max_chars, ledger=str(env.ledger_path()),
-                            settings=settings)
+        delta = build_delta(
+            project(raw),
+            since=args.since,
+            baseline=project(prefix),
+            max_chars=args.max_chars,
+            ledger=str(env.ledger_path()),
+            settings=settings,
+        )
         if delta is not None:
             return _print_context(delta, args, line)
-        print(f"docket: baseline {args.since} is unknown or stale; "
-              "printing a full briefing", file=sys.stderr)
+        print(
+            f"docket: baseline {args.since} is unknown or stale; printing a full briefing",
+            file=sys.stderr,
+        )
 
     files = tuple(args.file or ())
     forced = args.auto_scope is True
-    default_on = (args.auto_scope is None and not args.query
-                  and not files and not args.all_records)
+    default_on = args.auto_scope is None and not args.query and not files and not args.all_records
     if forced or default_on:
         files = tuple(dict.fromkeys(files + auto_scope_files(settings["auto_scope"]["limit"])))
     try:

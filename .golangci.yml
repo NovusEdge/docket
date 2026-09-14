@@ -1,0 +1,12 @@
+version: "2"
+
+# Both modules are configured from this one file at the repository root;
+# golangci-lint walks up to find it. Run it without installing anything:
+#     cd installer && go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2 run ./...
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+
+formatters:
+  enable:
+    - gofmt

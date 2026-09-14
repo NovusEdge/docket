@@ -71,14 +71,15 @@ class ScopeValidationTests(unittest.TestCase):
         self.assertEqual(schema.invalid_scope(["docket/context.py", "lib/**"]), [])
 
     def test_rejects_the_prose_paragraph_the_spike_produced(self):
-        prose = ("This record covers the documents describing the coherence "
-                 "layer and its storage decisions, " * 8) + "src/**"
+        prose = (
+            "This record covers the documents describing the coherence "
+            "layer and its storage decisions, " * 8
+        ) + "src/**"
         self.assertTrue(len(prose) > 200)
         self.assertEqual(schema.invalid_scope([prose]), [prose])
 
     def test_rejects_an_entry_carrying_whitespace(self):
-        self.assertEqual(schema.invalid_scope(["src/a.py and src/b.py"]),
-                         ["src/a.py and src/b.py"])
+        self.assertEqual(schema.invalid_scope(["src/a.py and src/b.py"]), ["src/a.py and src/b.py"])
 
     def test_rejects_an_empty_entry(self):
         self.assertEqual(schema.invalid_scope([""]), [""])
@@ -100,8 +101,7 @@ class ScopeValidationTests(unittest.TestCase):
         self.assertEqual(schema.invalid_scope(["/etc/passwd"]), ["/etc/passwd"])
 
     def test_rejects_a_path_climbing_out_of_the_repository(self):
-        self.assertEqual(schema.invalid_scope(["../../secrets.env"]),
-                         ["../../secrets.env"])
+        self.assertEqual(schema.invalid_scope(["../../secrets.env"]), ["../../secrets.env"])
 
     def test_keeps_a_directory_glob(self):
         self.assertEqual(schema.invalid_scope(["src/**", "docket/cli/*.py"]), [])
@@ -117,8 +117,10 @@ class IdentityDiscriminatorTests(unittest.TestCase):
         self.assertNotEqual(plain, derived)
 
     def test_the_discriminator_is_stable(self):
-        self.assertEqual(schema.identity("a.md", "Claim: x", kind="question"),
-                         schema.identity("a.md", "Claim: x", kind="question"))
+        self.assertEqual(
+            schema.identity("a.md", "Claim: x", kind="question"),
+            schema.identity("a.md", "Claim: x", kind="question"),
+        )
 
 
 class ProposalTests(unittest.TestCase):

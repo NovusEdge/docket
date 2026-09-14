@@ -16,9 +16,7 @@ from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
-
 from docket.config import DEFAULTS as _SETTINGS_DEFAULTS
-
 
 # The admission gate computes the length it once measured by rendering. Tests
 # set this to check the arithmetic against the renderer on every candidate.
@@ -42,7 +40,9 @@ def _json(value: Any) -> str:
 
 
 def _canonical_history(entries: list[Mapping[str, Any]]) -> str:
-    return json.dumps(entries, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+    return json.dumps(
+        entries, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str
+    )
 
 
 def _revision(entries: list[Mapping[str, Any]]) -> str:
@@ -73,8 +73,9 @@ def _normalize_path(value: Any) -> str:
     return path.casefold()
 
 
-def _scope_strength(entry: Mapping[str, Any], files: tuple[str, ...],
-                    weights: Mapping[str, int]) -> int:
+def _scope_strength(
+    entry: Mapping[str, Any], files: tuple[str, ...], weights: Mapping[str, int]
+) -> int:
     """Strongest scope match: exact path, then glob, then directory prefix.
 
     The old sort key treated every scope match as equal, so ordering between
@@ -83,7 +84,9 @@ def _scope_strength(entry: Mapping[str, Any], files: tuple[str, ...],
 
     if not files:
         return 0
-    scopes = [_normalize_path(scope) for scope in _list(entry.get("scope")) if _normalize_path(scope)]
+    scopes = [
+        _normalize_path(scope) for scope in _list(entry.get("scope")) if _normalize_path(scope)
+    ]
     best = 0
     for filename in files:
         path = _normalize_path(filename)
@@ -99,8 +102,6 @@ def _scope_strength(entry: Mapping[str, Any], files: tuple[str, ...],
             elif "/" in scope and path.startswith(scope.rstrip("/") + "/"):
                 best = max(best, weights["scope_prefix"])
     return best
-
-
 
 
 def _score(
@@ -295,12 +296,14 @@ def _clip_metadata(value: str, limit: int) -> str:
 def _index_line(entry: Mapping[str, Any], detail: int = 40) -> str:
     """One line naming a record the briefing did not render in full."""
 
-    return " ".join([
-        _id(entry) or "(missing id)",
-        _text(entry.get("kind") or "record").casefold(),
-        _effective_state(entry),
-        " " + _clip_metadata(_text(entry.get("text")), detail),
-    ])
+    return " ".join(
+        [
+            _id(entry) or "(missing id)",
+            _text(entry.get("kind") or "record").casefold(),
+            _effective_state(entry),
+            " " + _clip_metadata(_text(entry.get("text")), detail),
+        ]
+    )
 
 
 def _header(
@@ -369,8 +372,11 @@ def _render_record(
     if kind == "decision":
         if entry.get("choice") is not None and _text(entry.get("choice")):
             lines.append(f"choice: {_text(entry.get('choice'))}")
-        alternatives = [alternative for alternative in _list(entry.get("alternatives"))
-                        if _text(alternative) != _text(entry.get("choice"))]
+        alternatives = [
+            alternative
+            for alternative in _list(entry.get("alternatives"))
+            if _text(alternative) != _text(entry.get("choice"))
+        ]
         if alternatives:
             lines.append(f"alternatives: {_json(alternatives)}")
         if "applicable" in entry and entry.get("applicable") is not None:
@@ -389,11 +395,15 @@ def _render_record(
             lines.append(f"{field}: {_json(_list(value))}")
     for field in ("rationale", "revisit", "cost_if_wrong"):
         value = _text(entry.get(field))
-        if value and not (field == "rationale" and value in {_text(entry.get("text")), _text(entry.get("choice"))}):
+        if value and not (
+            field == "rationale" and value in {_text(entry.get("text")), _text(entry.get("choice"))}
+        ):
             lines.append(f"{field}: {value}")
     if _list(entry.get("evidence")):
         lines.append(f"evidence: {_json(_list(entry.get('evidence')))}")
-        lines.append("evidence note: references are supplied provenance and were not freshly verified by this context renderer.")
+        lines.append(
+            "evidence note: references are supplied provenance and were not freshly verified by this context renderer."
+        )
 
     provenance = []
     for field in ("author", "ts", "session", "branch"):
@@ -403,16 +413,25 @@ def _render_record(
     if provenance:
         lines.append("provenance: " + ", ".join(provenance))
     if _is_retired(entry):
-        lines.append(f"warning: retired by {_text(entry.get('retired_by'))}; this historical record is not current support.")
-    unusable = _is_retired(entry) or (
-        kind == "claim" and state.casefold() != "accepted"
-    ) or (
-        kind == "decision" and (state.casefold() != "adopted" or entry.get("applicable") is False)
+        lines.append(
+            f"warning: retired by {_text(entry.get('retired_by'))}; this historical record is not current support."
+        )
+    unusable = (
+        _is_retired(entry)
+        or (kind == "claim" and state.casefold() != "accepted")
+        or (
+            kind == "decision"
+            and (state.casefold() != "adopted" or entry.get("applicable") is False)
+        )
     )
     if kind == "decision" and entry.get("applicable") is False:
-        lines.append("warning: decision is not applicable; treat it as unavailable current support.")
+        lines.append(
+            "warning: decision is not applicable; treat it as unavailable current support."
+        )
     elif unusable and not _is_retired(entry):
-        lines.append(f"warning: effective state is {state}; treat this record as unavailable current support.")
+        lines.append(
+            f"warning: effective state is {state}; treat this record as unavailable current support."
+        )
     if _list(entry.get("resolved_by")):
         lines.append(f"resolved by: {_json(_list(entry.get('resolved_by')))}")
     if reason:
@@ -455,16 +474,23 @@ def build_delta(
     cfg = settings if settings is not None else _SETTINGS_DEFAULTS
     limit = max_chars if max_chars is not None else cfg["budget"]["target"]
     added = [item for item in history if int(_id(item)[1:]) > cutoff]
-    changed = [item for item in history
-               if int(_id(item)[1:]) <= cutoff
-               and _id(item) in was_available and not _available(item)]
+    changed = [
+        item
+        for item in history
+        if int(_id(item)[1:]) <= cutoff and _id(item) in was_available and not _available(item)
+    ]
     latest = max(by_id, key=lambda ident: int(ident[1:]), default="")
     revision = _revision(history)
-    head = "\n".join([
-        f"# docket: {_clip_metadata(ledger or 'ledger', 180)} | revision: {revision}"
-        f" | latest: {latest}@{revision} | since: {since}",
-        f"# changed: {len(added)} added, {len(changed)} no longer available.",
-    ]) + "\n\n"
+    head = (
+        "\n".join(
+            [
+                f"# docket: {_clip_metadata(ledger or 'ledger', 180)} | revision: {revision}"
+                f" | latest: {latest}@{revision} | since: {since}",
+                f"# changed: {len(added)} added, {len(changed)} no longer available.",
+            ]
+        )
+        + "\n\n"
+    )
     blocks: list[str] = []
     for item in added + changed:
         block = _render_record(item, "changed", "", by_id)
@@ -505,8 +531,7 @@ def build_context(
         hard_limit = soft_limit * cfg["budget"]["outer_multiple"]
     else:
         if type(max_chars) is not int or max_chars < cfg["budget"]["minimum"]:
-            raise ValueError(
-                f"max_chars must be an integer of at least {cfg['budget']['minimum']}")
+            raise ValueError(f"max_chars must be an integer of at least {cfg['budget']['minimum']}")
         soft_limit = hard_limit = max_chars
     history = list(entries)
     if not history:
@@ -559,7 +584,6 @@ def build_context(
     if no_match:
         roots, pins = pins, []
     root_ids = [_id(item) for item in roots]
-    selected_ids = root_ids + [_id(item) for item in pins]
 
     # expand() sorts each neighbour list by inherited score, so insertion order
     # carries nothing. A set keeps the reverse edges unique without scanning.
@@ -579,12 +603,16 @@ def build_context(
         # here is the whole history. A rebase renumbers the tail, so an agent
         # that passes the pair back to --since learns its baseline is stale.
         latest = f"{latest}@{revision}"
-    prefix = "\n".join(
-        _header(ledger, revision, query, tuple(file_list), all_records, latest, settings_id)
-    ) + "\n\n"
+    prefix = (
+        "\n".join(
+            _header(ledger, revision, query, tuple(file_list), all_records, latest, settings_id)
+        )
+        + "\n\n"
+    )
     # Score order, so the tail trim below drops the least relevant records.
-    current_ids = sorted((_id(item) for item in current),
-                         key=lambda ident: (-scores.get(ident, 0), -int(ident[1:])))
+    current_ids = sorted(
+        (_id(item) for item in current), key=lambda ident: (-scores.get(ident, 0), -int(ident[1:]))
+    )
     current_id_set = set(current_ids)
 
     # Fixed for the whole build, so the budget trial that renders a record many
@@ -601,7 +629,9 @@ def build_context(
         if shown < deferred_count:
             lines.append(f"# Not listed: {deferred_count - shown}; reach them with docket list.")
         if related_count:
-            lines.append(f"# Related records in index only: {related_count}; formulas remain complete.")
+            lines.append(
+                f"# Related records in index only: {related_count}; formulas remain complete."
+            )
         # The measured set is the caller's own task matches plus their
         # prerequisite closure. The closure alone reads "covered" almost always,
         # because a blocking chain is admitted right after its root; the whole
@@ -611,8 +641,11 @@ def build_context(
             lines.append("# No task matches; the index names every current record.")
             coverage = "no matches found"
         else:
-            coverage = (f"partial, {missing_count} in the index only" if missing_count
-                        else "task matches and their prerequisites covered")
+            coverage = (
+                f"partial, {missing_count} in the index only"
+                if missing_count
+                else "task matches and their prerequisites covered"
+            )
         lines.append(f"# Coverage: {coverage}. Selected ledger data only.")
         lines.append("# Declared grounds; evidence not freshly verified.")
         lines.append("# Retrieve full record: docket show RECORD_ID --json")
@@ -621,19 +654,25 @@ def build_context(
     def blocking_ids(ident):
         if _text(by_id[ident].get("kind")).casefold() != "decision":
             return ()
-        return [step for path in _blocking_paths(ident, by_id, cache=blocking_cache)
-                for step in path]
+        return [
+            step for path in _blocking_paths(ident, by_id, cache=blocking_cache) for step in path
+        ]
 
     def footer(included, listed=None):
         deferred_count = sum(1 for ident in current_ids if ident not in included)
         shown = deferred_count if listed is None else listed
-        related = {target for ident in included for target in relations[ident]
-                   if target not in included and target in current_id_set}
+        related = {
+            target
+            for ident in included
+            for target in relations[ident]
+            if target not in included and target in current_id_set
+        }
         needed = set(task_matched)
         for ident in included:
             needed.update(blocking_ids(ident))
-        return footer_text(len(included), shown, deferred_count, len(related),
-                           len(needed - included))
+        return footer_text(
+            len(included), shown, deferred_count, len(related), len(needed - included)
+        )
 
     # Shorten only diagnostic metadata. Propositions and relationship formulas
     # are never sliced, even when the caller supplies a giant path or query.
@@ -654,8 +693,12 @@ def build_context(
         key = (ident, labels[ident])
         if key not in record_cache:
             record_cache[key] = _render_record(
-                by_id[ident], labels[ident], reasons.get(ident, ""), by_id,
-                blocking_cache=blocking_cache)
+                by_id[ident],
+                labels[ident],
+                reasons.get(ident, ""),
+                by_id,
+                blocking_cache=blocking_cache,
+            )
         return record_cache[key]
 
     def render(candidate_order, candidate_set, index_ids=None, detail=None, names_only=False):
@@ -663,7 +706,7 @@ def build_context(
         pool = current_ids if index_ids is None else index_ids
         deferred = [i for i in pool if i not in candidate_set]
         # Score order, so the cap keeps the records closest to the task.
-        shown = deferred[:cfg["index"]["max_lines"]]
+        shown = deferred[: cfg["index"]["max_lines"]]
         parts = [prefix.rstrip("\n"), ""]
         if full:
             parts += [full, ""]
@@ -672,10 +715,12 @@ def build_context(
                 parts.append("# index: " + ", ".join(shown))
             else:
                 parts.append(f"# index: {len(shown)} more current records")
-                parts.append("\n".join(
-                    _index_line(by_id[i], detail_of(i) if detail is None else detail)
-                    for i in shown
-                ))
+                parts.append(
+                    "\n".join(
+                        _index_line(by_id[i], detail_of(i) if detail is None else detail)
+                        for i in shown
+                    )
+                )
             if len(deferred) > len(shown):
                 parts.append(f"# and {len(deferred) - len(shown)} more; docket list")
         return "\n".join(parts).rstrip("\n") + footer(candidate_set, len(shown))
@@ -751,8 +796,13 @@ def build_context(
         related = len(related_pending) - (1 if ident in related_pending else 0)
         added: set[str] = set()
         for target in relations[ident]:
-            if (target != ident and target not in included and target not in related_pending
-                    and target in current_id_set and target not in added):
+            if (
+                target != ident
+                and target not in included
+                and target not in related_pending
+                and target in current_id_set
+                and target not in added
+            ):
                 added.add(target)
                 related += 1
         missing = missing_count - (1 if ident in needed_ids else 0)
@@ -761,8 +811,7 @@ def build_context(
             if step not in needed_ids and step not in included and step not in added:
                 added.add(step)
                 missing += 1
-        return total + len(footer_text(len(included) + 1, shown, deferred,
-                                       related, missing))
+        return total + len(footer_text(len(included) + 1, shown, deferred, related, missing))
 
     def admit(ident, label, mandatory=False):
         nonlocal body_length, deferred_count, window_length, missing_count
@@ -777,7 +826,8 @@ def build_context(
             computed = _trial_length(ident)
             if measured != computed:
                 raise AssertionError(
-                    f"trial length for {ident}: computed {computed}, rendered {measured}")
+                    f"trial length for {ident}: computed {computed}, rendered {measured}"
+                )
         if _trial_length(ident) > limit:
             del labels[ident]
             # A refused candidate never reaches the output, so its rendered text
@@ -794,8 +844,11 @@ def build_context(
             window_length -= len(ident)
             _fill_window()
         related_pending.discard(ident)
-        related_pending.update(target for target in relations[ident]
-                               if target not in included and target in current_id_set)
+        related_pending.update(
+            target
+            for target in relations[ident]
+            if target not in included and target in current_id_set
+        )
         if ident in needed_ids:
             missing_count -= 1
         for step in blocking_ids(ident):
@@ -823,8 +876,12 @@ def build_context(
         sums = [0, *itertools.accumulate(len(ident) for ident in deferred_ids)]
         body = sum(len(rendered_record(i)) for i in chosen_order)
         full = body + 2 * (len(chosen_order) - 1) if chosen_order else 0
-        related = {target for ident in chosen_set for target in relations[ident]
-                   if target not in chosen_set and target in current_id_set}
+        related = {
+            target
+            for ident in chosen_set
+            for target in relations[ident]
+            if target not in chosen_set and target in current_id_set
+        }
         needed = set(task_matched)
         for ident in chosen_set:
             needed.update(blocking_ids(ident))
@@ -838,15 +895,16 @@ def build_context(
             index = index_head + sums[shown] + 2 * (shown - 1)
             if keep > shown:
                 index += len(f"# and {keep - shown} more; docket list") + 1
-            tail = footer_text(len(chosen_set), shown, len(deferred_ids),
-                               len(related), missing)
+            tail = footer_text(len(chosen_set), shown, len(deferred_ids), len(related), missing)
             computed = base + index + len(tail)
             if _VERIFY_TRIAL:
-                measured = len(render(chosen_order, chosen_set, deferred_ids[:keep],
-                                      names_only=True))
+                measured = len(
+                    render(chosen_order, chosen_set, deferred_ids[:keep], names_only=True)
+                )
                 if measured != computed:
                     raise AssertionError(
-                        f"trim length at keep={keep}: computed {computed}, rendered {measured}")
+                        f"trim length at keep={keep}: computed {computed}, rendered {measured}"
+                    )
             return computed
 
         # Naming every record drops the "Not listed" line, so length falls at
@@ -881,20 +939,22 @@ def build_context(
     def expand(seeds):
         # Adjacency order is an artefact of insertion, so a flat cap on it
         # discarded neighbours by accident. Walk by inherited score instead.
-        frontier = [(-scores.get(i, 0), -int(i[1:]), i, scores.get(i, 0))
-                    for i in seeds if i in included]
+        frontier = [
+            (-scores.get(i, 0), -int(i[1:]), i, scores.get(i, 0)) for i in seeds if i in included
+        ]
         heapq.heapify(frontier)
         seen = set(included)
         while frontier:
             _, _, ident, parent_score = heapq.heappop(frontier)
-            decayed = (parent_score * expansion["decay_numerator"]
-                       // expansion["decay_denominator"])
+            decayed = parent_score * expansion["decay_numerator"] // expansion["decay_denominator"]
             if decayed < expansion["floor"]:
                 continue
             ranked = sorted(
                 (t for t in adjacency[ident] if t not in seen),
-                key=lambda t: (-(decayed if t not in scores else min(scores[t], decayed)),
-                               -int(t[1:])),
+                key=lambda t: (
+                    -(decayed if t not in scores else min(scores[t], decayed)),
+                    -int(t[1:]),
+                ),
             )
             for target in ranked:
                 seen.add(target)
@@ -906,8 +966,7 @@ def build_context(
                 if effective < expansion["floor"]:
                     continue
                 if admit(target, "related record"):
-                    heapq.heappush(frontier,
-                                   (-effective, -int(target[1:]), target, effective))
+                    heapq.heappush(frontier, (-effective, -int(target[1:]), target, effective))
 
     expand(root_ids)
     for item in pins:
@@ -935,10 +994,11 @@ def build_context(
                 deferred_ids = [i for i in current_ids if i not in chosen_set]
                 keep = _largest_fitting_keep(head, chosen_order, chosen_set, deferred_ids)
                 if keep:
-                    return render(chosen_order, chosen_set, deferred_ids[:keep],
-                                  names_only=True)
-        result = (f"# docket revision: {revision}\n# No records fit.\n"
-                  "# Retrieve full record: docket show RECORD_ID --json\n")
+                    return render(chosen_order, chosen_set, deferred_ids[:keep], names_only=True)
+        result = (
+            f"# docket revision: {revision}\n# No records fit.\n"
+            "# Retrieve full record: docket show RECORD_ID --json\n"
+        )
     return result
 
 

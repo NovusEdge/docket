@@ -87,9 +87,11 @@ def run(staged: Path, ledger: Path, source: str | None = None) -> tuple[int, int
     rubber-stamped instead of read.
     """
     proposals = stage.read(staged)
-    wanted = [p for p in proposals
-              if p.get("state") == "accepted"
-              and (source is None or p["source"]["path"] == source)]
+    wanted = [
+        p
+        for p in proposals
+        if p.get("state") == "accepted" and (source is None or p["source"]["path"] == source)
+    ]
 
     ids: dict[str, str] = {}
     written = skipped = 0

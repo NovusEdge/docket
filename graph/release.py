@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Cross-build docket graph viewer release assets and their checksums."""
+
 import argparse
 import hashlib
 import os
 import subprocess
 from pathlib import Path
-
 
 TARGETS = (
     ("linux", "amd64"),
@@ -44,7 +44,9 @@ def build_all(output_dir, version, graph_dir=None):
         artifacts.append(target)
     with (output_dir / "GRAPH-SHA256SUMS").open("w", encoding="ascii", newline="\n") as stream:
         for artifact in artifacts:
-            stream.write("%s  %s\n" % (hashlib.sha256(artifact.read_bytes()).hexdigest(), artifact.name))
+            stream.write(
+                "%s  %s\n" % (hashlib.sha256(artifact.read_bytes()).hexdigest(), artifact.name)
+            )
     return artifacts
 
 

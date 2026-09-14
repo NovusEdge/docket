@@ -9,21 +9,21 @@ import sys
 import tempfile
 import textwrap
 from pathlib import Path
+from typing import Any
 
-from docket import ROOT
-from docket import env
-from docket.env import justification_sets, read, retired_by
-from docket.ledger import graph_payload, project
+from docket import ROOT, env
 from docket.cli.term import (
-    _c,
     _DIM,
-    _STATE_COLOR,
-    _use_color,
-    _use_glyphs,
     _GRAPH_GLYPHS,
     _GRAPH_GLYPHS_ASCII,
+    _STATE_COLOR,
+    _c,
     _match,
+    _use_color,
+    _use_glyphs,
 )
+from docket.env import justification_sets, read, retired_by
+from docket.ledger import graph_payload, project
 
 
 def _node_info(e: dict, retired: dict[str, str]) -> dict:
@@ -106,8 +106,7 @@ def _graph_viewer_path() -> Path:
 def _graph_is_tty() -> bool:
     """Whether graph owns both terminal handles needed by Bubble Tea."""
     return all(
-        bool(getattr(stream, "isatty", lambda: False)())
-        for stream in (sys.stdin, sys.stdout)
+        bool(getattr(stream, "isatty", lambda: False)()) for stream in (sys.stdin, sys.stdout)
     )
 
 
@@ -188,13 +187,16 @@ def _forest_roots(entries: list[dict], nodes: dict[str, dict]) -> list[str]:
     --find) also makes its dependent a root: there is nothing to hang it under."""
     visible = set(nodes)
     roots = [
-        e["id"] for e in entries
+        e["id"]
+        for e in entries
         if not nodes[e["id"]]["supports"] or not (set(nodes[e["id"]]["supports"]) & visible)
     ]
     return sorted(roots, key=_id_num, reverse=True)
 
 
-def _forest_children(entries: list[dict], nodes: dict[str, dict], roots: list[str]) -> dict[str, list[str]]:
+def _forest_children(
+    entries: list[dict], nodes: dict[str, dict], roots: list[str]
+) -> dict[str, list[str]]:
     """Map each support id to the children hung under it (its primary support
     only; extras are named in text, never drawn, so each node has one parent)."""
     children: dict[str, list[str]] = {}
@@ -210,8 +212,14 @@ def _forest_children(entries: list[dict], nodes: dict[str, dict], roots: list[st
     return children
 
 
-def _forest_lines(nodes: dict[str, dict], roots: list[str], children: dict[str, list[str]],
-                   glyphs: dict, use_color: bool, width: int) -> list[str]:
+def _forest_lines(
+    nodes: dict[str, dict],
+    roots: list[str],
+    children: dict[str, list[str]],
+    glyphs: dict,
+    use_color: bool,
+    width: int,
+) -> list[str]:
     lines: list[str] = []
 
     def walk(eid: str, ancestor_last: list[bool]) -> None:
@@ -228,7 +236,9 @@ def _forest_lines(nodes: dict[str, dict], roots: list[str], children: dict[str, 
         if len(info["sets"]) > 1:
             text += "\n" + _formula(info["sets"])
         if info["retired_by"]:
-            text += "\n" + _c(_DIM, f"{glyphs['retired']} retired by {info['retired_by']}", use_color)
+            text += "\n" + _c(
+                _DIM, f"{glyphs['retired']} retired by {info['retired_by']}", use_color
+            )
         # The answer is what separates forest from compact; compact is the
         # one-line view.
         text += "\n" + info["answer"]
@@ -258,8 +268,13 @@ def _forest_lines(nodes: dict[str, dict], roots: list[str], children: dict[str, 
     return lines
 
 
-def _compact_lines(nodes: dict[str, dict], roots: list[str], children: dict[str, list[str]],
-                    glyphs: dict, use_color: bool) -> list[str]:
+def _compact_lines(
+    nodes: dict[str, dict],
+    roots: list[str],
+    children: dict[str, list[str]],
+    glyphs: dict,
+    use_color: bool,
+) -> list[str]:
     lines: list[str] = []
 
     def walk(eid: str, ancestor_last: list[bool]) -> None:
@@ -268,7 +283,11 @@ def _compact_lines(nodes: dict[str, dict], roots: list[str], children: dict[str,
         if ancestor_last:
             prefix += glyphs["elbow"] if ancestor_last[-1] else glyphs["tee"]
         label, _ = _label(info, glyphs, use_color)
-        retired = f"  {_c(_DIM, glyphs['retired'] + ' retired by ' + info['retired_by'], use_color)}" if info["retired_by"] else ""
+        retired = (
+            f"  {_c(_DIM, glyphs['retired'] + ' retired by ' + info['retired_by'], use_color)}"
+            if info["retired_by"]
+            else ""
+        )
         blocked = f"  {_blocked_text(info)}" if _blocked_text(info) else ""
         lines.append(f"{prefix}{label} {info['question']}{retired}{blocked}")
         kids = sorted(children.get(eid, []), key=_id_num)
@@ -296,10 +315,11 @@ def _find_or_alloc(columns: list[str | None], label: str) -> int:
     return len(columns) - 1
 
 
-def _rail_lines(entries_desc: list[dict], nodes: dict[str, dict], glyphs: dict, use_color: bool,
-                 width: int) -> list[str]:
+def _rail_lines(
+    entries_desc: list[dict], nodes: dict[str, dict], glyphs: dict, use_color: bool, width: int
+) -> list[str]:
     columns: list[str | None] = []
-    rows: list[tuple[int, list[str | None], dict]] = []
+    rows: list[tuple[int, list[str | None], dict | None, Any]] = []
 
     for e in entries_desc:
         eid = e["id"]
@@ -371,8 +391,9 @@ def _rail_lines(entries_desc: list[dict], nodes: dict[str, dict], glyphs: dict, 
     return lines
 
 
-def _rail_join(columns: list[str | None], c: int, dupes: list[int],
-               glyphs: dict, use_color: bool) -> str:
+def _rail_join(
+    columns: list[str | None], c: int, dupes: list[int], glyphs: dict, use_color: bool
+) -> str:
     """The row that merges every lane awaiting one id back into column c.
 
     c is always the leftmost such column, because _find_or_alloc returns the
@@ -400,8 +421,9 @@ def _rail_join(columns: list[str | None], c: int, dupes: list[int],
     return _c(_DIM, row, use_color)
 
 
-def _render_graph(entries: list[dict], retired: dict[str, str], args: argparse.Namespace,
-                  style: str) -> int:
+def _render_graph(
+    entries: list[dict], retired: dict[str, str], args: argparse.Namespace, style: str
+) -> int:
     use_color = False if args.plain else True if args.pretty else _use_color()
     glyphs = _GRAPH_GLYPHS if _use_glyphs() else _GRAPH_GLYPHS_ASCII
     width = shutil.get_terminal_size().columns

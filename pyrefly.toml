@@ -1,0 +1,16 @@
+# Type checking for a package that is never installed. docket is imported from
+# the checkout root, which bin/docket puts on sys.path, so the search path has
+# to name the root explicitly.
+#
+# Run it without installing anything:
+#     uvx pyrefly check
+
+project-includes = ["docket", "hooks", "scripts", "bin/docket"]
+project-excludes = ["**/__pycache__", "experiments"]
+search-path = ["."]
+python-version = "3.11"
+
+# The provider SDKs are optional and live in construct's own virtualenv, which
+# is absent on a machine that never runs construct. run.py imports them inside a
+# function body for exactly that reason.
+replace-imports-with-any = ["openai", "openai.*", "anthropic", "anthropic.*"]

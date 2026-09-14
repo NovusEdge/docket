@@ -10,6 +10,44 @@ permissions:
   contents: read
 
 jobs:
+  lint:
+    name: Format, lint and types
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: installer/go.mod
+          cache-dependency-path: |
+            installer/go.sum
+            graph/go.sum
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # The versions here match the pins in the justfile, so a contributor
+      # running `just lint` sees what this job sees.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+      - name: Check Python formatting
+        run: uvx ruff@0.16.7 format --check .
+      - name: Lint Python
+        run: uvx ruff@0.16.7 check .
+      - name: Type check Python
+        run: uvx pyrefly check
+      - name: Lint installer
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.13.2
+          working-directory: installer
+      - name: Lint graph viewer
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.13.2
+          working-directory: graph
+
   test:
     name: Python and Go tests
     runs-on: ubuntu-latest
