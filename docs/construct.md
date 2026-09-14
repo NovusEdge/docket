@@ -12,17 +12,17 @@ records.
 
 ```mermaid
 flowchart TD
-    src[("Your design docs<br/>*.md")]
+    src[("Your design docs")]
 
     subgraph staging["Staging — your ledger is untouched"]
-        dry["<b>--dry-run</b><br/><i>lists files, calls nothing</i>"]
-        run["<b>docket construct</b><br/><i>one call per document</i>"]
+        dry["--dry-run<br/>lists files, calls nothing"]
+        run["docket construct<br/>one call per document"]
         prop[(".docket/proposed.jsonl")]
-        review["<b>--review</b><br/><i>read each record<br/>against its anchor</i>"]
-        mark["Set state to<br/>accepted or rejected"]
+        review["--review"]
+        mark["mark accepted<br/>or rejected"]
     end
 
-    accept["<b>--accept</b>"]
+    accept["--accept"]
     ledger[(".docket/ledger.jsonl")]
 
     src --> dry --> run --> prop --> review --> mark

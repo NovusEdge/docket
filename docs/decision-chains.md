@@ -41,12 +41,12 @@ relation is separate from support and has no OR interpretation.
 
 ```mermaid
 flowchart TD
-    subgraph setA["support set A — all must hold"]
+    subgraph setA["set A — every claim must hold"]
         c1["c1 · claim<br/>Postgres handles our write volume"]
         c2["c2 · claim<br/>The team already runs Postgres"]
     end
 
-    subgraph setB["support set B — alternative"]
+    subgraph setB["set B — or this one alone"]
         c3["c3 · claim<br/>Managed Postgres is in budget"]
     end
 
@@ -54,10 +54,10 @@ flowchart TD
     d2["d2 · decision<br/>Migrations run on deploy"]
     q1["q1 · question<br/>Which driver should billing use?"]
 
-    c1 -->|supports| d1
-    c2 -->|supports| d1
-    c3 -->|supports| d1
-    d2 -->|prerequisite of| d1
+    c1 --> d1
+    c2 --> d1
+    c3 --> d1
+    d2 -->|"prerequisite of"| d1
     d1 -->|answers| q1
 
     classDef claim fill:#dbeafe,stroke:#1d4ed8,color:#000

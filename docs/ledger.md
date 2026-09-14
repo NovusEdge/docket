@@ -47,11 +47,11 @@ time, and they can disagree with each other:
 
 ```mermaid
 flowchart LR
-    line[("One ledger line<br/><b>d7</b> · decision<br/>state: adopted")]
+    line[("d7 · decision<br/>state: adopted")]
 
-    rec["<b>Recorded state</b><br/>adopted<br/><i>stored on the line,<br/>never rewritten</i>"]
-    eff["<b>Effective state</b><br/>blocked<br/><i>a depends_on prerequisite<br/>is unavailable</i>"]
-    cur["<b>Current?</b><br/>no — d9 supersedes it<br/><i>still readable,<br/>no longer support</i>"]
+    rec["Recorded state<br/>adopted"]
+    eff["Effective state<br/>blocked by a prerequisite"]
+    cur["Superseded by d9<br/>readable, not support"]
 
     line --> rec
     line --> eff
