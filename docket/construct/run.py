@@ -35,8 +35,10 @@ EXTRACT_SCHEMA = {
                     "rationale": {"type": "string"},
                     "anchor": {"type": "string"},
                     "scope": {"type": "array", "items": {"type": "string"}},
+                    "confidence": {"type": "string", "enum": list(schema.CONFIDENCE)},
                 },
-                "required": ["kind", "text", "choice", "rationale", "anchor", "scope"],
+                "required": ["kind", "text", "choice", "rationale", "anchor",
+                             "scope", "confidence"],
                 "additionalProperties": False,
             },
         },
@@ -89,6 +91,11 @@ part of the tree the record touches.
 
 Where the document lists options it rejected, put them in `rationale`. Do not
 record a rejected option as its own decision.
+
+`confidence` says how firmly the document states the record. Use `high` when it
+states the record outright and settles it. Use `medium` when it states the
+record and leaves something open. Use `low` when the document is dated,
+tentative, superseded further down, or a daily log of work already done.
 
 Document: {path}
 
@@ -208,6 +215,11 @@ def _one_document(path: str, text: str, date: str | None, caller,
                 anchor=anchor,
                 choice=record.get("choice", "") or "",
                 rationale=record.get("rationale", "") or "",
+                # An unknown value falls back rather than raising: one odd
+                # confidence should cost a sort position, never the record.
+                confidence=(record.get("confidence")
+                            if record.get("confidence") in schema.CONFIDENCE
+                            else "low"),
                 scope=scope,
                 source={"path": path, "date": date},
                 line=line,

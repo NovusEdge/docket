@@ -154,6 +154,29 @@ class ExtractPassTests(unittest.TestCase):
             self.assertEqual(len(got), 1)
             self.assertEqual(got[0]["text"], "Where does the ledger live?")
 
+    def test_carries_the_confidence_the_model_reported(self):
+        # Review order ranks by confidence. A run that never asks for it stages
+        # every record at the default and leaves the sort with nothing to do.
+        with tempfile.TemporaryDirectory() as tmp:
+            self.one_doc(tmp)
+            caller = FakeCaller(self.reply(confidence="high"))
+            got, _ = run.two_pass([tmp], caller=caller)
+            self.assertEqual(got[0]["confidence"], "high")
+
+    def test_falls_back_to_low_when_the_confidence_is_not_a_known_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.one_doc(tmp)
+            caller = FakeCaller(self.reply(confidence="certain"))
+            got, _ = run.two_pass([tmp], caller=caller)
+            self.assertEqual(got[0]["confidence"], "low")
+
+    def test_asks_the_model_what_confidence_means(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.one_doc(tmp)
+            caller = FakeCaller(self.reply())
+            run.two_pass([tmp], caller=caller)
+            self.assertIn("confidence", caller.prompts[0])
+
     def test_resolves_the_document_date_locally(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.one_doc(tmp)

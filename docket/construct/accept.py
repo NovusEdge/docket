@@ -15,9 +15,35 @@ from docket.ledger import append, make_record
 AUTHOR = "docket-construct"
 
 
+def _chronological(proposals: list[dict]) -> list[dict]:
+    """Oldest document first.
+
+    The briefing scores recency from the numeric record id, never from `ts`, so
+    the order records enter the ledger is the only thing that makes a newer
+    decision outrank an older one. A run that accepts in staging order leaves
+    887 records the walker cannot tell apart by age.
+
+    An undated document sorts first: it has established no recency to claim.
+    """
+    return sorted(proposals, key=lambda item: (item["source"]["date"] or "",))
+
+
+def _timestamp(date: str | None) -> str | None:
+    """The document's date as a record timestamp, or None to stamp the run.
+
+    Provenance, not ranking. A record stamped with the run date tells a later
+    reader that a decision from April was made the day construct read it.
+    """
+    return f"{date}T00:00:00+00:00" if date else None
+
+
 def _order(proposals: list[dict]) -> list[dict]:
     """Supported records first, so a key resolves to an id by the time it is
-    needed. Support is acyclic by then, so a stable pass suffices."""
+    needed. Support is acyclic by then, so a stable pass suffices.
+
+    Date order survives wherever support does not constrain it, because the
+    walk keeps its input order and only pulls grounds forward.
+    """
     by_key = {p["key"]: p for p in proposals}
     done: list[dict] = []
     seen: set[str] = set()
@@ -68,7 +94,7 @@ def run(staged: Path, ledger: Path, source: str | None = None) -> tuple[int, int
     ids: dict[str, str] = {}
     written = skipped = 0
 
-    for item in _order(wanted):
+    for item in _order(_chronological(wanted)):
         supports = []
         dropped = False
         for group in item.get("supports") or []:
@@ -95,6 +121,7 @@ def run(staged: Path, ledger: Path, source: str | None = None) -> tuple[int, int
             supports=supports or None,
             supersedes=supersedes or None,
             author=AUTHOR,
+            ts=_timestamp(item["source"]["date"]),
         )
         stored = append(ledger, record)
         ids[item["key"]] = stored["id"]
