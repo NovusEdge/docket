@@ -49,11 +49,38 @@ These apply to `docket construct` alone. See [Constructing on existing projects]
 | Variable | Effect |
 |---|---|
 | `OPENROUTER_API_KEY` | Calls OpenRouter. One key reaches every provider through one endpoint. |
-| `GEMINI_API_KEY` | Used when `OPENROUTER_API_KEY` is unset. Calls Gemini's OpenAI-compatible endpoint. |
-| `DOCKET_CONSTRUCT_MODEL` | The model. Defaults to `google/gemini-3.8-flash` on OpenRouter and `gemini-3.8-flash` on Gemini. |
+| `GEMINI_API_KEY` | Calls Gemini's OpenAI-compatible endpoint. |
+| `OPENAI_API_KEY` | Calls OpenAI. |
+| `ANTHROPIC_API_KEY` | Calls Anthropic. This one needs the `anthropic` SDK, not `openai`. |
+| `DOCKET_CONSTRUCT_PROVIDER` | Names one provider, ignoring the order below. One of `openrouter`, `gemini`, `openai`, `anthropic`. |
+| `DOCKET_CONSTRUCT_MODEL` | The model. Each provider has its own default. |
 | `DOCKET_CONSTRUCT_BASE_URL` | The endpoint, for a gateway that speaks the same protocol. |
 
-Construct refuses to run with neither key set, and names both in the message.
+The first key that is set wins, in the order above. Set
+`DOCKET_CONSTRUCT_PROVIDER` to pick a different one.
+
+Construct refuses to run with no key set, and names every variable in the
+message.
+
+Default models:
+
+| Provider | Model | SDK |
+|---|---|---|
+| `openrouter` | `google/gemini-3.8-flash` | `openai` |
+| `gemini` | `gemini-3.8-flash` | `openai` |
+| `openai` | `gpt-5.6-luna` | `openai` |
+| `anthropic` | `claude-haiku-4-5-20251001` | `anthropic` |
+
+Anthropic is reached through its own SDK because its OpenAI-compatible layer
+ignores `response_format`. A Claude key used through the `openai` package
+returns prose and every record fails the schema check.
+
+The SDK lives in a virtualenv at `<global store>/venv`, which `DOCKET_HOME` and
+`CLAUDE_CONFIG_DIR` move along with everything else in that store. It sits
+outside the checkout because the installer replaces a managed checkout
+wholesale. `docket construct --install-sdk PROVIDER` builds it and
+`--remove-sdk` deletes it. A package already importable in your environment wins
+over this copy.
 
 A Gemini key beginning `AQ.` works. It authenticates with the `x-goog-api-key`
 header and as a bearer token on the OpenAI-compatible endpoint.

@@ -1,9 +1,12 @@
 """The two-pass driver, with the provider call injected."""
 
 import subprocess
+import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from docket.construct import client, run
 
@@ -29,13 +32,84 @@ class SchemaShapeTests(unittest.TestCase):
     def test_every_property_is_required(self):
         for schema in (run.EXTRACT_SCHEMA, run.LINK_SCHEMA):
             for node in self.objects(schema):
-                self.assertEqual(set(node.get("properties", {})),
-                                 set(node.get("required", [])), node)
+                self.assertEqual(
+                    set(node.get("properties", {})), set(node.get("required", [])), node
+                )
 
     def test_no_object_admits_extra_properties(self):
         for schema in (run.EXTRACT_SCHEMA, run.LINK_SCHEMA):
             for node in self.objects(schema):
                 self.assertIs(node.get("additionalProperties"), False, node)
+
+
+class AnthropicCallerTests(unittest.TestCase):
+    """The one branch that speaks a protocol the other three do not."""
+
+    SCHEMA = {
+        "type": "object",
+        "properties": {"records": {"type": "array"}},
+        "required": ["records"],
+        "additionalProperties": False,
+    }
+
+    CONFIG = {
+        "provider": "anthropic",
+        "sdk": "anthropic",
+        "api_key": "k",
+        "base_url": None,
+        "model": "claude-haiku-4-5",
+    }
+
+    def block(self, kind, text):
+        return types.SimpleNamespace(type=kind, text=text)
+
+    def caller(self, content=(), error=None):
+        """The real caller, wired to a stand-in `anthropic` module."""
+        module = types.ModuleType("anthropic")
+        module.AuthenticationError = type("AuthenticationError", (Exception,), {})
+        module.PermissionDeniedError = type("PermissionDeniedError", (Exception,), {})
+        sent = {}
+
+        def create(**body):
+            sent.update(body)
+            if error:
+                raise module.AuthenticationError(error)
+            return types.SimpleNamespace(content=list(content))
+
+        module.Anthropic = lambda api_key, base_url=None: types.SimpleNamespace(
+            messages=types.SimpleNamespace(create=create)
+        )
+
+        with (
+            patch.dict(sys.modules, {"anthropic": module}),
+            patch.object(client, "config", lambda: self.CONFIG),
+        ):
+            return run._default_caller(), sent
+
+    def test_reads_the_json_out_of_the_text_block(self):
+        call, _ = self.caller([self.block("text", '{"records": [1]}')])
+        self.assertEqual(call("prompt", self.SCHEMA), {"records": [1]})
+
+    def test_skips_a_thinking_block_ahead_of_the_answer(self):
+        # Thinking arrives as its own block, so content[0] is not the JSON.
+        call, _ = self.caller(
+            [self.block("thinking", "considering..."), self.block("text", '{"records": [2]}')]
+        )
+        self.assertEqual(call("prompt", self.SCHEMA), {"records": [2]})
+
+    def test_sends_the_schema_in_output_config(self):
+        call, sent = self.caller([self.block("text", '{"records": []}')])
+        call("prompt", self.SCHEMA)
+        self.assertEqual(sent["output_config"]["format"]["schema"], self.SCHEMA)
+        self.assertNotIn("response_format", sent)
+
+    def test_a_rejected_key_stops_the_whole_run(self):
+        # ClientError is what the driver treats as fatal. Every remaining
+        # document carries the same key and would get the same answer.
+        call, _ = self.caller(error="invalid x-api-key")
+        with self.assertRaises(client.ClientError) as caught:
+            call("prompt", self.SCHEMA)
+        self.assertIn("anthropic", str(caught.exception))
 
 
 class FakeCaller:
@@ -74,9 +148,20 @@ class PathSpellingTests(unittest.TestCase):
             root = Path(tmp).resolve()
             (root / "docs").mkdir()
             doc(root, "docs/one.md", "# one\n\nClaim: a\n")
-            caller = FakeCaller({"records": [
-                {"kind": "claim", "text": "A", "choice": "", "anchor": "Claim: a",
-                 "rationale": "", "scope": []}]})
+            caller = FakeCaller(
+                {
+                    "records": [
+                        {
+                            "kind": "claim",
+                            "text": "A",
+                            "choice": "",
+                            "anchor": "Claim: a",
+                            "rationale": "",
+                            "scope": [],
+                        }
+                    ]
+                }
+            )
             got, _ = run.two_pass([str(root / "docs")], caller=caller, root=root)
             self.assertEqual(got[0]["source"]["path"], "docs/one.md")
 
@@ -90,9 +175,20 @@ class PathSpellingTests(unittest.TestCase):
             subprocess.run(["git", "-C", str(other), "init", "-q"], check=True)
             doc(other, "docs/one.md", "# one\n\nClaim: a\n")
             subprocess.run(["git", "-C", str(other), "add", "docs/one.md"], check=True)
-            caller = FakeCaller({"records": [
-                {"kind": "claim", "text": "A", "choice": "", "anchor": "Claim: a",
-                 "rationale": "", "scope": []}]})
+            caller = FakeCaller(
+                {
+                    "records": [
+                        {
+                            "kind": "claim",
+                            "text": "A",
+                            "choice": "",
+                            "anchor": "Claim: a",
+                            "rationale": "",
+                            "scope": [],
+                        }
+                    ]
+                }
+            )
             got, _ = run.two_pass([str(other / "docs")], caller=caller)
             self.assertEqual(got[0]["source"]["path"], "docs/one.md")
 
@@ -100,13 +196,22 @@ class PathSpellingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()
             doc(root, "one.md", "# one\n\nClaim: a\n")
-            reply = {"records": [
-                {"kind": "claim", "text": "A", "choice": "", "anchor": "Claim: a",
-                 "rationale": "", "scope": []}]}
-            absolute, _ = run.two_pass([str(root / "one.md")],
-                                       caller=FakeCaller(reply), root=root)
-            relative, _ = run.two_pass([str(root / "./one.md")],
-                                       caller=FakeCaller(reply), root=root)
+            reply = {
+                "records": [
+                    {
+                        "kind": "claim",
+                        "text": "A",
+                        "choice": "",
+                        "anchor": "Claim: a",
+                        "rationale": "",
+                        "scope": [],
+                    }
+                ]
+            }
+            absolute, _ = run.two_pass([str(root / "one.md")], caller=FakeCaller(reply), root=root)
+            relative, _ = run.two_pass(
+                [str(root / "./one.md")], caller=FakeCaller(reply), root=root
+            )
             self.assertEqual(absolute[0]["key"], relative[0]["key"])
 
 
@@ -138,14 +243,23 @@ class FailedRunTests(unittest.TestCase):
             seen.append(prompt)
             if "d1.md" in prompt:
                 raise RuntimeError("upstream said no")
-            return {"records": [{"kind": "claim", "text": "A", "choice": "",
-                                 "anchor": "Claim: a0", "rationale": "",
-                                 "scope": [], "confidence": "high"}]}
+            return {
+                "records": [
+                    {
+                        "kind": "claim",
+                        "text": "A",
+                        "choice": "",
+                        "anchor": "Claim: a0",
+                        "rationale": "",
+                        "scope": [],
+                        "confidence": "high",
+                    }
+                ]
+            }
 
         with tempfile.TemporaryDirectory() as tmp:
             self.docs(tmp, count=2)
-            got, report = run.two_pass([tmp], caller=flaky, untracked=True,
-                                       sleep=lambda _s: None)
+            got, report = run.two_pass([tmp], caller=flaky, untracked=True, sleep=lambda _s: None)
             self.assertEqual(len(got), 1)
             self.assertTrue(any("d1.md" in line for line in report))
 
@@ -161,8 +275,9 @@ class FailedRunTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             self.docs(tmp, count=20)
             with self.assertRaises(client.ClientError):
-                run.two_pass([tmp], caller=unauthorized, jobs=2, untracked=True,
-                             sleep=lambda _s: None)
+                run.two_pass(
+                    [tmp], caller=unauthorized, jobs=2, untracked=True, sleep=lambda _s: None
+                )
             self.assertLess(len(calls), 20)
 
 
@@ -247,9 +362,14 @@ class ExtractPassTests(unittest.TestCase):
     SOURCE = "# Title\n\nDate: 2026-06-18\n\n**Decision:** keep the ledger local\n"
 
     def reply(self, **over):
-        record = {"kind": "decision", "text": "Where does the ledger live?",
-                  "choice": "Local", "anchor": "Decision: keep the ledger local",
-                  "rationale": "because", "scope": ["docket/**"]}
+        record = {
+            "kind": "decision",
+            "text": "Where does the ledger live?",
+            "choice": "Local",
+            "anchor": "Decision: keep the ledger local",
+            "rationale": "because",
+            "scope": ["docket/**"],
+        }
         record.update(over)
         return {"records": [record]}
 
@@ -294,10 +414,10 @@ class ExtractPassTests(unittest.TestCase):
             self.assertEqual(got[0]["source"]["date"], "2026-06-18")
 
     def test_records_the_line_the_anchor_matched(self):
-            with tempfile.TemporaryDirectory() as tmp:
-                self.one_doc(tmp)
-                got, _ = run.two_pass([tmp], caller=FakeCaller(self.reply()))
-                self.assertEqual(got[0]["line"], 5)
+        with tempfile.TemporaryDirectory() as tmp:
+            self.one_doc(tmp)
+            got, _ = run.two_pass([tmp], caller=FakeCaller(self.reply()))
+            self.assertEqual(got[0]["line"], 5)
 
     def test_drops_a_record_whose_anchor_is_nowhere_in_the_source(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -351,37 +471,65 @@ class LinkPassTests(unittest.TestCase):
             if schema is run.LINK_SCHEMA:
                 return caller.link_reply
             if "sanitized" in prompt:
-                return {"records": [{"kind": "claim", "text": "State must be sanitized",
-                                     "choice": "", "anchor": "Claim: state must be sanitized",
-                                     "rationale": "", "scope": []}]}
-            return {"records": [{"kind": "decision", "text": "How is audit checked?",
-                                 "choice": "Tiered", "anchor": "Decision: tier the audit by layer",
-                                 "rationale": "", "scope": []}]}
+                return {
+                    "records": [
+                        {
+                            "kind": "claim",
+                            "text": "State must be sanitized",
+                            "choice": "",
+                            "anchor": "Claim: state must be sanitized",
+                            "rationale": "",
+                            "scope": [],
+                        }
+                    ]
+                }
+            return {
+                "records": [
+                    {
+                        "kind": "decision",
+                        "text": "How is audit checked?",
+                        "choice": "Tiered",
+                        "anchor": "Decision: tier the audit by layer",
+                        "rationale": "",
+                        "scope": [],
+                    }
+                ]
+            }
 
         return run.two_pass([tmp], caller=per_doc)
 
     def test_applies_a_support_edge_across_two_documents(self):
         # The whole reason pass 2 exists: a per-document call cannot see this.
         with tempfile.TemporaryDirectory() as tmp:
-            got, _ = self.build(tmp, self.replies(
-                [{"kind": "supports", "from": "p2", "to": "p1"}]))
+            got, _ = self.build(tmp, self.replies([{"kind": "supports", "from": "p2", "to": "p1"}]))
             by_kind = {p["kind"]: p for p in got}
-            self.assertEqual(by_kind["decision"]["supports"],
-                             [[by_kind["claim"]["key"]]])
+            self.assertEqual(by_kind["decision"]["supports"], [[by_kind["claim"]["key"]]])
 
     def test_drops_an_edge_the_local_rules_refuse(self):
         with tempfile.TemporaryDirectory() as tmp:
-            got, report = self.build(tmp, self.replies(
-                [{"kind": "supersedes", "from": "p2", "to": "p1"}]))
+            got, report = self.build(
+                tmp, self.replies([{"kind": "supersedes", "from": "p2", "to": "p1"}])
+            )
             self.assertTrue(any("supersedes" in line for line in report))
             self.assertTrue(all(not p["supersedes"] for p in got))
 
     def test_skips_the_link_pass_for_a_single_record(self):
         with tempfile.TemporaryDirectory() as tmp:
             doc(tmp, "a.md", self.SOURCE_A)
-            caller = FakeCaller({"records": [
-                {"kind": "claim", "text": "State must be sanitized", "choice": "",
-                 "anchor": "Claim: state must be sanitized", "rationale": "", "scope": []}]})
+            caller = FakeCaller(
+                {
+                    "records": [
+                        {
+                            "kind": "claim",
+                            "text": "State must be sanitized",
+                            "choice": "",
+                            "anchor": "Claim: state must be sanitized",
+                            "rationale": "",
+                            "scope": [],
+                        }
+                    ]
+                }
+            )
             run.two_pass([tmp], caller=caller)
             # One extraction prompt, no linking prompt: there is nothing to link.
             self.assertEqual(len(caller.prompts), 1)
@@ -399,9 +547,18 @@ class LinkBatchTests(unittest.TestCase):
                     calls.append(prompt)
                     return {"edges": []}
                 n = prompt.split("Claim: number ")[1][0]
-                return {"records": [{"kind": "claim", "text": f"Number {n}", "choice": "",
-                                     "anchor": f"Claim: number {n}", "rationale": "",
-                                     "scope": []}]}
+                return {
+                    "records": [
+                        {
+                            "kind": "claim",
+                            "text": f"Number {n}",
+                            "choice": "",
+                            "anchor": f"Claim: number {n}",
+                            "rationale": "",
+                            "scope": [],
+                        }
+                    ]
+                }
 
             _, report = run.two_pass([tmp], caller=caller, batch=2)
             self.assertEqual(len(calls), 3)
@@ -416,8 +573,18 @@ class LinkBatchTests(unittest.TestCase):
                 if schema is run.LINK_SCHEMA:
                     return {"edges": [{"kind": "contradicts", "from": "p1", "to": "p2"}]}
                 text = "latency is 200ms" if "200ms" in prompt else "latency is under 50ms"
-                return {"records": [{"kind": "claim", "text": text.capitalize(), "choice": "",
-                                     "anchor": f"Claim: {text}", "rationale": "", "scope": []}]}
+                return {
+                    "records": [
+                        {
+                            "kind": "claim",
+                            "text": text.capitalize(),
+                            "choice": "",
+                            "anchor": f"Claim: {text}",
+                            "rationale": "",
+                            "scope": [],
+                        }
+                    ]
+                }
 
             got, report = run.two_pass([tmp], caller=caller)
             questions = [p for p in got if p["kind"] == "question"]
@@ -445,8 +612,18 @@ class RetryTests(unittest.TestCase):
 
     def source(self, tmp):
         doc(tmp, "a.md", "# a\n\nClaim: one\n")
-        return {"records": [{"kind": "claim", "text": "One", "choice": "",
-                             "anchor": "Claim: one", "rationale": "", "scope": []}]}
+        return {
+            "records": [
+                {
+                    "kind": "claim",
+                    "text": "One",
+                    "choice": "",
+                    "anchor": "Claim: one",
+                    "rationale": "",
+                    "scope": [],
+                }
+            ]
+        }
 
     def test_retries_a_rate_limited_document(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -516,8 +693,18 @@ class FailureTests(unittest.TestCase):
             def flaky(prompt, schema):
                 if "two" in prompt:
                     raise RuntimeError("provider said no")
-                return {"records": [{"kind": "claim", "text": "One", "choice": "",
-                                     "anchor": "Claim: one", "rationale": "", "scope": []}]}
+                return {
+                    "records": [
+                        {
+                            "kind": "claim",
+                            "text": "One",
+                            "choice": "",
+                            "anchor": "Claim: one",
+                            "rationale": "",
+                            "scope": [],
+                        }
+                    ]
+                }
 
             got, report = run.two_pass([tmp], caller=flaky)
             self.assertEqual(len(got), 1)

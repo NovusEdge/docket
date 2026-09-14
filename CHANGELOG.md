@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `docket construct` reaches OpenAI and Anthropic directly, alongside OpenRouter
+  and Gemini. `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` select them, and
+  `DOCKET_CONSTRUCT_PROVIDER` names one when several keys are set.
+  An Anthropic key needs the `anthropic` SDK rather than `openai`. Anthropic's
+  OpenAI-compatible layer ignores `response_format`, so a Claude key reached
+  that way returns prose and every record fails the schema check.
+- `docket construct --install-sdk PROVIDER` puts that provider's SDK in a
+  virtualenv under the global store, and `--remove-sdk` deletes it. Nobody types
+  a `pip install` any more. The installer offers the step during setup and takes
+  `--construct PROVIDER` unattended; it records the choice in `.docket-managed`,
+  so `--update` refreshes the SDK and uninstall removes it. The step needs `uv`,
+  and a missing `uv` is a note rather than a failed install. A package already
+  importable in your environment still wins over the virtualenv.
+- `just fmt` and `just lint` format, lint and type check both languages, and CI
+  runs the same commands at the same pinned versions. Python uses `ruff` and
+  `pyrefly`, configured in `ruff.toml` and `pyrefly.toml`; Go uses
+  `golangci-lint`, configured in `.golangci.yml`. Everything runs through `uvx`
+  and `go run`, so none of it is an install requirement.
+
+### Fixed
+
+- `atomicInstallViewer` dropped the error from `Close()` on the temporary file
+  it had just written. Buffered writes flush at close, so a full disk could lose
+  the graph viewer binary and report success.
+
 ## [0.12.0] - 2026-09-14
 
 ### Added

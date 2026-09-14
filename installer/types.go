@@ -3,7 +3,7 @@ package main
 import "context"
 
 type Options struct {
-	Dir, Prefix, Checkout                          string
+	Dir, Prefix, Checkout, Construct               string
 	Harness                                        []string // nil selects detected defaults; empty means explicitly none.
 	Project, Yes, NoTTY, Uninstall, DryRun, Update bool
 	Version                                        bool

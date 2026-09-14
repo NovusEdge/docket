@@ -5,7 +5,7 @@ import io
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout, redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,15 +15,32 @@ from docket.ledger import read
 
 
 def prop(anchor, path="context/a.md", confidence="low", scope=None, text="Question?"):
-    return schema.proposal(kind="decision", text=text, choice="yes", anchor=anchor,
-                           rationale="because", scope=scope or [], confidence=confidence,
-                           source={"path": path, "date": "2026-06-18"})
+    return schema.proposal(
+        kind="decision",
+        text=text,
+        choice="yes",
+        anchor=anchor,
+        rationale="because",
+        scope=scope or [],
+        confidence=confidence,
+        source={"path": path, "date": "2026-06-18"},
+    )
 
 
 def args(**over):
-    fields = {"paths": [], "review": False, "accept": False, "source": None,
-              "jobs": 4, "dry_run": False, "exclude": [], "no_exclude": False,
-              "untracked": False}
+    fields = {
+        "paths": [],
+        "review": False,
+        "accept": False,
+        "source": None,
+        "jobs": 4,
+        "dry_run": False,
+        "exclude": [],
+        "no_exclude": False,
+        "untracked": False,
+        "install_sdk": None,
+        "remove_sdk": False,
+    }
     fields.update(over)
     return argparse.Namespace(**fields)
 
@@ -140,8 +157,7 @@ class StagedPathTests(unittest.TestCase):
             original = cli_construct.env.project_root
             try:
                 cli_construct.env.project_root = lambda start=None: root
-                self.assertEqual(cli_construct._staged_path(),
-                                 root / ".docket" / "proposed.jsonl")
+                self.assertEqual(cli_construct._staged_path(), root / ".docket" / "proposed.jsonl")
             finally:
                 cli_construct.env.project_root = original
 
@@ -154,11 +170,9 @@ class StagedPathTests(unittest.TestCase):
             try:
                 cli_construct.env.project_root = lambda start=None: root
                 cli_construct.env.ledger_path = lambda start=None: ledger
-                self.assertEqual(cli_construct._staged_path(),
-                                 ledger.parent / "proposed.jsonl")
+                self.assertEqual(cli_construct._staged_path(), ledger.parent / "proposed.jsonl")
             finally:
-                (cli_construct.env.project_root,
-                 cli_construct.env.ledger_path) = originals
+                (cli_construct.env.project_root, cli_construct.env.ledger_path) = originals
 
 
 class LedgerPairingTests(unittest.TestCase):
@@ -173,8 +187,9 @@ class LedgerPairingTests(unittest.TestCase):
             original = cli_construct.env.project_root
             try:
                 cli_construct.env.project_root = lambda start=None: root
-                self.assertEqual(cli_construct._ledger_path().parent,
-                                 cli_construct._staged_path().parent)
+                self.assertEqual(
+                    cli_construct._ledger_path().parent, cli_construct._staged_path().parent
+                )
             finally:
                 cli_construct.env.project_root = original
 
@@ -189,8 +204,7 @@ class MalformedStageTests(unittest.TestCase):
         self.staged = Path(self.tmp.name) / "proposed.jsonl"
 
     def test_a_broken_line_names_the_file_and_the_line(self):
-        self.staged.write_text(
-            '{"key": "a", "state": "staged", "kind": "claim"}\nnot json\n')
+        self.staged.write_text('{"key": "a", "state": "staged", "kind": "claim"}\nnot json\n')
         err = io.StringIO()
         with redirect_stderr(err):
             rc = cli_construct.review(self.staged, live=set())
@@ -247,12 +261,19 @@ class DryRunTests(unittest.TestCase):
 
 
 class DependencyTests(unittest.TestCase):
-    def test_a_missing_sdk_names_the_install_command(self):
+    def test_a_missing_sdk_names_the_command_that_installs_it(self):
         # Every other command, and the SessionStart hook, keep working on a
         # machine that never installs it.
-        message = cli_construct.MISSING_SDK
-        self.assertIn("pip install", message)
-        self.assertIn("openai", message)
+        message = cli_construct.missing_sdk("openrouter", "openai")
+        self.assertIn("--install-sdk openrouter", message)
+        self.assertIn("uv", message)
+
+    def test_the_advice_names_the_sdk_the_provider_needs(self):
+        # An Anthropic key needs the anthropic package. Advising openai sends
+        # the user to install the one thing that cannot serve their key.
+        message = cli_construct.missing_sdk("anthropic", "anthropic")
+        self.assertIn("anthropic", message)
+        self.assertNotIn("openai", message)
 
     def test_a_missing_key_prints_one_line_and_no_traceback(self):
         # A missing environment variable is the most ordinary way to reach this
@@ -274,6 +295,106 @@ class DependencyTests(unittest.TestCase):
 
     def test_importing_the_command_module_does_not_import_the_sdk(self):
         self.assertNotIn("openai", sys.modules)
+        self.assertNotIn("anthropic", sys.modules)
+
+
+class SdkResolutionTests(unittest.TestCase):
+    """The order construct searches for its SDK, which is what users feel."""
+
+    def test_an_installed_sdk_wins_before_the_venv(self):
+        # Someone with their own environment must not pay for a venv lookup,
+        # and must not get the venv's copy in preference to theirs.
+        from docket.construct import venv
+
+        touched = []
+        with (
+            patch.dict(sys.modules, {"openai": object()}),
+            patch.object(venv, "activate", lambda: touched.append(1) or True),
+        ):
+            self.assertTrue(cli_construct._sdk_ready("openai"))
+        self.assertEqual(touched, [])
+
+    def test_the_venv_is_the_fallback(self):
+        from docket.construct import venv
+
+        def activate():
+            sys.modules["nonesuch_sdk"] = object()
+            return True
+
+        self.addCleanup(sys.modules.pop, "nonesuch_sdk", None)
+        with patch.object(venv, "activate", activate):
+            self.assertTrue(cli_construct._sdk_ready("nonesuch_sdk"))
+
+    def test_no_venv_and_no_package_is_not_ready(self):
+        from docket.construct import venv
+
+        with patch.object(venv, "activate", lambda: False):
+            self.assertFalse(cli_construct._sdk_ready("nonesuch_sdk"))
+
+
+class InstallSdkTests(unittest.TestCase):
+    def test_maps_a_provider_to_its_package(self):
+        from docket.construct import venv
+
+        asked = []
+        with (
+            patch.object(venv, "install", lambda pkg: asked.append(pkg)),
+            redirect_stdout(io.StringIO()),
+        ):
+            rc = cli_construct.cmd_construct(args(install_sdk="anthropic"))
+        self.assertEqual(rc, 0)
+        self.assertEqual(asked, ["anthropic"])
+
+    def test_openrouter_installs_the_openai_package(self):
+        from docket.construct import venv
+
+        asked = []
+        with (
+            patch.object(venv, "install", lambda pkg: asked.append(pkg)),
+            redirect_stdout(io.StringIO()),
+        ):
+            cli_construct.cmd_construct(args(install_sdk="openrouter"))
+        self.assertEqual(asked, ["openai"])
+
+    def test_an_unknown_provider_names_the_real_ones(self):
+        err = io.StringIO()
+        with redirect_stderr(err):
+            rc = cli_construct.cmd_construct(args(install_sdk="grok"))
+        self.assertEqual(rc, 2)
+        self.assertIn("openrouter", err.getvalue())
+
+    def test_a_failed_install_reports_the_reason(self):
+        from docket.construct import venv
+
+        def refuse(_pkg):
+            raise venv.VenvError("uv is not on PATH")
+
+        err = io.StringIO()
+        with (
+            patch.object(venv, "install", refuse),
+            redirect_stdout(io.StringIO()),
+            redirect_stderr(err),
+        ):
+            rc = cli_construct.cmd_construct(args(install_sdk="openai"))
+        self.assertEqual(rc, 1)
+        self.assertIn("uv", err.getvalue())
+
+    def test_remove_deletes_the_venv(self):
+        from docket.construct import venv
+
+        called = []
+        with patch.object(venv, "remove", lambda: called.append(1)), redirect_stdout(io.StringIO()):
+            rc = cli_construct.cmd_construct(args(remove_sdk=True))
+        self.assertEqual(rc, 0)
+        self.assertEqual(called, [1])
+
+    def test_installing_reads_no_documents(self):
+        # The installer runs this with no project and no paths. It must not
+        # reach the "name the documents" error.
+        from docket.construct import venv
+
+        with patch.object(venv, "install", lambda _pkg: None), redirect_stdout(io.StringIO()):
+            self.assertEqual(cli_construct.cmd_construct(args(install_sdk="gemini")), 0)
 
 
 if __name__ == "__main__":

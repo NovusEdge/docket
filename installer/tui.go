@@ -32,6 +32,7 @@ const (
 	phasePrefix
 	phaseCheckout
 	phaseHarnesses
+	phaseConstruct
 	phasePath
 	phaseReview
 	phaseApplying
@@ -72,6 +73,48 @@ func (h harnessItem) Description() string {
 	return "available"
 }
 
+// The construct SDK step. One provider, or none: the SDK a key needs differs
+// per provider, and the installer runs before any key exists.
+type providerItem struct {
+	name, detail string
+}
+
+// One choice, not a set, so it draws a cursor where the harness list draws a
+// checkbox.
+type providerDelegate struct {
+	normal, selected, detail lipgloss.Style
+}
+
+func (d providerDelegate) Height() int                         { return 2 }
+func (d providerDelegate) Spacing() int                        { return 0 }
+func (d providerDelegate) Update(tea.Msg, *list.Model) tea.Cmd { return nil }
+func (d providerDelegate) Render(w io.Writer, m list.Model, index int, raw list.Item) {
+	item, ok := raw.(providerItem)
+	if !ok {
+		return
+	}
+	style, cursor := d.normal, "  "
+	if index == m.Index() {
+		style, cursor = d.selected, "> "
+	}
+	_, _ = fmt.Fprint(w, style.Render(ansi.Truncate(cursor+item.Title(), max(8, m.Width()-2), "…")))
+	if desc := item.Description(); desc != "" {
+		_, _ = fmt.Fprint(w, "\n", d.detail.Render(ansi.Truncate(desc, max(8, m.Width()-4), "…")))
+	}
+}
+
+func (p providerItem) FilterValue() string { return p.name }
+func (p providerItem) Title() string       { return p.name }
+func (p providerItem) Description() string { return p.detail }
+
+var providerItems = []list.Item{
+	providerItem{"skip", "docket construct stays unavailable until you install an SDK"},
+	providerItem{"openrouter", "one key reaches every provider through one endpoint"},
+	providerItem{"gemini", "Gemini's OpenAI-compatible endpoint"},
+	providerItem{"openai", "OpenAI directly"},
+	providerItem{"anthropic", "Claude directly; needs the anthropic SDK, not openai"},
+}
+
 type harnessDelegate struct {
 	normal, selected, detail lipgloss.Style
 }
@@ -97,9 +140,9 @@ func (d harnessDelegate) Render(w io.Writer, m list.Model, index int, raw list.I
 		cursor = "> "
 	}
 	title := ansi.Truncate(cursor+mark+" "+item.Title(), max(8, m.Width()-2), "…")
-	fmt.Fprint(w, style.Render(title))
+	_, _ = fmt.Fprint(w, style.Render(title))
 	if desc := item.Description(); desc != "" {
-		fmt.Fprint(w, "\n", d.detail.Render(ansi.Truncate(desc, max(8, m.Width()-4), "…")))
+		_, _ = fmt.Fprint(w, "\n", d.detail.Render(ansi.Truncate(desc, max(8, m.Width()-4), "…")))
 	}
 }
 
@@ -117,6 +160,7 @@ type tuiModel struct {
 	prefix        textinput.Model
 	checkout      textinput.Model
 	harnessList   list.Model
+	providerList  list.Model
 	harnesses     []Harness
 	selected      map[string]bool
 	plan          Plan
@@ -159,13 +203,21 @@ func newTUIModel(env Environment, opts Options, executor Executor) tuiModel {
 	l.SetShowTitle(false)
 	l.SetShowPagination(false)
 	l.SetShowHelp(false)
+	// Cursor stays on "skip", so holding enter through the installer adds
+	// nothing the user did not ask for.
+	p := list.New(providerItems, providerDelegate{}, defaultTUIWidth-4, 10)
+	p.SetFilteringEnabled(false)
+	p.SetShowStatusBar(false)
+	p.SetShowTitle(false)
+	p.SetShowPagination(false)
+	p.SetShowHelp(false)
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 	v := viewport.New(viewport.WithWidth(defaultTUIWidth-4), viewport.WithHeight(12))
 	v.SoftWrap = true
 	m := tuiModel{env: env, opts: opts, executor: executor, phase: phaseChecks,
-		prefix: prefix, checkout: checkout, harnessList: l, harnesses: harnesses,
-		selected: selected, spin: sp, help: help.New(), view: v,
+		prefix: prefix, checkout: checkout, harnessList: l, providerList: p,
+		harnesses: harnesses, selected: selected, spin: sp, help: help.New(), view: v,
 		width: defaultTUIWidth, height: defaultTUIHeight, dark: true}
 	m.restyle()
 	return m
@@ -299,10 +351,25 @@ func (m tuiModel) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		if key.Matches(msg, tuiKeys.Enter) {
 			m.opts.Harness = m.selectedHarnesses()
-			return m.prepareReview()
+			m.phase = phaseConstruct
+			return m, nil
 		}
 		var cmd tea.Cmd
 		m.harnessList, cmd = m.harnessList.Update(msg)
+		return m, cmd
+	case phaseConstruct:
+		if key.Matches(msg, tuiKeys.No) {
+			m.opts.Construct = ""
+			return m.prepareReview()
+		}
+		if key.Matches(msg, tuiKeys.Enter) {
+			if item, ok := m.providerList.SelectedItem().(providerItem); ok && item.name != "skip" {
+				m.opts.Construct = item.name
+			}
+			return m.prepareReview()
+		}
+		var cmd tea.Cmd
+		m.providerList, cmd = m.providerList.Update(msg)
 		return m, cmd
 	case phasePath:
 		if key.Matches(msg, tuiKeys.No) {
@@ -399,10 +466,11 @@ func (m tuiModel) waitProgressCmd() tea.Cmd {
 func (m *tuiModel) resizeComponents() {
 	inner := max(16, m.width-4)
 	m.harnessList.SetSize(inner, max(4, min(12, m.height-10)))
+	m.providerList.SetSize(inner, max(4, min(12, m.height-10)))
 	m.help.SetWidth(inner)
 	m.view.SetWidth(inner)
-	// Header, settled choices, review title and key help occupy ten rows.
-	m.view.SetHeight(max(1, m.height-10))
+	// Header, settled choices, review title and key help occupy eleven rows.
+	m.view.SetHeight(max(1, m.height-11))
 	m.prefix.SetWidth(inner)
 	m.checkout.SetWidth(inner)
 	if m.phase == phaseReview {
@@ -426,6 +494,8 @@ func (m *tuiModel) restyle() {
 	}
 	delegate := harnessDelegate{normal: lipgloss.NewStyle(), selected: accent.Bold(true), detail: muted.PaddingLeft(2)}
 	m.harnessList.SetDelegate(delegate)
+	m.providerList.SetDelegate(providerDelegate{normal: lipgloss.NewStyle(),
+		selected: accent.Bold(true), detail: muted.PaddingLeft(2)})
 }
 
 func (m *tuiModel) refreshReview() {
@@ -476,6 +546,13 @@ func (m tuiModel) render() string {
 		}
 		blocks = append(blocks, muted.Render("harnesses: "+selection))
 	}
+	if !compact && m.phase > phaseConstruct && !m.opts.Uninstall {
+		selection := m.opts.Construct
+		if selection == "" {
+			selection = "NONE"
+		}
+		blocks = append(blocks, muted.Render("construct: "+selection))
+	}
 	if len(blocks) > 3 {
 		blocks = append(blocks, "")
 	}
@@ -488,6 +565,10 @@ func (m tuiModel) render() string {
 		blocks = append(blocks, "Checkout location:", m.checkout.View(), "", m.shortHelp(tuiKeys.Enter, tuiKeys.Cancel))
 	case phaseHarnesses:
 		blocks = append(blocks, "Select agent harnesses (n selects none):", m.harnessView(), "", m.shortHelp(tuiKeys.Cancel, tuiKeys.Move, tuiKeys.Toggle, tuiKeys.Enter))
+	case phaseConstruct:
+		blocks = append(blocks, "Set up docket construct? It reads a project's written history "+
+			"into ledger proposals, and is the one command that needs an API key and an SDK.",
+			m.providerView(), "", m.shortHelp(tuiKeys.Cancel, tuiKeys.Move, tuiKeys.Enter))
 	case phasePath:
 		blocks = append(blocks, "Add the install prefix to PATH?")
 		for _, action := range m.plan.Actions {
@@ -562,6 +643,8 @@ func (m tuiModel) harnessView() string {
 	}
 	return m.harnessList.View()
 }
+
+func (m tuiModel) providerView() string { return m.providerList.View() }
 
 func (m tuiModel) shortHelp(bindings ...key.Binding) string { return m.help.ShortHelpView(bindings) }
 

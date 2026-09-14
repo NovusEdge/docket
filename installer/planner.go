@@ -15,6 +15,22 @@ const pathMarker = "# added by the docket installer"
 
 var harnessNames = []string{"claude-code", "codex", "gemini", "cursor", "copilot", "opencode"}
 
+// Mirrors PROVIDERS in docket/construct/client.py. Only the names travel: the
+// provider-to-package mapping and the virtualenv location stay in Python,
+// reached through `docket construct --install-sdk`.
+var constructProviders = []string{"openrouter", "gemini", "openai", "anthropic"}
+
+func KnownProvider(name string) bool {
+	for _, p := range constructProviders {
+		if p == name {
+			return true
+		}
+	}
+	return false
+}
+
+func ProviderNames() string { return strings.Join(constructProviders, ", ") }
+
 func BuildPlan(env Environment, opts Options) (Plan, error) {
 	var readErr error
 	readFile := env.ReadFile
@@ -88,12 +104,26 @@ func buildPlan(env Environment, opts Options) (Plan, error) {
 		return buildUpdate(env, prefix, opts.Checkout)
 	}
 
+	if opts.Construct != "" && !KnownProvider(opts.Construct) {
+		return Plan{}, fmt.Errorf("unknown construct provider %q (choose one of %s)",
+			opts.Construct, ProviderNames())
+	}
+	// A reinstall keeps the provider already recorded unless this run names one,
+	// so re-running the installer does not silently drop construct support.
+	construct := opts.Construct
+	if construct == "" {
+		construct = markedProvider(env)
+	}
+
 	plan := Plan{}
 	plan.Actions = append(plan.Actions, planCommand(env, prefix)...)
 	plan.Actions = append(plan.Actions, planPathAdd(env, prefix)...)
 	if opts.Checkout == "" {
-		plan.Actions = append(plan.Actions, planMarker(env, prefix)...)
+		plan.Actions = append(plan.Actions, planMarker(env, prefix, construct)...)
 	}
+	constructActions, constructNotes := planConstruct(env, construct)
+	plan.Actions = append(plan.Actions, constructActions...)
+	plan.Notes = append(plan.Notes, constructNotes...)
 	if selected == nil {
 		selected = []string{"claude-code"}
 		for _, h := range DetectHarnesses(env) {
@@ -167,14 +197,55 @@ func planCommand(env Environment, prefix string) []Action {
 // The marker tells the Python CLI that this checkout is installer-owned. A
 // managed checkout is a git clone, so the presence of .git cannot distinguish
 // it from a contributor's own tree.
-func planMarker(env Environment, prefix string) []Action {
+//
+// It also records the construct provider, because --update takes no harness or
+// provider arguments and would otherwise leave a stale SDK behind.
+func planMarker(env Environment, prefix, construct string) []Action {
 	path := join(env, env.Checkout, ".docket-managed")
-	text, _ := json.MarshalIndent(map[string]string{"prefix": prefix, "version": version}, "", "  ")
+	fields := map[string]string{"prefix": prefix, "version": version}
+	if construct != "" {
+		fields["construct"] = construct
+	}
+	text, _ := json.MarshalIndent(fields, "", "  ")
 	body := string(text) + "\n"
 	if sameFile(env, path, body) {
 		return nil
 	}
 	return []Action{{Kind: "write", Path: path, Text: body, Label: "marker"}}
+}
+
+// The construct provider this checkout was installed with, or "".
+func markedProvider(env Environment) string {
+	text, ok := readText(env, join(env, env.Checkout, ".docket-managed"))
+	if !ok {
+		return ""
+	}
+	var marker struct{ Construct string }
+	if err := json.Unmarshal([]byte(text), &marker); err != nil {
+		return ""
+	}
+	if !KnownProvider(marker.Construct) {
+		return ""
+	}
+	return marker.Construct
+}
+
+// The construct SDK step. Python owns where the virtualenv goes and which
+// package each provider needs, so this is one call into the installed CLI.
+//
+// A missing uv is a note rather than an error: construct is optional, and the
+// command itself prints the same install advice when its SDK is absent.
+func planConstruct(env Environment, provider string) ([]Action, []string) {
+	if provider == "" {
+		return nil, nil
+	}
+	if !commandPresent(env, "uv") {
+		return nil, []string{"uv is not on PATH; the construct SDK was not installed. " +
+			"Install uv, then run docket construct --install-sdk " + provider + "."}
+	}
+	docket := join(env, env.Checkout, "bin", "docket")
+	return []Action{{Kind: "command", Label: "construct",
+		Args: []string{env.Python, docket, "construct", "--install-sdk", provider}}}, nil
 }
 
 func planPathAdd(env Environment, prefix string) []Action {
@@ -371,9 +442,16 @@ func buildUpdate(env Environment, prefix string, checkout string) (Plan, error) 
 	actions, notes = updateCodex(env, prefix)
 	plan.Actions = append(plan.Actions, actions...)
 	plan.Notes = append(plan.Notes, notes...)
+	// The provider comes from the marker: --update takes no provider argument,
+	// and refreshing the checkout without refreshing its SDK leaves construct
+	// pinned to whatever shipped with the previous release.
+	construct := markedProvider(env)
 	if checkout == "" {
-		plan.Actions = append(plan.Actions, planMarker(env, prefix)...)
+		plan.Actions = append(plan.Actions, planMarker(env, prefix, construct)...)
 	}
+	actions, notes = planConstruct(env, construct)
+	plan.Actions = append(plan.Actions, actions...)
+	plan.Notes = append(plan.Notes, notes...)
 	return plan, nil
 }
 
@@ -520,6 +598,17 @@ func codexMarketplaceName(env Environment, checkout string) string {
 func buildUninstall(env Environment, prefix string, project bool) (Plan, error) {
 	plan := Plan{Notes: []string{"Decision ledgers are preserved."}}
 	source := join(env, env.Checkout, "bin", "docket")
+	// Ahead of everything else, while bin/docket still runs. Python owns the
+	// virtualenv's location, so this is a call rather than a remove-tree.
+	if markedProvider(env) != "" {
+		if env.Python == "" {
+			plan.Notes = append(plan.Notes, "No Python was found, so the construct "+
+				"SDK was left in place; remove it with docket construct --remove-sdk.")
+		} else {
+			plan.Actions = append(plan.Actions, Action{Kind: "command", Label: "construct",
+				Args: []string{env.Python, source, "construct", "--remove-sdk"}})
+		}
+	}
 	if env.GOOS == "windows" {
 		p := join(env, prefix, "docket.cmd")
 		if text, ok := readText(env, p); ok && ownedWindowsShim(text, source) {

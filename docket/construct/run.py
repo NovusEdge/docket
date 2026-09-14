@@ -37,8 +37,15 @@ EXTRACT_SCHEMA = {
                     "scope": {"type": "array", "items": {"type": "string"}},
                     "confidence": {"type": "string", "enum": list(schema.CONFIDENCE)},
                 },
-                "required": ["kind", "text", "choice", "rationale", "anchor",
-                             "scope", "confidence"],
+                "required": [
+                    "kind",
+                    "text",
+                    "choice",
+                    "rationale",
+                    "anchor",
+                    "scope",
+                    "confidence",
+                ],
                 "additionalProperties": False,
             },
         },
@@ -139,8 +146,11 @@ def _tracked(root: Path) -> set[Path] | None:
     would make construct useless on a plain folder of notes.
     """
     try:
-        done = subprocess.run(["git", "-C", str(root), "ls-files", "-z", "--", "*.md"],
-                              capture_output=True, timeout=30)
+        done = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z", "--", "*.md"],
+            capture_output=True,
+            timeout=30,
+        )
     except (OSError, subprocess.SubprocessError):
         return None
     if done.returncode != 0:
@@ -168,8 +178,9 @@ def _walk(root: Path, exclude: tuple[str, ...], untracked: bool) -> list[Path]:
     return found
 
 
-def documents(paths: list[str], exclude: tuple[str, ...] = EXCLUDE,
-              untracked: bool = False) -> list[Path]:
+def documents(
+    paths: list[str], exclude: tuple[str, ...] = EXCLUDE, untracked: bool = False
+) -> list[Path]:
     """Every markdown file the given paths name, in a stable order.
 
     A named file is read whatever the filters say. Naming one document is an
@@ -186,23 +197,37 @@ def documents(paths: list[str], exclude: tuple[str, ...] = EXCLUDE,
 
 
 def _default_caller():
-    """The real provider call. Imported here, never at module scope."""
-    from openai import AuthenticationError, OpenAI, PermissionDeniedError
-
+    """The real provider call. The SDK is imported here, never at module scope."""
     cfg = client.config()
-    api = OpenAI(api_key=cfg["api_key"], base_url=cfg["base_url"])
+
+    if cfg["sdk"] == "anthropic":
+        from anthropic import Anthropic, AuthenticationError, PermissionDeniedError
+
+        api = Anthropic(api_key=cfg["api_key"], base_url=cfg["base_url"])
+
+        def send(body: dict) -> str:
+            reply = api.messages.create(**body)
+            # Thinking arrives as its own block ahead of the answer, so the
+            # first block is not reliably the JSON.
+            return next(b.text for b in reply.content if b.type == "text")
+    else:
+        from openai import AuthenticationError, OpenAI, PermissionDeniedError
+
+        api = OpenAI(api_key=cfg["api_key"], base_url=cfg["base_url"])
+
+        def send(body: dict) -> str:
+            reply = api.chat.completions.create(**body)
+            return reply.choices[0].message.content or ""
 
     def call(prompt: str, want: dict) -> dict:
-        body = client.request(prompt, want, model=cfg["model"],
-                              provider=cfg["provider"])
+        body = client.request(prompt, want, model=cfg["model"], provider=cfg["provider"])
         try:
-            reply = api.chat.completions.create(**body)
+            text = send(body)
         except (AuthenticationError, PermissionDeniedError) as exc:
             # Raised as ClientError so the driver stops the whole run. Every
             # remaining document carries the same key and gets the same answer.
-            raise client.ClientError(
-                f"{cfg['provider']} rejected the key: {exc}") from None
-        return client.parse(reply.choices[0].message.content or "", want)
+            raise client.ClientError(f"{cfg['provider']} rejected the key: {exc}") from None
+        return client.parse(text, want)
 
     return call
 
@@ -235,8 +260,9 @@ def _with_retry(call, sleep) -> dict:
     raise AssertionError("unreachable")
 
 
-def _one_document(path: str, text: str, date: str | None, caller,
-                  sleep=time.sleep) -> tuple[list[dict], list[str]]:
+def _one_document(
+    path: str, text: str, date: str | None, caller, sleep=time.sleep
+) -> tuple[list[dict], list[str]]:
     """Pass 1 for one document: the records that survive local checks."""
     prompt = _EXTRACT_PROMPT.format(path=path, body=text)
     reply = _with_retry(lambda: caller(prompt, EXTRACT_SCHEMA), sleep)
@@ -248,15 +274,19 @@ def _one_document(path: str, text: str, date: str | None, caller,
         anchor = record.get("anchor", "")
         line = extract.anchor_line(anchor, text)
         if line is None:
-            notes.append(f"{path}: dropped a record, its anchor quotes no line "
-                         f"in the document: {anchor[:60]!r}")
+            notes.append(
+                f"{path}: dropped a record, its anchor quotes no line "
+                f"in the document: {anchor[:60]!r}"
+            )
             continue
 
         scope = list(record.get("scope") or [])
         bad = schema.invalid_scope(scope)
         if bad:
-            notes.append(f"{path}: dropped {len(bad)} scope entr"
-                         f"{'y' if len(bad) == 1 else 'ies'} that name no file")
+            notes.append(
+                f"{path}: dropped {len(bad)} scope entr"
+                f"{'y' if len(bad) == 1 else 'ies'} that name no file"
+            )
             scope = [item for item in scope if item not in bad]
 
         try:
@@ -268,9 +298,11 @@ def _one_document(path: str, text: str, date: str | None, caller,
                 rationale=record.get("rationale", "") or "",
                 # An unknown value falls back rather than raising: one odd
                 # confidence should cost a sort position, never the record.
-                confidence=(record.get("confidence")
-                            if record.get("confidence") in schema.CONFIDENCE
-                            else "low"),
+                confidence=(
+                    record.get("confidence")
+                    if record.get("confidence") in schema.CONFIDENCE
+                    else "low"
+                ),
                 scope=scope,
                 source={"path": path, "date": date},
                 line=line,
@@ -313,8 +345,10 @@ def _link(proposals: list[dict], caller, batch: int) -> tuple[list[dict], list[s
 
     notes.append(f"link: kept {kept} edge{'' if kept == 1 else 's'}")
     if asked:
-        notes.append(f"link: asked {len(asked)} question"
-                     f"{'' if len(asked) == 1 else 's'} about contradictions")
+        notes.append(
+            f"link: asked {len(asked)} question"
+            f"{'' if len(asked) == 1 else 's'} about contradictions"
+        )
     return linked + asked, notes
 
 
@@ -327,8 +361,12 @@ def _repo_root(found: list[Path], fallback: Path) -> Path:
     """
     start = found[0].resolve().parent if found else fallback
     try:
-        done = subprocess.run(["git", "-C", str(start), "rev-parse", "--show-toplevel"],
-                              capture_output=True, text=True, timeout=10)
+        done = subprocess.run(
+            ["git", "-C", str(start), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
     except (OSError, subprocess.SubprocessError):
         return fallback
     if done.returncode != 0:
@@ -349,11 +387,17 @@ def _relative(path: Path, root: Path) -> str:
         return str(path)
 
 
-def two_pass(paths: list[str], jobs: int = 8, dry_run: bool = False,
-             caller=None, batch: int = link.BATCH,
-             root: Path | None = None, sleep=time.sleep,
-             exclude: tuple[str, ...] = EXCLUDE,
-             untracked: bool = False) -> tuple[list[dict], list[str]]:
+def two_pass(
+    paths: list[str],
+    jobs: int = 8,
+    dry_run: bool = False,
+    caller=None,
+    batch: int = link.BATCH,
+    root: Path | None = None,
+    sleep=time.sleep,
+    exclude: tuple[str, ...] = EXCLUDE,
+    untracked: bool = False,
+) -> tuple[list[dict], list[str]]:
     """Both passes over the given documents.
 
     A document whose call fails costs only its own records. One provider error
@@ -375,16 +419,14 @@ def two_pass(paths: list[str], jobs: int = 8, dry_run: bool = False,
     git = extract.git_dates(root)
     bodies = {path: path.read_text(errors="replace") for path in found}
     names = {path: _relative(path, root) for path in found}
-    dates = {path: extract.resolve_date(names[path], bodies[path], git)
-             for path in found}
+    dates = {path: extract.resolve_date(names[path], bodies[path], git) for path in found}
 
     proposals: list[dict] = []
     failed = 0
     fatal: client.ClientError | None = None
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
         futures = {
-            pool.submit(_one_document, names[path], bodies[path], dates[path],
-                        caller, sleep): path
+            pool.submit(_one_document, names[path], bodies[path], dates[path], caller, sleep): path
             for path in found
         }
         for future in concurrent.futures.as_completed(futures):
@@ -410,8 +452,7 @@ def two_pass(paths: list[str], jobs: int = 8, dry_run: bool = False,
     if fatal is not None:
         raise fatal
     if failed == len(found):
-        raise RunError(
-            f"every document failed: {failed} of {failed}. Nothing was staged.")
+        raise RunError(f"every document failed: {failed} of {failed}. Nothing was staged.")
 
     proposals.sort(key=lambda item: (item["source"]["path"], item.get("line", 0)))
 
