@@ -35,8 +35,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
-from docket.ledger import validate_entries, ledger_lock
-
+from docket.ledger import ledger_lock, validate_entries
 
 OLD_ID = re.compile(r"^d[1-9][0-9]*$")
 NEW_ID = re.compile(r"^[cdq][1-9][0-9]*$")
@@ -49,10 +48,26 @@ STATES = {
 PREFIX = {"claim": "c", "decision": "d", "question": "q"}
 RELATION_FIELDS = ("supports", "answers", "supersedes")
 OPTIONAL_FIELDS = {
-    "kind", "state", "text",
-    "scope", "rationale", "depends_on", "evidence", "revisit",
-    "cost_if_wrong", "cost", "pinned", "choice", "alternatives",
-    "id", "ts", "author", "session", "branch", "decided_by", *RELATION_FIELDS,
+    "kind",
+    "state",
+    "text",
+    "scope",
+    "rationale",
+    "depends_on",
+    "evidence",
+    "revisit",
+    "cost_if_wrong",
+    "cost",
+    "pinned",
+    "choice",
+    "alternatives",
+    "id",
+    "ts",
+    "author",
+    "session",
+    "branch",
+    "decided_by",
+    *RELATION_FIELDS,
 }
 SCHEMA_LATEST = 2
 
@@ -129,8 +144,11 @@ def detect_version(records: list[dict[str, Any]]) -> int:
 
 
 def _rewrite_supersedes_into_answers(
-    raw: dict[str, Any], old_id: str, entry: dict[str, Any],
-    kinds: dict[str, str], notes: list[str] | None,
+    raw: dict[str, Any],
+    old_id: str,
+    entry: dict[str, Any],
+    kinds: dict[str, str],
+    notes: list[str] | None,
 ) -> None:
     """Move a supersedes target that derives to a question onto answers.
 
@@ -152,8 +170,11 @@ def _rewrite_supersedes_into_answers(
 
 
 def _rewrite_support_into_questions(
-    raw: dict[str, Any], old_id: str, entry: dict[str, Any],
-    kinds: dict[str, str], notes: list[str] | None,
+    raw: dict[str, Any],
+    old_id: str,
+    entry: dict[str, Any],
+    kinds: dict[str, str],
+    notes: list[str] | None,
 ) -> None:
     """Drop a because target that derives to a question from supports.
 
@@ -182,7 +203,8 @@ def _rewrite_support_into_questions(
 
 
 def derive_mapping(
-    source: list[dict[str, Any]], notes: list[str] | None = None,
+    source: list[dict[str, Any]],
+    notes: list[str] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Build a classification map from schema-1 fields alone.
 
@@ -211,9 +233,7 @@ def derive_mapping(
             entry["choice"] = answer
         mapping[old_id] = entry
     if unknown:
-        detail = "; ".join(
-            f"{state}: {', '.join(ids)}" for state, ids in sorted(unknown.items())
-        )
+        detail = "; ".join(f"{state}: {', '.join(ids)}" for state, ids in sorted(unknown.items()))
         raise MigrationError(f"unrecognised schema-1 state(s) {detail}")
 
     # Kinds are resolved for every record before either rule runs, so a rule
@@ -230,7 +250,9 @@ def derive_mapping(
 def read_mapping(path: Path, source_ids: set[str]) -> dict[str, dict[str, Any]]:
     value = _json_object(path, "mapping")
     if not isinstance(value, dict):
-        raise MigrationError("malformed mapping: top-level value must be an object keyed by old IDs")
+        raise MigrationError(
+            "malformed mapping: top-level value must be an object keyed by old IDs"
+        )
     missing = sorted(source_ids - set(value))
     if missing:
         raise MigrationError(f"missing mapping for old id(s): {', '.join(missing)}")
@@ -278,8 +300,10 @@ def _support_sets(value: Any, label: str) -> list[list[str]]:
         raise MigrationError(f"malformed input relation {label}: expected a list")
     if all(isinstance(item, str) for item in value):
         return [list(value)]
-    if all(isinstance(group, list) and group and all(isinstance(item, str) for item in group)
-           for group in value):
+    if all(
+        isinstance(group, list) and group and all(isinstance(item, str) for item in group)
+        for group in value
+    ):
         return [list(group) for group in value]
     raise MigrationError(f"malformed input relation {label}: expected IDs or ID lists")
 
@@ -322,7 +346,16 @@ def _map_ids(value: Any, old_id: str, field: str, known: set[str]) -> list[str]:
 
 def _metadata(raw: dict[str, Any], entry: dict[str, Any], field: str, default: Any) -> Any:
     value = entry.get(field, raw.get(field, default))
-    if field in {"ts", "author", "session", "branch", "decided_by", "rationale", "revisit", "cost_if_wrong"}:
+    if field in {
+        "ts",
+        "author",
+        "session",
+        "branch",
+        "decided_by",
+        "rationale",
+        "revisit",
+        "cost_if_wrong",
+    }:
         if not isinstance(value, str):
             raise MigrationError(f"metadata {field} for {raw['id']} must be a string")
     if field == "scope":
@@ -338,7 +371,9 @@ def _metadata(raw: dict[str, Any], entry: dict[str, Any], field: str, default: A
     return value
 
 
-def build_records(source: list[dict[str, Any]], mapping: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+def build_records(
+    source: list[dict[str, Any]], mapping: dict[str, dict[str, Any]]
+) -> list[dict[str, Any]]:
     known = {raw["id"] for raw in source}
     ids = {old_id: _mapped_id(old_id, mapping[old_id]) for old_id in known}
     if len(set(ids.values())) != len(ids):
@@ -382,7 +417,8 @@ def build_records(source: list[dict[str, Any]], mapping: dict[str, dict[str, Any
         supports = [[ids[ref] for ref in group] for group in supports_old]
         depends_on_old = (
             _map_ids(entry["depends_on"], old_id, "depends_on", known)
-            if "depends_on" in entry else []
+            if "depends_on" in entry
+            else []
         )
         depends_on = [ids[ref] for ref in depends_on_old]
         answers = [ids[ref] for ref in answers_old]
@@ -409,7 +445,9 @@ def build_records(source: list[dict[str, Any]], mapping: dict[str, dict[str, Any
             "supersedes": supersedes,
             "evidence": _metadata(raw, entry, "evidence", []),
             "revisit": _metadata(raw, entry, "revisit", ""),
-            "cost_if_wrong": entry.get("cost_if_wrong", entry.get("cost", raw.get("cost_if_wrong", ""))),
+            "cost_if_wrong": entry.get(
+                "cost_if_wrong", entry.get("cost", raw.get("cost_if_wrong", ""))
+            ),
             "pinned": _metadata(raw, entry, "pinned", False),
         }
         if not isinstance(record["cost_if_wrong"], str):
@@ -419,8 +457,12 @@ def build_records(source: list[dict[str, Any]], mapping: dict[str, dict[str, Any
             if not isinstance(choice, str) or not choice:
                 raise MigrationError(f"decision mapping for {old_id} requires non-empty choice")
             alternatives = entry.get("alternatives", [choice])
-            if not isinstance(alternatives, list) or not all(isinstance(item, str) and item for item in alternatives):
-                raise MigrationError(f"decision mapping for {old_id} alternatives must be a list of strings")
+            if not isinstance(alternatives, list) or not all(
+                isinstance(item, str) and item for item in alternatives
+            ):
+                raise MigrationError(
+                    f"decision mapping for {old_id} alternatives must be a list of strings"
+                )
             record["choice"] = choice
             record["alternatives"] = list(dict.fromkeys([*alternatives, choice]))
             record["decided_by"] = _metadata(raw, entry, "decided_by", "")
@@ -435,7 +477,9 @@ def build_records(source: list[dict[str, Any]], mapping: dict[str, dict[str, Any
             "mapped_depends_on": depends_on,
             "mapped_answers": answers,
             "mapped_supersedes": supersedes,
-            "overrides": sorted(field for field in (*RELATION_FIELDS, "depends_on") if field in entry),
+            "overrides": sorted(
+                field for field in (*RELATION_FIELDS, "depends_on") if field in entry
+            ),
         }
         record["legacy"] = {"source_id": old_id, "raw": raw, "relation_map": relation_map}
         output.append(record)
@@ -446,8 +490,12 @@ def core_validator() -> Callable[[list[dict[str, Any]]], Any]:
     return validate_entries
 
 
-def migrate(source_path: Path | str, mapping_path: Path | str, output_path: Path | str,
-            validator: Callable[[list[dict[str, Any]]], Any] | None = None) -> None:
+def migrate(
+    source_path: Path | str,
+    mapping_path: Path | str,
+    output_path: Path | str,
+    validator: Callable[[list[dict[str, Any]]], Any] | None = None,
+) -> None:
     source_path, mapping_path, output_path = map(Path, (source_path, mapping_path, output_path))
     if output_path.exists():
         raise MigrationError(f"output already exists: {output_path}")
@@ -478,8 +526,9 @@ def _report_line(old_id: str, record: dict[str, Any]) -> str:
     return f"{old_id} -> {record['id']} {record['kind']}/{record['state']}"
 
 
-def migrate_in_place(path: Path | str, mapping_path: Path | str | None = None,
-                     dry_run: bool = False) -> tuple[int, list[str], list[str]]:
+def migrate_in_place(
+    path: Path | str, mapping_path: Path | str | None = None, dry_run: bool = False
+) -> tuple[int, list[str], list[str]]:
     """Convert a ledger to the current schema, keeping the original beside it.
 
     Both renames happen inside one directory, so each is atomic. A crash
@@ -531,10 +580,12 @@ def migrate_in_place(path: Path | str, mapping_path: Path | str | None = None,
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("source", type=Path, help="schema-1 JSONL source ledger")
-    parser.add_argument("--map", dest="mapping", required=True, type=Path,
-                        help="explicit JSON classification map")
-    parser.add_argument("--output", required=True, type=Path,
-                        help="new schema-2 JSONL destination; must not exist")
+    parser.add_argument(
+        "--map", dest="mapping", required=True, type=Path, help="explicit JSON classification map"
+    )
+    parser.add_argument(
+        "--output", required=True, type=Path, help="new schema-2 JSONL destination; must not exist"
+    )
     args = parser.parse_args(argv)
     try:
         migrate(args.source, args.mapping, args.output)

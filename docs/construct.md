@@ -12,23 +12,33 @@ you accept the ones that are right. That acceptance is what the ledger records.
 Construct is the only command that needs a dependency and an API key. Every
 other command, and the session hook your agent runs, work without either.
 
-Install the SDK:
-
-```sh
-uv pip install openai
-```
-
 Set one key. An OpenRouter key reaches every provider through one endpoint:
 
 ```sh
 export OPENROUTER_API_KEY=...
 ```
 
-A Gemini key also works and selects Gemini's own endpoint:
+A `GEMINI_API_KEY`, `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY` works instead and
+calls that provider directly. The first one set wins, in that order;
+`DOCKET_CONSTRUCT_PROVIDER` names one explicitly.
+
+Install the SDK your key needs:
 
 ```sh
-export GEMINI_API_KEY=...
+docket construct --install-sdk openrouter
 ```
+
+That builds a virtualenv under the global store and puts one package in it. It
+uses `uv`, so install [uv](https://docs.astral.sh/uv/) first if you do not have
+it. The installer offers the same step during setup, and
+`--construct <provider>` selects it unattended.
+
+Every provider except Anthropic is reached through the `openai` package.
+Anthropic needs its own, because its OpenAI-compatible layer ignores
+`response_format`, which is how construct asks for the schema.
+
+A package you installed yourself wins over the virtualenv, so an existing
+`openai` in your environment keeps working untouched.
 
 See [Environment variables](environment.md) for the model and endpoint
 overrides.

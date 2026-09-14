@@ -14,7 +14,6 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-
 CONFIG_NAME = "config.toml"
 
 DEFAULTS: dict[str, dict[str, int]] = {

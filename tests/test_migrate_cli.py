@@ -10,19 +10,37 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parent.parent
 DOCKET = ROOT / "bin" / "docket"
 
 
 LEGACY = [
-    {"id": "d1", "ts": "2026-01-01T00:00:00+00:00", "state": "settled",
-     "question": "Ship it?", "answer": "Yes.", "because": [], "supersedes": [],
-     "cost_if_wrong": "", "session": "", "author": "", "branch": ""},
-    {"id": "d2", "ts": "2026-01-02T00:00:00+00:00", "state": "open",
-     "question": "Which validator?", "answer": "Undecided.", "because": [],
-     "supersedes": [], "cost_if_wrong": "", "session": "", "author": "",
-     "branch": ""},
+    {
+        "id": "d1",
+        "ts": "2026-01-01T00:00:00+00:00",
+        "state": "settled",
+        "question": "Ship it?",
+        "answer": "Yes.",
+        "because": [],
+        "supersedes": [],
+        "cost_if_wrong": "",
+        "session": "",
+        "author": "",
+        "branch": "",
+    },
+    {
+        "id": "d2",
+        "ts": "2026-01-02T00:00:00+00:00",
+        "state": "open",
+        "question": "Which validator?",
+        "answer": "Undecided.",
+        "because": [],
+        "supersedes": [],
+        "cost_if_wrong": "",
+        "session": "",
+        "author": "",
+        "branch": "",
+    },
 ]
 
 
@@ -37,8 +55,9 @@ def project(work: Path, records: list[dict]) -> Path:
 
 def run(work: Path, *argv: str) -> subprocess.CompletedProcess:
     env = dict(os.environ, DOCKET_HOME=str(work / "global"))
-    return subprocess.run([sys.executable, str(DOCKET), *argv], cwd=work,
-                          capture_output=True, text=True, env=env)
+    return subprocess.run(
+        [sys.executable, str(DOCKET), *argv], cwd=work, capture_output=True, text=True, env=env
+    )
 
 
 class MigrateCliTests(unittest.TestCase):
@@ -125,7 +144,7 @@ class MigrateCliTests(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as work:
             work = Path(work)
-            ledger = project(work, records)
+            project(work, records)
             result = run(work, "migrate")
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("d2 is justified by d1, a question", result.stderr)
@@ -139,7 +158,7 @@ class MigrateCliTests(unittest.TestCase):
         ]
         with tempfile.TemporaryDirectory() as work:
             work = Path(work)
-            ledger = project(work, records)
+            project(work, records)
             result = run(work, "migrate")
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("d2 is justified by d1, a question", result.stderr)

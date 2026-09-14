@@ -697,3 +697,141 @@ func commandArgs(p Plan) [][]string {
 	}
 	return out
 }
+
+func constructArgs(p Plan) []string {
+	for _, action := range p.Actions {
+		if action.Kind == "command" && action.Label == "construct" {
+			return action.Args
+		}
+	}
+	return nil
+}
+
+func TestNoConstructProviderPlansNoSDKStep(t *testing.T) {
+	env := testEnv(nil)
+	env.LookPath = func(string) (string, error) { return "/usr/bin/uv", nil }
+	plan, err := BuildPlan(env, Options{Harness: []string{}, Prefix: "/usr/bin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if args := constructArgs(plan); args != nil {
+		t.Fatalf("planned a construct step nobody asked for: %v", args)
+	}
+}
+
+func TestConstructDelegatesTheSDKInstallToDocket(t *testing.T) {
+	// Python owns where the virtualenv goes and which package each provider
+	// needs. Go only names the provider.
+	env := testEnv(nil)
+	env.LookPath = func(string) (string, error) { return "/usr/bin/uv", nil }
+	plan, err := BuildPlan(env, Options{Harness: []string{}, Prefix: "/usr/bin", Construct: "anthropic"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "/usr/bin/python3|/src/docket/bin/docket|construct|--install-sdk|anthropic"
+	if got := strings.Join(constructArgs(plan), "|"); got != want {
+		t.Fatalf("construct args = %q", got)
+	}
+}
+
+func TestAnUnknownConstructProviderIsRefused(t *testing.T) {
+	env := testEnv(nil)
+	if _, err := BuildPlan(env, Options{Harness: []string{}, Prefix: "/usr/bin", Construct: "grok"}); err == nil {
+		t.Fatal("expected an error naming the real providers")
+	}
+}
+
+func TestAMissingUVIsANoteRatherThanAFailedInstall(t *testing.T) {
+	// Construct is optional, and the command prints the same advice itself.
+	env := testEnv(nil)
+	env.LookPath = func(string) (string, error) { return "", fs.ErrNotExist }
+	plan, err := BuildPlan(env, Options{Harness: []string{}, Prefix: "/usr/bin", Construct: "openai"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if args := constructArgs(plan); args != nil {
+		t.Fatalf("planned an install without uv: %v", args)
+	}
+	if len(plan.Notes) == 0 || !strings.Contains(strings.Join(plan.Notes, " "), "uv") {
+		t.Fatalf("notes = %v", plan.Notes)
+	}
+}
+
+func TestTheChosenProviderIsRecordedInTheMarker(t *testing.T) {
+	env := testEnv(nil)
+	env.LookPath = func(string) (string, error) { return "/usr/bin/uv", nil }
+	plan, err := BuildPlan(env, Options{Harness: []string{}, Prefix: "/usr/bin", Construct: "gemini"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker, ok := findAction(plan.Actions, "write", "/src/docket/.docket-managed")
+	if !ok {
+		t.Fatalf("actions = %#v", plan.Actions)
+	}
+	if !strings.Contains(marker.Text, `"construct": "gemini"`) {
+		t.Fatalf("marker = %q", marker.Text)
+	}
+}
+
+func TestUpdateRefreshesTheRecordedConstructSDK(t *testing.T) {
+	// --update takes no provider argument, so a stale SDK would survive every
+	// release unless the marker carries the choice forward.
+	env := testEnv(map[string]string{
+		"/src/docket/.docket-managed": `{"prefix":"/home/a/.local/bin","construct":"anthropic"}`,
+	})
+	env.LookPath = func(string) (string, error) { return "/usr/bin/uv", nil }
+	plan, err := BuildPlan(env, Options{Update: true, Prefix: "/home/a/.local/bin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "/usr/bin/python3|/src/docket/bin/docket|construct|--install-sdk|anthropic"
+	if got := strings.Join(constructArgs(plan), "|"); got != want {
+		t.Fatalf("construct args = %q", got)
+	}
+}
+
+func TestAReinstallKeepsTheRecordedProvider(t *testing.T) {
+	env := testEnv(map[string]string{
+		"/src/docket/.docket-managed": `{"prefix":"/usr/bin","construct":"openrouter"}`,
+	})
+	env.LookPath = func(string) (string, error) { return "/usr/bin/uv", nil }
+	plan, err := BuildPlan(env, Options{Harness: []string{}, Prefix: "/usr/bin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(constructArgs(plan), "|"); !strings.HasSuffix(got, "openrouter") {
+		t.Fatalf("construct args = %q", got)
+	}
+}
+
+func TestUninstallRemovesTheConstructSDK(t *testing.T) {
+	env := testEnv(map[string]string{
+		"/src/docket/.docket-managed": `{"prefix":"/usr/bin","construct":"openai"}`,
+	})
+	plan, err := BuildPlan(env, Options{Uninstall: true, Prefix: "/usr/bin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "/usr/bin/python3|/src/docket/bin/docket|construct|--remove-sdk"
+	if got := strings.Join(constructArgs(plan), "|"); got != want {
+		t.Fatalf("construct args = %q", got)
+	}
+}
+
+func TestUninstallWithoutPythonSaysHowToRemoveTheSDK(t *testing.T) {
+	// Uninstall must work on a machine whose Python has gone since install.
+	env := testEnv(map[string]string{
+		"/src/docket/.docket-managed": `{"prefix":"/usr/bin","construct":"openai"}`,
+	})
+	env.Python = ""
+	plan, err := BuildPlan(env, Options{Uninstall: true, Prefix: "/usr/bin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if args := constructArgs(plan); args != nil {
+		t.Fatalf("planned a command with no interpreter: %v", args)
+	}
+	if !strings.Contains(strings.Join(plan.Notes, " "), "--remove-sdk") {
+		t.Fatalf("notes = %v", plan.Notes)
+	}
+}

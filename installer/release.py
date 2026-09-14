@@ -1,12 +1,20 @@
 #!/usr/bin/env python3
 """Cross-build and checksum docket installer release artifacts."""
+
 import argparse
 import hashlib
 import os
 import subprocess
 from pathlib import Path
 
-TARGETS = (("linux", "amd64"), ("linux", "arm64"), ("darwin", "amd64"), ("darwin", "arm64"), ("windows", "amd64"), ("windows", "arm64"))
+TARGETS = (
+    ("linux", "amd64"),
+    ("linux", "arm64"),
+    ("darwin", "amd64"),
+    ("darwin", "arm64"),
+    ("windows", "amd64"),
+    ("windows", "arm64"),
+)
 
 
 def build_all(output_dir, version, installer_dir=None):
@@ -19,11 +27,26 @@ def build_all(output_dir, version, installer_dir=None):
         target = output_dir / ("docket-installer-%s-%s%s" % (goos, goarch, suffix))
         env = os.environ.copy()
         env.update({"CGO_ENABLED": "0", "GOOS": goos, "GOARCH": goarch})
-        subprocess.check_call(["go", "build", "-trimpath", "-ldflags", "-s -w -X main.version=%s" % version, "-o", str(target), "."], cwd=str(installer_dir), env=env)
+        subprocess.check_call(
+            [
+                "go",
+                "build",
+                "-trimpath",
+                "-ldflags",
+                "-s -w -X main.version=%s" % version,
+                "-o",
+                str(target),
+                ".",
+            ],
+            cwd=str(installer_dir),
+            env=env,
+        )
         artifacts.append(target)
     with (output_dir / "SHA256SUMS").open("w", encoding="ascii", newline="\n") as stream:
         for artifact in artifacts:
-            stream.write("%s  %s\n" % (hashlib.sha256(artifact.read_bytes()).hexdigest(), artifact.name))
+            stream.write(
+                "%s  %s\n" % (hashlib.sha256(artifact.read_bytes()).hexdigest(), artifact.name)
+            )
     return artifacts
 
 

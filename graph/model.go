@@ -845,16 +845,6 @@ func (m model) footer() string {
 	return result
 }
 
-type viewerKeyMap struct{}
-
-func (viewerKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{keyUp, keyDown, keyCollapse, keyTab, keyPageUp, keyPageDown, keySearch, keyQuit}
-}
-
-func (viewerKeyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{{keyUp, keyDown, keyCollapse, keyTab}, {keyPageUp, keyPageDown, keyLeft, keyRight}, {keySearch, keyQuit}}
-}
-
 func (m model) paint(style lipgloss.Style, value string) string {
 	if !m.pretty {
 		return value

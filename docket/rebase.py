@@ -40,8 +40,7 @@ _AUDIT_FIELDS = {
 }
 
 
-def common_prefix(mine: Sequence[Mapping[str, Any]],
-                  theirs: Sequence[Mapping[str, Any]]) -> int:
+def common_prefix(mine: Sequence[Mapping[str, Any]], theirs: Sequence[Mapping[str, Any]]) -> int:
     """How many leading records the two histories share exactly."""
 
     count = 0
@@ -60,12 +59,13 @@ def _retired_in(records: Sequence[Mapping[str, Any]]) -> set[str]:
     return retired
 
 
-def renumber(mine: Sequence[Mapping[str, Any]],
-             theirs: Sequence[Mapping[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, str]]:
+def renumber(
+    mine: Sequence[Mapping[str, Any]], theirs: Sequence[Mapping[str, Any]]
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
     """Return their tail with fresh IDs, and the old-to-new ID map."""
 
     shared = common_prefix(mine, theirs)
-    tail = [copy.deepcopy(record) for record in theirs[shared:]]
+    tail: list[dict[str, Any]] = [copy.deepcopy(dict(record)) for record in theirs[shared:]]
     if not tail:
         return [], {}
 
@@ -74,8 +74,8 @@ def renumber(mine: Sequence[Mapping[str, Any]],
         for target in record.get("supersedes") or ():
             if str(target) in already_retired:
                 raise RebaseError(
-                    f"both histories supersede {target}; resolve that by hand "
-                    "before rebasing")
+                    f"both histories supersede {target}; resolve that by hand before rebasing"
+                )
 
     allocated = [dict(record) for record in mine]
     mapping: dict[str, str] = {}
@@ -95,8 +95,7 @@ def renumber(mine: Sequence[Mapping[str, Any]],
                 record[field] = [mapping.get(str(v), str(v)) for v in values]
         groups = record.get("supports")
         if groups:
-            record["supports"] = [[mapping.get(str(v), str(v)) for v in group]
-                                  for group in groups]
+            record["supports"] = [[mapping.get(str(v), str(v)) for v in group] for group in groups]
         _rewrite_audit(record)
     return tail, mapping
 

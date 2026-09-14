@@ -1,7 +1,6 @@
 import json
 import sys
 import tempfile
-import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -37,13 +36,21 @@ class LedgerTests(unittest.TestCase):
 
     def test_global_numeric_sequence_is_unique_and_increasing(self):
         first = ledger.make_record("claim", "first", author="test", record_id="c2")
-        second = ledger.make_record("decision", "second", choice="yes", author="test", record_id="d1")
+        second = ledger.make_record(
+            "decision", "second", choice="yes", author="test", record_id="d1"
+        )
         with self.assertRaisesRegex(ledger.LedgerError, "monotonically"):
             ledger.validate_entries([first, second])
 
     def test_unknown_fields_and_invalid_falsy_shapes_are_rejected(self):
-        for field, value in (("scope", ""), ("supports", ""), ("depends_on", ""),
-                             ("answers", ""), ("supersedes", ""), ("evidence", "")):
+        for field, value in (
+            ("scope", ""),
+            ("supports", ""),
+            ("depends_on", ""),
+            ("answers", ""),
+            ("supersedes", ""),
+            ("evidence", ""),
+        ):
             with self.assertRaises(ledger.LedgerError, msg=field):
                 ledger.make_record("claim", "invalid", author="test", **{field: value})
         claim = ledger.make_record("claim", "claim", author="test", record_id="c1")
@@ -55,10 +62,21 @@ class LedgerTests(unittest.TestCase):
 
     def test_legacy_audit_metadata_has_a_strict_shape(self):
         claim = ledger.make_record("claim", "claim", author="test", record_id="c1")
-        claim["legacy"] = {"source_id": "d1", "raw": {"id": "d1"}, "relation_map": {
-            "source_because": [], "source_depends_on": [], "source_answers": [],
-            "source_supersedes": [], "mapped_supports": [], "mapped_depends_on": [],
-            "mapped_answers": [], "mapped_supersedes": [], "overrides": []}}
+        claim["legacy"] = {
+            "source_id": "d1",
+            "raw": {"id": "d1"},
+            "relation_map": {
+                "source_because": [],
+                "source_depends_on": [],
+                "source_answers": [],
+                "source_supersedes": [],
+                "mapped_supports": [],
+                "mapped_depends_on": [],
+                "mapped_answers": [],
+                "mapped_supersedes": [],
+                "overrides": [],
+            },
+        }
         self.assertEqual(ledger.validate_record(claim)["legacy"]["source_id"], "d1")
         claim["legacy"]["relation_map"]["mapped_answers"] = ["q99"]
         with self.assertRaisesRegex(ledger.LedgerError, "mapped relations"):
@@ -72,7 +90,9 @@ class LedgerTests(unittest.TestCase):
         question = self.add("question", "which?")
         claim = self.add("claim", "yes", state="accepted", answers=[question["id"]])
         projected = ledger.project(ledger.read(self.path))
-        self.assertEqual({entry["id"]: entry for entry in projected}[question["id"]]["state"], "resolved")
+        self.assertEqual(
+            {entry["id"]: entry for entry in projected}[question["id"]]["state"], "resolved"
+        )
         replacement = self.add("claim", "better", state="accepted", supersedes=[claim["id"]])
         projected = ledger.project(ledger.read(self.path))
         by_id = {entry["id"]: entry for entry in projected}
@@ -111,8 +131,9 @@ class LedgerTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as home:
             path = Path(home) / "ledger.jsonl"
-            ledger.append(path, ledger.make_record(
-                "claim", "A premise", state="accepted", author="t"))
+            ledger.append(
+                path, ledger.make_record("claim", "A premise", state="accepted", author="t")
+            )
             holding = threading.Event()
             release = threading.Event()
             observed = []
@@ -144,8 +165,9 @@ class LedgerTests(unittest.TestCase):
     def test_read_without_the_lock_does_not_wait(self):
         with tempfile.TemporaryDirectory() as home:
             path = Path(home) / "ledger.jsonl"
-            ledger.append(path, ledger.make_record(
-                "claim", "A premise", state="accepted", author="t"))
+            ledger.append(
+                path, ledger.make_record("claim", "A premise", state="accepted", author="t")
+            )
             with ledger._ledger_lock(path, exclusive=True):
                 # append() calls read(lock=False) while holding this lock.
                 # flock conflicts across file descriptions in one process, so a
@@ -201,16 +223,21 @@ class ValidationScalingTests(unittest.TestCase):
         # case that map exists for, and the timing test never built one.
         made = []
         for number in range(1, 41):
-            record = ledger.make_record("claim", f"premise {number}", state="accepted",
-                                        author="test",
-                                        supersedes=[f"c{number - 1}"] if number > 1 else [])
+            record = ledger.make_record(
+                "claim",
+                f"premise {number}",
+                state="accepted",
+                author="test",
+                supersedes=[f"c{number - 1}"] if number > 1 else [],
+            )
             record["id"] = f"c{number}"
             made.append(record)
         self.assertEqual(self.prefix_builds(made), [0])
         entries = ledger.validate_entries(made)
         self.assertEqual(ledger.retired_by(entries)["c39"], "c40")
-        again = ledger.make_record("claim", "late", state="accepted", author="test",
-                                   supersedes=["c39"])
+        again = ledger.make_record(
+            "claim", "late", state="accepted", author="test", supersedes=["c39"]
+        )
         again["id"] = "c41"
         with self.assertRaisesRegex(ledger.LedgerError, "already retired"):
             ledger.validate_entries(made + [again])

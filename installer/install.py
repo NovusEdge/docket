@@ -4,12 +4,12 @@
 This file deliberately uses Python 3.8 syntax so an old interpreter can print
 the Python 3.11 requirement enforced by the installed docket ledger CLI.
 """
+
 import sys
 
 if sys.version_info < (3, 11):
     sys.stderr.write(
-        "docket needs Python 3.11 or later; this interpreter is %d.%d.\n"
-        % sys.version_info[:2]
+        "docket needs Python 3.11 or later; this interpreter is %d.%d.\n" % sys.version_info[:2]
     )
     sys.exit(1)
 
@@ -34,8 +34,15 @@ def asset_name(platform, machine):
     system = systems.get(platform.lower())
     architecture = machines.get(machine.lower())
     if not system or not architecture:
-        raise RuntimeError("unsupported platform: %s/%s (supported: Linux, macOS, or Windows on amd64 or arm64)" % (platform, machine))
-    return "docket-installer-%s-%s%s" % (system, architecture, ".exe" if system == "windows" else "")
+        raise RuntimeError(
+            "unsupported platform: %s/%s (supported: Linux, macOS, or Windows on amd64 or arm64)"
+            % (platform, machine)
+        )
+    return "docket-installer-%s-%s%s" % (
+        system,
+        architecture,
+        ".exe" if system == "windows" else "",
+    )
 
 
 def _release_base():
@@ -102,13 +109,17 @@ def _checkout_for(script):
 def _run_checkout(checkout, argv, cwd):
     go = shutil.which("go")
     if not go:
-        raise RuntimeError("Go is required to build the installer from a checkout. Install Go, or run a downloaded install.py outside the checkout to use a release binary.")
+        raise RuntimeError(
+            "Go is required to build the installer from a checkout. Install Go, or run a downloaded install.py outside the checkout to use a release binary."
+        )
     with tempfile.TemporaryDirectory(prefix="docket-installer-build-") as directory:
         suffix = ".exe" if sys.platform == "win32" else ""
         binary = Path(directory) / ("docket-installer" + suffix)
         env = os.environ.copy()
         env["CGO_ENABLED"] = "0"
-        subprocess.check_call([go, "build", "-o", str(binary), "."], cwd=str(checkout / "installer"), env=env)
+        subprocess.check_call(
+            [go, "build", "-o", str(binary), "."], cwd=str(checkout / "installer"), env=env
+        )
         command = [str(binary), "--checkout", str(checkout.resolve())] + list(argv)
         return subprocess.call(command, cwd=cwd)
 

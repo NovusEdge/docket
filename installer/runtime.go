@@ -59,7 +59,7 @@ func executeAction(ctx context.Context, a Action) error {
 		if err != nil {
 			return err
 		}
-		defer os.RemoveAll(dir)
+		defer func() { _ = os.RemoveAll(dir) }()
 		link := filepath.Join(dir, "link")
 		if err := os.Symlink(a.Source, link); err != nil {
 			return fmt.Errorf("create link (Windows may require Developer Mode): %w", err)
@@ -175,18 +175,15 @@ func atomicWrite(path string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	defer os.Remove(f.Name())
+	defer func() { _ = os.Remove(f.Name()) }()
 	if _, err = f.Write(data); err != nil {
-		f.Close()
-		return err
+		return errors.Join(err, f.Close())
 	}
 	if err = f.Chmod(mode); err != nil {
-		f.Close()
-		return err
+		return errors.Join(err, f.Close())
 	}
 	if err = f.Sync(); err != nil {
-		f.Close()
-		return err
+		return errors.Join(err, f.Close())
 	}
 	if err = f.Close(); err != nil {
 		return err
@@ -238,7 +235,7 @@ func cloneCheckout(ctx context.Context, a Action) error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 	staged := filepath.Join(dir, "checkout")
 	args := []string{"clone", "--depth", "1"}
 	args = append(args, a.Args...)

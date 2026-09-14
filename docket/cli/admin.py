@@ -15,6 +15,7 @@ from docket.ledger import ID_RE, LedgerError, _Prefix, append, validate_record
 def cmd_rebase(args: argparse.Namespace) -> int:
     """Append another branch's divergent tail under fresh IDs."""
     from docket.rebase import RebaseError, renumber
+
     path = env.ledger_path()
     other = Path(args.other)
     if not other.is_file():
@@ -44,8 +45,10 @@ def cmd_rebase(args: argparse.Namespace) -> int:
             written += 1
     except LedgerError as exc:
         print(f"docket: {exc}", file=sys.stderr)
-        print(f"docket: appended {written} of {len(tail)} record(s); "
-              "run docket check", file=sys.stderr)
+        print(
+            f"docket: appended {written} of {len(tail)} record(s); run docket check",
+            file=sys.stderr,
+        )
         return 1
     print(f"\ndocket: appended {written} record(s) to {path}")
     return 0
@@ -54,7 +57,11 @@ def cmd_rebase(args: argparse.Namespace) -> int:
 def cmd_migrate(args: argparse.Namespace) -> int:
     """Convert this project's ledger to the current schema."""
     from docket.migrate import (
-        MigrationError, derive_mapping, detect_version, migrate_in_place, read_source,
+        MigrationError,
+        derive_mapping,
+        detect_version,
+        migrate_in_place,
+        read_source,
     )
 
     path = env.ledger_path()
@@ -69,15 +76,21 @@ def cmd_migrate(args: argparse.Namespace) -> int:
                 return 0
             mapping = derive_mapping(source)
             Path(args.emit_map).write_text(
-                json.dumps(mapping, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-            print(f"docket: wrote {len(mapping)} mapping entr"
-                  f"{'y' if len(mapping) == 1 else 'ies'} to {args.emit_map}")
+                json.dumps(mapping, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            print(
+                f"docket: wrote {len(mapping)} mapping entr"
+                f"{'y' if len(mapping) == 1 else 'ies'} to {args.emit_map}"
+            )
             return 0
         count, report, notes = migrate_in_place(path, mapping_path=args.map, dry_run=args.dry_run)
     except MigrationError as exc:
         print(f"docket: {exc}", file=sys.stderr)
-        print("docket: to classify records by hand, run 'docket migrate --emit-map FILE', "
-              "edit FILE, then 'docket migrate --map FILE'", file=sys.stderr)
+        print(
+            "docket: to classify records by hand, run 'docket migrate --emit-map FILE', "
+            "edit FILE, then 'docket migrate --map FILE'",
+            file=sys.stderr,
+        )
         return 2
     except OSError as exc:
         print(f"docket: {exc}", file=sys.stderr)
@@ -92,8 +105,10 @@ def cmd_migrate(args: argparse.Namespace) -> int:
     if args.dry_run:
         print(f"docket: would convert {count} record{'' if count == 1 else 's'}")
         return 0
-    print(f"docket: converted {count} record{'' if count == 1 else 's'}; "
-          f"original kept at {path}.schema1")
+    print(
+        f"docket: converted {count} record{'' if count == 1 else 's'}; "
+        f"original kept at {path}.schema1"
+    )
     return 0
 
 
@@ -163,8 +178,10 @@ def cmd_check(args: argparse.Namespace) -> int:
     print(f"docket: {path} has {len(faults)} fault{'s' if len(faults) != 1 else ''}")
     for fault in faults:
         print(f"  {fault}")
-    print("\nDuplicate or out-of-order IDs usually mean two branches recorded "
-          "separately. Recover the other branch's ledger and run:")
+    print(
+        "\nDuplicate or out-of-order IDs usually mean two branches recorded "
+        "separately. Recover the other branch's ledger and run:"
+    )
     print("  docket rebase OTHER_LEDGER")
     return 1
 
@@ -187,21 +204,66 @@ def cmd_init(args: argparse.Namespace) -> int:
     with target.open("w") as f:
         for e in existing:
             f.write(json.dumps(e) + "\n")
-    moved = f", moved {len(existing)} entr{'y' if len(existing) == 1 else 'ies'}" if existing else ""
+    moved = (
+        f", moved {len(existing)} entr{'y' if len(existing) == 1 else 'ies'}" if existing else ""
+    )
     print(f"docket: created {target}{moved}")
     return 0
 
 
 _COMPLETION_FLAGS = (
-    "--state", "--choice", "--alternative", "--scope", "--rationale",
-    "--supports", "--depends-on", "--answers", "--supersedes", "--evidence",
-    "--revisit", "--cost", "--pin", "--kind", "--query", "--file", "--max-chars",
-    "--auto-scope", "--no-auto-scope", "--since", "--at",
-    "--all", "--find", "--superseded", "--oneline", "--json", "--plain", "--pretty",
-    "--style", "--interactive", "--no-interactive", "--for", "--version",
-    "--dry-run", "--check",
+    "--state",
+    "--choice",
+    "--alternative",
+    "--scope",
+    "--rationale",
+    "--supports",
+    "--depends-on",
+    "--answers",
+    "--supersedes",
+    "--evidence",
+    "--revisit",
+    "--cost",
+    "--pin",
+    "--kind",
+    "--query",
+    "--file",
+    "--max-chars",
+    "--auto-scope",
+    "--no-auto-scope",
+    "--since",
+    "--at",
+    "--all",
+    "--find",
+    "--superseded",
+    "--oneline",
+    "--json",
+    "--plain",
+    "--pretty",
+    "--style",
+    "--interactive",
+    "--no-interactive",
+    "--for",
+    "--version",
+    "--dry-run",
+    "--check",
 )
-_COMPLETION_CMDS = ("claim", "decision", "question", "list", "show", "graph", "context", "where", "check", "rebase", "migrate", "init", "completion", "update")
+_COMPLETION_CMDS = (
+    "claim",
+    "decision",
+    "question",
+    "list",
+    "show",
+    "graph",
+    "context",
+    "where",
+    "check",
+    "rebase",
+    "migrate",
+    "init",
+    "completion",
+    "update",
+)
 
 _BASH_COMPLETION = f"""\
 _docket() {{
@@ -215,9 +277,9 @@ _docket() {{
         completion) COMPREPLY=($(compgen -W "bash zsh fish" -- "$cur")); return ;;
     esac
     if [[ "$cur" == -* ]]; then
-        COMPREPLY=($(compgen -W "{' '.join(_COMPLETION_FLAGS)}" -- "$cur")); return
+        COMPREPLY=($(compgen -W "{" ".join(_COMPLETION_FLAGS)}" -- "$cur")); return
     fi
-    COMPREPLY=($(compgen -W "{' '.join(_COMPLETION_CMDS)}" -- "$cur"))
+    COMPREPLY=($(compgen -W "{" ".join(_COMPLETION_CMDS)}" -- "$cur"))
 }}
 complete -F _docket docket
 """
@@ -232,7 +294,7 @@ _docket_ids() {{
 }}
 
 _arguments -C \\
-    '1: :({' '.join(_COMPLETION_CMDS)})' \\
+    '1: :({" ".join(_COMPLETION_CMDS)})' \\
     '*::arg:->args'
 
 case $words[1] in
@@ -253,7 +315,7 @@ esac
 """
 
 _FISH_COMPLETION = f"""\
-set -l docket_cmds {' '.join(_COMPLETION_CMDS)}
+set -l docket_cmds {" ".join(_COMPLETION_CMDS)}
 complete -c docket -n "not __fish_seen_subcommand_from $docket_cmds" -a "$docket_cmds"
 complete -c docket -n "__fish_seen_subcommand_from show" -a "(docket list --oneline 2>/dev/null | awk '{{print \\$1}}')"
 complete -c docket -n "__fish_seen_subcommand_from claim decision question" -l supports -a "(docket list --oneline 2>/dev/null | awk '{{print \\$1}}')"
@@ -271,12 +333,9 @@ def cmd_completion(args: argparse.Namespace) -> int:
 
 
 LAUNCHER_URL_TEMPLATE = (
-    "https://raw.githubusercontent.com/NovusEdge/docket/refs/tags/{tag}/"
-    "installer/install.py"
+    "https://raw.githubusercontent.com/NovusEdge/docket/refs/tags/{tag}/installer/install.py"
 )
-MAIN_LAUNCHER_URL = (
-    "https://raw.githubusercontent.com/NovusEdge/docket/main/installer/install.py"
-)
+MAIN_LAUNCHER_URL = "https://raw.githubusercontent.com/NovusEdge/docket/main/installer/install.py"
 
 
 def cmd_update(args: argparse.Namespace, root: Path | None = None) -> int:
@@ -300,16 +359,19 @@ def cmd_update(args: argparse.Namespace, root: Path | None = None) -> int:
 
     kind = shape(root)
     if kind == "plugin":
-        print(f"docket: this copy is managed by your harness. "
-              f"Run: {update_command(root)}")
+        print(f"docket: this copy is managed by your harness. Run: {update_command(root)}")
         return 0
     if kind == "unknown":
-        print(f"docket: this copy has no installer and no repository. "
-              f"Run: {update_command(root)}")
+        print(f"docket: this copy has no installer and no repository. Run: {update_command(root)}")
         return 0
     if kind == "source":
-        command = [sys.executable, str(root / "installer" / "install.py"),
-                   "--checkout", str(root), "--update"]
+        command = [
+            sys.executable,
+            str(root / "installer" / "install.py"),
+            "--checkout",
+            str(root),
+            "--update",
+        ]
         print(" ".join(command))
         return subprocess.call(command)
     tag = latest if latest and parse_version(latest) is not None else None

@@ -35,8 +35,17 @@ EXTRACT_SCHEMA = {
                     "rationale": {"type": "string"},
                     "anchor": {"type": "string"},
                     "scope": {"type": "array", "items": {"type": "string"}},
+                    "confidence": {"type": "string", "enum": list(schema.CONFIDENCE)},
                 },
-                "required": ["kind", "text", "choice", "rationale", "anchor", "scope"],
+                "required": [
+                    "kind",
+                    "text",
+                    "choice",
+                    "rationale",
+                    "anchor",
+                    "scope",
+                    "confidence",
+                ],
                 "additionalProperties": False,
             },
         },
@@ -90,6 +99,11 @@ part of the tree the record touches.
 Where the document lists options it rejected, put them in `rationale`. Do not
 record a rejected option as its own decision.
 
+`confidence` says how firmly the document states the record. Use `high` when it
+states the record outright and settles it. Use `medium` when it states the
+record and leaves something open. Use `low` when the document is dated,
+tentative, superseded further down, or a daily log of work already done.
+
 Document: {path}
 
 {body}
@@ -121,30 +135,99 @@ class RunError(RuntimeError):
     """The run cannot proceed at all."""
 
 
-def documents(paths: list[str]) -> list[Path]:
-    """Every markdown file the given paths name, in a stable order."""
+EXCLUDE = ("archive",)
+
+
+def _tracked(root: Path) -> set[Path] | None:
+    """Every markdown file git tracks under root, or None outside a repository.
+
+    None and the empty set mean different things. A directory with no
+    repository has no tracking to filter on, and refusing every document there
+    would make construct useless on a plain folder of notes.
+    """
+    try:
+        done = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z", "--", "*.md"],
+            capture_output=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode != 0:
+        return None
+    text = done.stdout.decode("utf-8", errors="surrogateescape")
+    return {(root / name).resolve() for name in text.split("\0") if name}
+
+
+def _walk(root: Path, exclude: tuple[str, ...], untracked: bool) -> list[Path]:
+    """The markdown under one directory, past both filters.
+
+    The first real run staged 891 proposals, 326 from documents git does not
+    track and 582 from an archive path. Neither filter subsumes the other: 26
+    of the 47 archive documents were tracked.
+    """
+    tracked = None if untracked else _tracked(root)
+    found = []
+    for path in sorted(root.rglob("*.md")):
+        # A whole segment, never a substring: archived-designs/ is not archive/.
+        if exclude and set(path.parts) & set(exclude):
+            continue
+        if tracked is not None and path.resolve() not in tracked:
+            continue
+        found.append(path)
+    return found
+
+
+def documents(
+    paths: list[str], exclude: tuple[str, ...] = EXCLUDE, untracked: bool = False
+) -> list[Path]:
+    """Every markdown file the given paths name, in a stable order.
+
+    A named file is read whatever the filters say. Naming one document is an
+    explicit instruction; the filters only shape a walk.
+    """
     found: list[Path] = []
     for name in paths:
         path = Path(name)
         if path.is_file():
             found.append(path)
         elif path.is_dir():
-            found.extend(sorted(path.rglob("*.md")))
+            found.extend(_walk(path, exclude, untracked))
     return sorted(dict.fromkeys(found))
 
 
 def _default_caller():
-    """The real provider call. Imported here, never at module scope."""
-    from openai import OpenAI
-
+    """The real provider call. The SDK is imported here, never at module scope."""
     cfg = client.config()
-    api = OpenAI(api_key=cfg["api_key"], base_url=cfg["base_url"])
+
+    if cfg["sdk"] == "anthropic":
+        from anthropic import Anthropic, AuthenticationError, PermissionDeniedError
+
+        api = Anthropic(api_key=cfg["api_key"], base_url=cfg["base_url"])
+
+        def send(body: dict) -> str:
+            reply = api.messages.create(**body)
+            # Thinking arrives as its own block ahead of the answer, so the
+            # first block is not reliably the JSON.
+            return next(b.text for b in reply.content if b.type == "text")
+    else:
+        from openai import AuthenticationError, OpenAI, PermissionDeniedError
+
+        api = OpenAI(api_key=cfg["api_key"], base_url=cfg["base_url"])
+
+        def send(body: dict) -> str:
+            reply = api.chat.completions.create(**body)
+            return reply.choices[0].message.content or ""
 
     def call(prompt: str, want: dict) -> dict:
-        body = client.request(prompt, want, model=cfg["model"],
-                              provider=cfg["provider"])
-        reply = api.chat.completions.create(**body)
-        return client.parse(reply.choices[0].message.content or "", want)
+        body = client.request(prompt, want, model=cfg["model"], provider=cfg["provider"])
+        try:
+            text = send(body)
+        except (AuthenticationError, PermissionDeniedError) as exc:
+            # Raised as ClientError so the driver stops the whole run. Every
+            # remaining document carries the same key and gets the same answer.
+            raise client.ClientError(f"{cfg['provider']} rejected the key: {exc}") from None
+        return client.parse(text, want)
 
     return call
 
@@ -177,8 +260,9 @@ def _with_retry(call, sleep) -> dict:
     raise AssertionError("unreachable")
 
 
-def _one_document(path: str, text: str, date: str | None, caller,
-                  sleep=time.sleep) -> tuple[list[dict], list[str]]:
+def _one_document(
+    path: str, text: str, date: str | None, caller, sleep=time.sleep
+) -> tuple[list[dict], list[str]]:
     """Pass 1 for one document: the records that survive local checks."""
     prompt = _EXTRACT_PROMPT.format(path=path, body=text)
     reply = _with_retry(lambda: caller(prompt, EXTRACT_SCHEMA), sleep)
@@ -190,15 +274,19 @@ def _one_document(path: str, text: str, date: str | None, caller,
         anchor = record.get("anchor", "")
         line = extract.anchor_line(anchor, text)
         if line is None:
-            notes.append(f"{path}: dropped a record, its anchor quotes no line "
-                         f"in the document: {anchor[:60]!r}")
+            notes.append(
+                f"{path}: dropped a record, its anchor quotes no line "
+                f"in the document: {anchor[:60]!r}"
+            )
             continue
 
         scope = list(record.get("scope") or [])
         bad = schema.invalid_scope(scope)
         if bad:
-            notes.append(f"{path}: dropped {len(bad)} scope entr"
-                         f"{'y' if len(bad) == 1 else 'ies'} that name no file")
+            notes.append(
+                f"{path}: dropped {len(bad)} scope entr"
+                f"{'y' if len(bad) == 1 else 'ies'} that name no file"
+            )
             scope = [item for item in scope if item not in bad]
 
         try:
@@ -208,6 +296,13 @@ def _one_document(path: str, text: str, date: str | None, caller,
                 anchor=anchor,
                 choice=record.get("choice", "") or "",
                 rationale=record.get("rationale", "") or "",
+                # An unknown value falls back rather than raising: one odd
+                # confidence should cost a sort position, never the record.
+                confidence=(
+                    record.get("confidence")
+                    if record.get("confidence") in schema.CONFIDENCE
+                    else "low"
+                ),
                 scope=scope,
                 source={"path": path, "date": date},
                 line=line,
@@ -250,8 +345,10 @@ def _link(proposals: list[dict], caller, batch: int) -> tuple[list[dict], list[s
 
     notes.append(f"link: kept {kept} edge{'' if kept == 1 else 's'}")
     if asked:
-        notes.append(f"link: asked {len(asked)} question"
-                     f"{'' if len(asked) == 1 else 's'} about contradictions")
+        notes.append(
+            f"link: asked {len(asked)} question"
+            f"{'' if len(asked) == 1 else 's'} about contradictions"
+        )
     return linked + asked, notes
 
 
@@ -264,8 +361,12 @@ def _repo_root(found: list[Path], fallback: Path) -> Path:
     """
     start = found[0].resolve().parent if found else fallback
     try:
-        done = subprocess.run(["git", "-C", str(start), "rev-parse", "--show-toplevel"],
-                              capture_output=True, text=True, timeout=10)
+        done = subprocess.run(
+            ["git", "-C", str(start), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
     except (OSError, subprocess.SubprocessError):
         return fallback
     if done.returncode != 0:
@@ -286,15 +387,23 @@ def _relative(path: Path, root: Path) -> str:
         return str(path)
 
 
-def two_pass(paths: list[str], jobs: int = 8, dry_run: bool = False,
-             caller=None, batch: int = link.BATCH,
-             root: Path | None = None, sleep=time.sleep) -> tuple[list[dict], list[str]]:
+def two_pass(
+    paths: list[str],
+    jobs: int = 8,
+    dry_run: bool = False,
+    caller=None,
+    batch: int = link.BATCH,
+    root: Path | None = None,
+    sleep=time.sleep,
+    exclude: tuple[str, ...] = EXCLUDE,
+    untracked: bool = False,
+) -> tuple[list[dict], list[str]]:
     """Both passes over the given documents.
 
     A document whose call fails costs only its own records. One provider error
     out of 180 should not discard the other 179.
     """
-    found = documents(paths)
+    found = documents(paths, exclude=exclude, untracked=untracked)
     if not found:
         raise RunError(f"no markdown found under {', '.join(paths)}")
 
@@ -310,25 +419,40 @@ def two_pass(paths: list[str], jobs: int = 8, dry_run: bool = False,
     git = extract.git_dates(root)
     bodies = {path: path.read_text(errors="replace") for path in found}
     names = {path: _relative(path, root) for path in found}
-    dates = {path: extract.resolve_date(names[path], bodies[path], git)
-             for path in found}
+    dates = {path: extract.resolve_date(names[path], bodies[path], git) for path in found}
 
     proposals: list[dict] = []
+    failed = 0
+    fatal: client.ClientError | None = None
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
         futures = {
-            pool.submit(_one_document, names[path], bodies[path], dates[path],
-                        caller, sleep): path
+            pool.submit(_one_document, names[path], bodies[path], dates[path], caller, sleep): path
             for path in found
         }
         for future in concurrent.futures.as_completed(futures):
             path = futures[future]
             try:
                 kept, notes = future.result()
+            except client.ClientError as exc:
+                # A rejected key answers for every remaining document. Cancelling
+                # what has not started spends one call to learn it, never 60.
+                fatal = exc
+                for pending in futures:
+                    pending.cancel()
+                break
+            except concurrent.futures.CancelledError:
+                continue
             except Exception as exc:
+                failed += 1
                 report.append(f"{path}: extraction failed, {exc}")
                 continue
             proposals.extend(kept)
             report.extend(notes)
+
+    if fatal is not None:
+        raise fatal
+    if failed == len(found):
+        raise RunError(f"every document failed: {failed} of {failed}. Nothing was staged.")
 
     proposals.sort(key=lambda item: (item["source"]["path"], item.get("line", 0)))
 

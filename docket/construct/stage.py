@@ -44,8 +44,10 @@ def read(path: Path) -> list[dict]:
             if field not in item:
                 raise StageError(f"{path}: line {number} has no {field!r}")
         if item["state"] not in STATES:
-            raise StageError(f"{path}: line {number} has state {item['state']!r}; "
-                             f"expected one of {', '.join(STATES)}")
+            raise StageError(
+                f"{path}: line {number} has state {item['state']!r}; "
+                f"expected one of {', '.join(STATES)}"
+            )
         items.append(item)
     return items
 
@@ -113,7 +115,9 @@ def review_groups(proposals: list[dict], live: set[str]) -> list[tuple[str, list
         groups.setdefault(item["source"]["path"], []).append(item)
 
     def order(item: dict) -> tuple[int, int]:
-        return (0 if resolves(item, live) else 1,
-                _RANK.get(item.get("confidence", "low"), len(CONFIDENCE)))
+        return (
+            0 if resolves(item, live) else 1,
+            _RANK.get(item.get("confidence", "low"), len(CONFIDENCE)),
+        )
 
     return [(name, sorted(items, key=order)) for name, items in sorted(groups.items())]

@@ -7,11 +7,24 @@ from pathlib import Path
 from docket.construct import schema, stage
 
 
-def prop(path="a.md", anchor="Decision: one", kind="decision", choice="yes",
-         scope=None, confidence="low", text="Question?"):
-    return schema.proposal(kind=kind, text=text, choice=choice, anchor=anchor,
-                           scope=scope or [], confidence=confidence,
-                           source={"path": path, "date": "2026-06-18"})
+def prop(
+    path="a.md",
+    anchor="Decision: one",
+    kind="decision",
+    choice="yes",
+    scope=None,
+    confidence="low",
+    text="Question?",
+):
+    return schema.proposal(
+        kind=kind,
+        text=text,
+        choice=choice,
+        anchor=anchor,
+        scope=scope or [],
+        confidence=confidence,
+        source={"path": path, "date": "2026-06-18"},
+    )
 
 
 class RoundTripTests(unittest.TestCase):
@@ -78,16 +91,15 @@ class MergeTests(unittest.TestCase):
 
 class ResolutionTests(unittest.TestCase):
     def test_a_scope_matching_a_live_file_resolves(self):
-        self.assertTrue(stage.resolves(prop(scope=["docket/context.py"]),
-                                       {"docket/context.py", "README.md"}))
+        self.assertTrue(
+            stage.resolves(prop(scope=["docket/context.py"]), {"docket/context.py", "README.md"})
+        )
 
     def test_a_glob_resolves_against_a_live_file(self):
-        self.assertTrue(stage.resolves(prop(scope=["docket/**"]),
-                                       {"docket/context.py"}))
+        self.assertTrue(stage.resolves(prop(scope=["docket/**"]), {"docket/context.py"}))
 
     def test_a_scope_matching_nothing_does_not_resolve(self):
-        self.assertFalse(stage.resolves(prop(scope=["db/labels_v2.py"]),
-                                        {"docket/context.py"}))
+        self.assertFalse(stage.resolves(prop(scope=["db/labels_v2.py"]), {"docket/context.py"}))
 
     def test_a_record_with_no_scope_does_not_resolve(self):
         # 29 of the spike's 61 records carried no scope at all. Absence is not
@@ -95,30 +107,39 @@ class ResolutionTests(unittest.TestCase):
         self.assertFalse(stage.resolves(prop(scope=[]), {"docket/context.py"}))
 
     def test_one_resolving_entry_is_enough(self):
-        self.assertTrue(stage.resolves(prop(scope=["gone.py", "docket/context.py"]),
-                                       {"docket/context.py"}))
+        self.assertTrue(
+            stage.resolves(prop(scope=["gone.py", "docket/context.py"]), {"docket/context.py"})
+        )
 
 
 class ReviewOrderTests(unittest.TestCase):
     def test_groups_by_source_document(self):
-        items = [prop(path="b.md", anchor="one"), prop(path="a.md", anchor="two"),
-                 prop(path="b.md", anchor="three")]
+        items = [
+            prop(path="b.md", anchor="one"),
+            prop(path="a.md", anchor="two"),
+            prop(path="b.md", anchor="three"),
+        ]
         groups = stage.review_groups(items, live={"x"})
         self.assertEqual([name for name, _ in groups], ["a.md", "b.md"])
         self.assertEqual(len(dict(groups)["b.md"]), 2)
 
     def test_sorts_high_confidence_first_inside_a_group(self):
-        items = [prop(anchor="low one", confidence="low"),
-                 prop(anchor="high one", confidence="high"),
-                 prop(anchor="medium one", confidence="medium")]
+        items = [
+            prop(anchor="low one", confidence="low"),
+            prop(anchor="high one", confidence="high"),
+            prop(anchor="medium one", confidence="medium"),
+        ]
         groups = stage.review_groups(items, live={"x"})
-        self.assertEqual([p["anchor"] for p in dict(groups)["a.md"]],
-                         ["high one", "medium one", "low one"])
+        self.assertEqual(
+            [p["anchor"] for p in dict(groups)["a.md"]], ["high one", "medium one", "low one"]
+        )
 
     def test_sinks_a_record_whose_scope_resolves_to_nothing(self):
         live = {"docket/context.py"}
-        items = [prop(anchor="stale", confidence="high", scope=["gone.py"]),
-                 prop(anchor="live", confidence="low", scope=["docket/context.py"])]
+        items = [
+            prop(anchor="stale", confidence="high", scope=["gone.py"]),
+            prop(anchor="live", confidence="low", scope=["docket/context.py"]),
+        ]
         groups = stage.review_groups(items, live=live)
         self.assertEqual([p["anchor"] for p in dict(groups)["a.md"]], ["live", "stale"])
 
@@ -132,9 +153,11 @@ class ReviewOrderTests(unittest.TestCase):
 class ResolutionRateTests(unittest.TestCase):
     def test_reports_the_share_of_scoped_records_that_resolve(self):
         live = {"docket/context.py"}
-        items = [prop(anchor="a", scope=["docket/context.py"]),
-                 prop(anchor="b", scope=["gone.py"]),
-                 prop(anchor="c", scope=[])]
+        items = [
+            prop(anchor="a", scope=["docket/context.py"]),
+            prop(anchor="b", scope=["gone.py"]),
+            prop(anchor="c", scope=[]),
+        ]
         # Two carry a scope; one of them resolves.
         self.assertEqual(stage.resolution_rate(items, live), (1, 2))
 

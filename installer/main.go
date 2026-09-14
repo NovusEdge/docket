@@ -28,6 +28,7 @@ func parseOptions(args []string, out io.Writer) (Options, error) {
 	f.StringVar(&opts.Prefix, "prefix", "", "directory for the docket command (default ~/.local/bin)")
 	f.StringVar(&opts.Checkout, "checkout", "", "install from an existing checkout without updating it")
 	f.Var(&selected, "harness", "configure only this harness; repeatable")
+	f.StringVar(&opts.Construct, "construct", "", "install the docket construct SDK for this provider ("+ProviderNames()+"); needs uv")
 	f.BoolVar(&opts.Project, "project", false, "put the Claude skill and Cursor rule in the current project")
 	f.BoolVar(&opts.Yes, "yes", false, "apply defaults without prompts")
 	f.BoolVar(&opts.NoTTY, "no-tty", false, "use plain unattended output")
@@ -36,7 +37,7 @@ func parseOptions(args []string, out io.Writer) (Options, error) {
 	f.BoolVar(&opts.Uninstall, "uninstall", false, "remove Docket integration; keep decision ledgers")
 	f.BoolVar(&opts.Version, "version", false, "show installer version")
 	f.Usage = func() {
-		fmt.Fprintln(out, "Usage: docket-installer [options]\n\nInstall Docket and configure agent harnesses. Docket needs Python 3.11+.")
+		_, _ = fmt.Fprintln(out, "Usage: docket-installer [options]\n\nInstall Docket and configure agent harnesses. Docket needs Python 3.11+.")
 		f.PrintDefaults()
 	}
 	if err := f.Parse(args); err != nil {
@@ -44,6 +45,9 @@ func parseOptions(args []string, out io.Writer) (Options, error) {
 	}
 	if f.NArg() != 0 {
 		return opts, fmt.Errorf("unexpected argument %q", f.Arg(0))
+	}
+	if opts.Construct != "" && !KnownProvider(opts.Construct) {
+		return opts, fmt.Errorf("unknown construct provider %q (choose one of %s)", opts.Construct, ProviderNames())
 	}
 	opts.Harness = []string(selected)
 	return opts, nil
@@ -73,7 +77,7 @@ func run(args []string) int {
 		fmt.Fprintln(os.Stderr, "docket:", err)
 		return 1
 	}
-	interactive := !opts.Yes && !opts.NoTTY && !opts.DryRun && !opts.Update && len(opts.Harness) == 0 && term.IsTerminal(os.Stdin.Fd()) && term.IsTerminal(os.Stdout.Fd()) && os.Getenv("TERM") != "dumb"
+	interactive := !opts.Yes && !opts.NoTTY && !opts.DryRun && !opts.Update && len(opts.Harness) == 0 && opts.Construct == "" && term.IsTerminal(os.Stdin.Fd()) && term.IsTerminal(os.Stdout.Fd()) && os.Getenv("TERM") != "dumb"
 	if interactive {
 		return RunTUI(env, opts)
 	}

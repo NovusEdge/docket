@@ -257,8 +257,7 @@ class SpawnFetch(unittest.TestCase):
                 setattr(up.subprocess, name, 1 << len(name))
                 self.addCleanup(delattr, up.subprocess, name)
         up.spawn_fetch(Path("/src/docket/bin/docket"))
-        self.assertTrue(
-            recorded["kwargs"]["creationflags"] & up.subprocess.DETACHED_PROCESS)
+        self.assertTrue(recorded["kwargs"]["creationflags"] & up.subprocess.DETACHED_PROCESS)
 
     def test_spawn_failure_is_swallowed(self):
         def boom(*a, **k):
@@ -284,6 +283,7 @@ class UpdateLine(unittest.TestCase):
         os.environ["XDG_STATE_HOME"] = self.tmp.name
         self.addCleanup(os.environ.pop, "XDG_STATE_HOME", None)
         from docket.cli import query
+
         self.docket_cli = query
 
     def test_due_check_forks_instead_of_fetching_inline(self):
@@ -317,16 +317,22 @@ class ContextNotice(unittest.TestCase):
             "DOCKET_HOME": str(self.project / ".docket"),
             **env,
         }
-        return sp.run([sys.executable, str(DOCKET), "context", *args],
-                      cwd=self.project, env=environment,
-                      capture_output=True, text=True)
+        return sp.run(
+            [sys.executable, str(DOCKET), "context", *args],
+            cwd=self.project,
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
 
     def seed(self, latest):
         self.state.mkdir(parents=True, exist_ok=True)
         (self.state / "docket").mkdir(parents=True, exist_ok=True)
-        (self.state / "docket" / "update.json").write_text(json.dumps(
-            {"latest": latest, "checked_at": 0, "failures": 0,
-             "next_check_at": 9_999_999_999}))
+        (self.state / "docket" / "update.json").write_text(
+            json.dumps(
+                {"latest": latest, "checked_at": 0, "failures": 0, "next_check_at": 9_999_999_999}
+            )
+        )
 
     def test_notice_prints_with_an_empty_ledger(self):
         self.seed("v99.0.0")
@@ -365,13 +371,18 @@ class UpdateCommand(unittest.TestCase):
 
     def run_update(self, *args):
         environment = {**os.environ, "XDG_STATE_HOME": str(self.state)}
-        return sp.run([sys.executable, str(DOCKET), "update", *args],
-                      env=environment, capture_output=True, text=True)
+        return sp.run(
+            [sys.executable, str(DOCKET), "update", *args],
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
 
     def seed(self, latest):
         (self.state / "docket").mkdir(parents=True, exist_ok=True)
         (self.state / "docket" / "update.json").write_text(
-            json.dumps({"latest": latest, "next_check_at": 9_999_999_999}))
+            json.dumps({"latest": latest, "next_check_at": 9_999_999_999})
+        )
 
     def test_check_reports_current(self):
         self.seed("v0.0.1")
@@ -410,6 +421,7 @@ class UpdateCommandBranches(unittest.TestCase):
         os.environ["XDG_STATE_HOME"] = self.tmp.name
         self.addCleanup(os.environ.pop, "XDG_STATE_HOME", None)
         from docket.cli import admin
+
         self.docket_cli = admin
         original_call = self.docket_cli.subprocess.call
         self.addCleanup(setattr, self.docket_cli.subprocess, "call", original_call)
@@ -435,7 +447,9 @@ class UpdateCommandBranches(unittest.TestCase):
         self.docket_cli.subprocess.call = lambda *a, **k: recorded.append((a, k)) or 0
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            rc = self.docket_cli.cmd_update(self.args(), root=self.docket_cli.Path("/home/a/nowhere"))
+            rc = self.docket_cli.cmd_update(
+                self.args(), root=self.docket_cli.Path("/home/a/nowhere")
+            )
         self.assertEqual(rc, 0)
         self.assertEqual(recorded, [])
         printed = buf.getvalue()
@@ -452,10 +466,18 @@ class UpdateCommandBranches(unittest.TestCase):
         # docket.ROOT, never __file__: cmd_update lives two levels below the
         # checkout now, so parent.parent from here names docket/.
         root = self.docket_cli.ROOT
-        self.assertEqual(recorded, [[
-            self.docket_cli.sys.executable, str(root / "installer" / "install.py"),
-            "--checkout", str(root), "--update",
-        ]])
+        self.assertEqual(
+            recorded,
+            [
+                [
+                    self.docket_cli.sys.executable,
+                    str(root / "installer" / "install.py"),
+                    "--checkout",
+                    str(root),
+                    "--update",
+                ]
+            ],
+        )
 
     def test_managed_shape_downloads_the_cached_tag_launcher(self):
         self.addCleanup(setattr, up, "shape", up.shape)

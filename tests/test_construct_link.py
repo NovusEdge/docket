@@ -5,11 +5,25 @@ import unittest
 from docket.construct import link, schema
 
 
-def prop(anchor, kind="decision", choice="yes", text="Question?", date="2026-06-18",
-         path="a.md", rationale="because", scope=None):
-    return schema.proposal(kind=kind, text=text, choice=choice, anchor=anchor,
-                           rationale=rationale, scope=scope or [],
-                           source={"path": path, "date": date})
+def prop(
+    anchor,
+    kind="decision",
+    choice="yes",
+    text="Question?",
+    date="2026-06-18",
+    path="a.md",
+    rationale="because",
+    scope=None,
+):
+    return schema.proposal(
+        kind=kind,
+        text=text,
+        choice=choice,
+        anchor=anchor,
+        rationale=rationale,
+        scope=scope or [],
+        source={"path": path, "date": date},
+    )
 
 
 class PayloadTests(unittest.TestCase):
@@ -102,26 +116,29 @@ class LedgerRuleTests(unittest.TestCase):
 
     def test_drops_support_pointing_at_a_question(self):
         items = [prop("q", kind="question", choice=""), prop("d")]
-        edges, dropped = link.validate(
-            [{"kind": "supports", "from": "p2", "to": "p1"}], items)
+        edges, dropped = link.validate([{"kind": "supports", "from": "p2", "to": "p1"}], items)
         self.assertEqual(edges, [])
         self.assertIn("question", dropped[0])
 
     def test_keeps_support_pointing_at_a_claim(self):
         items = [prop("c", kind="claim", choice=""), prop("d")]
-        edges, _ = link.validate(
-            [{"kind": "supports", "from": "p2", "to": "p1"}], items)
+        edges, _ = link.validate([{"kind": "supports", "from": "p2", "to": "p1"}], items)
         self.assertEqual(len(edges), 1)
 
     def test_drops_a_second_record_superseding_the_same_target(self):
         # The ledger retires a target once; the second append is refused.
-        items = [prop("old", date="2026-01-01"),
-                 prop("mid", date="2026-03-01"),
-                 prop("new", date="2026-06-01")]
-        edges, dropped = link.validate([
-            {"kind": "supersedes", "from": "p2", "to": "p1"},
-            {"kind": "supersedes", "from": "p3", "to": "p1"},
-        ], items)
+        items = [
+            prop("old", date="2026-01-01"),
+            prop("mid", date="2026-03-01"),
+            prop("new", date="2026-06-01"),
+        ]
+        edges, dropped = link.validate(
+            [
+                {"kind": "supersedes", "from": "p2", "to": "p1"},
+                {"kind": "supersedes", "from": "p3", "to": "p1"},
+            ],
+            items,
+        )
         self.assertEqual(len(edges), 1)
         self.assertTrue(any("already" in d for d in dropped))
 
@@ -129,59 +146,76 @@ class LedgerRuleTests(unittest.TestCase):
 class SupportsAcyclicTests(unittest.TestCase):
     def test_keeps_a_chain(self):
         items = [prop("a"), prop("b"), prop("c")]
-        edges, dropped = link.validate([
-            {"kind": "supports", "from": "p2", "to": "p1"},
-            {"kind": "supports", "from": "p3", "to": "p2"},
-        ], items)
+        edges, dropped = link.validate(
+            [
+                {"kind": "supports", "from": "p2", "to": "p1"},
+                {"kind": "supports", "from": "p3", "to": "p2"},
+            ],
+            items,
+        )
         self.assertEqual(len(edges), 2)
         self.assertEqual(dropped, [])
 
     def test_drops_the_edge_that_closes_a_two_record_cycle(self):
         items = [prop("a"), prop("b")]
-        edges, dropped = link.validate([
-            {"kind": "supports", "from": "p2", "to": "p1"},
-            {"kind": "supports", "from": "p1", "to": "p2"},
-        ], items)
+        edges, dropped = link.validate(
+            [
+                {"kind": "supports", "from": "p2", "to": "p1"},
+                {"kind": "supports", "from": "p1", "to": "p2"},
+            ],
+            items,
+        )
         self.assertEqual(len(edges), 1)
         self.assertIn("cycle", dropped[0])
 
     def test_drops_the_edge_that_closes_a_longer_cycle(self):
         items = [prop("a"), prop("b"), prop("c")]
-        edges, dropped = link.validate([
-            {"kind": "supports", "from": "p2", "to": "p1"},
-            {"kind": "supports", "from": "p3", "to": "p2"},
-            {"kind": "supports", "from": "p1", "to": "p3"},
-        ], items)
+        edges, dropped = link.validate(
+            [
+                {"kind": "supports", "from": "p2", "to": "p1"},
+                {"kind": "supports", "from": "p3", "to": "p2"},
+                {"kind": "supports", "from": "p1", "to": "p3"},
+            ],
+            items,
+        )
         self.assertEqual(len(edges), 2)
         self.assertTrue(any("cycle" in d for d in dropped))
 
     def test_a_cycle_through_supersedes_does_not_block_a_supports_edge(self):
         # Only supports has to stay acyclic; the two relations are separate.
         items = [prop("a", date="2026-01-01"), prop("b", date="2026-06-01")]
-        edges, _ = link.validate([
-            {"kind": "supersedes", "from": "p2", "to": "p1"},
-            {"kind": "supports", "from": "p2", "to": "p1"},
-        ], items)
+        edges, _ = link.validate(
+            [
+                {"kind": "supersedes", "from": "p2", "to": "p1"},
+                {"kind": "supports", "from": "p2", "to": "p1"},
+            ],
+            items,
+        )
         self.assertEqual(len(edges), 2)
 
 
 class ContradictionTests(unittest.TestCase):
     def pair(self):
-        return [prop("a", kind="claim", choice="", text="Write-gating adds 50-200ms"),
-                prop("b", kind="claim", choice="", text="Write latency target is under 50ms",
-                     path="b.md")]
+        return [
+            prop("a", kind="claim", choice="", text="Write-gating adds 50-200ms"),
+            prop(
+                "b", kind="claim", choice="", text="Write latency target is under 50ms", path="b.md"
+            ),
+        ]
 
     def test_keeps_a_contradiction_between_two_records(self):
         edges, dropped = link.validate(
-            [{"kind": "contradicts", "from": "p1", "to": "p2"}], self.pair())
+            [{"kind": "contradicts", "from": "p1", "to": "p2"}], self.pair()
+        )
         self.assertEqual(len(edges), 1)
         self.assertEqual(dropped, [])
 
     def test_a_contradiction_needs_no_date_and_no_shared_kind(self):
-        items = [prop("a", kind="claim", choice="", date=None),
-                 prop("b", kind="decision", path="b.md")]
-        edges, dropped = link.validate(
-            [{"kind": "contradicts", "from": "p1", "to": "p2"}], items)
+        items = [
+            prop("a", kind="claim", choice="", date=None),
+            prop("b", kind="decision", path="b.md"),
+        ]
+        edges, dropped = link.validate([{"kind": "contradicts", "from": "p1", "to": "p2"}], items)
         self.assertEqual(len(edges), 1)
 
     def test_a_contradiction_becomes_a_proposed_question(self):
@@ -210,8 +244,9 @@ class ContradictionTests(unittest.TestCase):
     def test_the_same_contradiction_asks_the_same_question_twice_over(self):
         items = self.pair()
         edge = [{"kind": "contradicts", "from": "p1", "to": "p2"}]
-        self.assertEqual(link.questions(edge, items)[0]["key"],
-                         link.questions(edge, items)[0]["key"])
+        self.assertEqual(
+            link.questions(edge, items)[0]["key"], link.questions(edge, items)[0]["key"]
+        )
 
     def test_the_question_keys_apart_from_the_record_it_borrowed_from(self):
         # It takes that record's anchor and source. Keying the same would make
@@ -258,8 +293,9 @@ class BatchTests(unittest.TestCase):
         for index, batch in enumerate(batches):
             for item in batch:
                 path = item["source"]["path"]
-                self.assertEqual(where.setdefault(path, index), index,
-                                 f"{path} spans more than one batch")
+                self.assertEqual(
+                    where.setdefault(path, index), index, f"{path} spans more than one batch"
+                )
 
     def test_batching_is_off_for_a_size_of_zero(self):
         self.assertEqual(len(link.batches(self.items(300), size=0)), 1)
@@ -288,11 +324,12 @@ class ApplyTests(unittest.TestCase):
         # set means "all of these are required". A linker sees two independent
         # grounds and cannot tell that; joining them claims more than it saw.
         items = [prop("a"), prop("b"), prop("c")]
-        edges = [{"kind": "supports", "from": "p3", "to": "p1"},
-                 {"kind": "supports", "from": "p3", "to": "p2"}]
+        edges = [
+            {"kind": "supports", "from": "p3", "to": "p1"},
+            {"kind": "supports", "from": "p3", "to": "p2"},
+        ]
         out = link.apply(edges, items)
-        self.assertEqual(out[2]["supports"],
-                         [[items[0]["key"]], [items[1]["key"]]])
+        self.assertEqual(out[2]["supports"], [[items[0]["key"]], [items[1]["key"]]])
 
     def test_does_not_mutate_the_records_it_was_given(self):
         items = [prop("a", date="2026-01-01"), prop("b", date="2026-06-01")]

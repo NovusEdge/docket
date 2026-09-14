@@ -68,19 +68,30 @@ def invalid_scope(scope: list[str]) -> list[str]:
     """
     bad = []
     for item in scope:
-        if (not item
-                or len(item) > SCOPE_MAX
-                or _SPACE.search(item)
-                or item in _EVERYTHING
-                or item.startswith("/")
-                or ".." in item.split("/")):
+        if (
+            not item
+            or len(item) > SCOPE_MAX
+            or _SPACE.search(item)
+            or item in _EVERYTHING
+            or item.startswith("/")
+            or ".." in item.split("/")
+        ):
             bad.append(item)
     return bad
 
 
-def proposal(kind: str, text: str, anchor: str, source: dict,
-             choice: str = "", rationale: str = "", scope: list[str] | None = None,
-             confidence: str = "low", key_kind: str = "", **extra) -> dict:
+def proposal(
+    kind: str,
+    text: str,
+    anchor: str,
+    source: dict,
+    choice: str = "",
+    rationale: str = "",
+    scope: list[str] | None = None,
+    confidence: str = "low",
+    key_kind: str = "",
+    **extra,
+) -> dict:
     """One staged record, keyed and checked.
 
     `key_kind` separates a record derived from another's anchor, so the two do
@@ -91,8 +102,10 @@ def proposal(kind: str, text: str, anchor: str, source: dict,
     if not text.strip():
         raise SchemaError("a proposal needs text")
     if not anchor.strip():
-        raise SchemaError("a proposal needs an anchor: it is the identity key "
-                          "and the reviewer's way back to the source")
+        raise SchemaError(
+            "a proposal needs an anchor: it is the identity key "
+            "and the reviewer's way back to the source"
+        )
     if kind == "decision" and not choice.strip():
         raise SchemaError("a decision needs a choice")
     if confidence not in CONFIDENCE:

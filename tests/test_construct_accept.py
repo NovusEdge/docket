@@ -1,6 +1,5 @@
 """Acceptance: staged proposals becoming ledger records."""
 
-import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,11 +8,25 @@ from docket.construct import accept, schema, stage
 from docket.ledger import project, read
 
 
-def prop(anchor, kind="decision", choice="yes", text="Question?", date="2026-06-18",
-         path="a.md", scope=None, rationale="because"):
-    return schema.proposal(kind=kind, text=text, choice=choice, anchor=anchor,
-                           rationale=rationale, scope=scope or [],
-                           source={"path": path, "date": date})
+def prop(
+    anchor,
+    kind="decision",
+    choice="yes",
+    text="Question?",
+    date="2026-06-18",
+    path="a.md",
+    scope=None,
+    rationale="because",
+):
+    return schema.proposal(
+        kind=kind,
+        text=text,
+        choice=choice,
+        anchor=anchor,
+        rationale=rationale,
+        scope=scope or [],
+        source={"path": path, "date": date},
+    )
 
 
 class AcceptTests(unittest.TestCase):
@@ -62,6 +75,58 @@ class AcceptTests(unittest.TestCase):
         accept.run(self.staged, self.ledger)
         self.assertIn("context/x.md", read(self.ledger)[0]["rationale"])
 
+    def test_orders_records_by_the_date_of_their_document(self):
+        # Recency scores by numeric id (context.py rank_of), never by ts, so
+        # chronological ids are the only thing that makes the signal real.
+        stage.write(
+            self.staged,
+            self.accepted(
+                prop("late", text="June", date="2026-06-18", path="b.md"),
+                prop("early", text="April", date="2026-04-27", path="a.md"),
+                prop("middle", text="May", date="2026-05-06", path="c.md"),
+            ),
+        )
+        accept.run(self.staged, self.ledger)
+        self.assertEqual([e["text"] for e in read(self.ledger)], ["April", "May", "June"])
+
+    def test_sorts_an_undated_document_before_every_dated_one(self):
+        # An unknown date cannot claim recency it has not established.
+        stage.write(
+            self.staged,
+            self.accepted(
+                prop("dated", text="April", date="2026-04-27", path="a.md"),
+                prop("none", text="Undated", date=None, path="b.md"),
+            ),
+        )
+        accept.run(self.staged, self.ledger)
+        self.assertEqual([e["text"] for e in read(self.ledger)], ["Undated", "April"])
+
+    def test_keeps_a_support_ahead_of_the_record_it_grounds(self):
+        # Date order yields to support order: a key has to resolve to an id
+        # before the record citing it is written.
+        ground = prop(
+            "ground", kind="claim", choice="", text="Ground", date="2026-06-18", path="b.md"
+        )
+        cites = prop("cites", text="Cites", date="2026-04-27", path="a.md")
+        cites["supports"] = [[ground["key"]]]
+        stage.write(self.staged, self.accepted(cites, ground))
+        accept.run(self.staged, self.ledger)
+        entries = read(self.ledger)
+        self.assertEqual([e["text"] for e in entries], ["Ground", "Cites"])
+        self.assertEqual(entries[1]["supports"], [[entries[0]["id"]]])
+
+    def test_dates_the_record_from_its_document(self):
+        # A briefing that stamps every constructed record with the run date
+        # claims a two-year-old decision was made today.
+        stage.write(self.staged, self.accepted(prop("one", date="2026-04-27")))
+        accept.run(self.staged, self.ledger)
+        self.assertTrue(read(self.ledger)[0]["ts"].startswith("2026-04-27"))
+
+    def test_stamps_an_undated_record_with_the_run_time(self):
+        stage.write(self.staged, self.accepted(prop("one", date=None)))
+        accept.run(self.staged, self.ledger)
+        self.assertTrue(read(self.ledger)[0]["ts"])
+
     def test_records_the_run_as_the_author(self):
         stage.write(self.staged, self.accepted(prop("one")))
         accept.run(self.staged, self.ledger)
@@ -79,8 +144,7 @@ class AcceptTests(unittest.TestCase):
         self.assertEqual(stage.read(self.staged)[0]["state"], "written")
 
     def test_accepts_only_the_named_source_when_asked(self):
-        stage.write(self.staged, self.accepted(prop("a", path="x.md"),
-                                               prop("b", path="y.md")))
+        stage.write(self.staged, self.accepted(prop("a", path="x.md"), prop("b", path="y.md")))
         accept.run(self.staged, self.ledger, source="x.md")
         self.assertEqual([e["text"] for e in read(self.ledger)], ["Question?"])
         states = {p["source"]["path"]: p["state"] for p in stage.read(self.staged)}

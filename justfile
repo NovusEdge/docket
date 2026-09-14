@@ -14,6 +14,27 @@ test:
     cd installer && go test ./...
     python3 -m unittest discover -s installer -p 'test_*.py'
 
+# Pinned so a contributor's run and CI's run report the same findings. uvx and
+# `go run` fetch these on demand, so neither is an install requirement.
+ruff := "ruff@0.16.7"
+golangci := "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2"
+
+# rewrite Python and Go to their canonical formatting
+[group('dev')]
+fmt:
+    uvx {{ruff}} format .
+    cd installer && go run {{golangci}} fmt ./...
+    cd graph && go run {{golangci}} fmt ./...
+
+# report every formatting, lint and type finding; change nothing
+[group('dev')]
+lint:
+    uvx {{ruff}} format --check .
+    uvx {{ruff}} check .
+    uvx pyrefly check
+    cd installer && go run {{golangci}} run ./...
+    cd graph && go run {{golangci}} run ./...
+
 # install and uninstall against a throwaway HOME, leaving this machine alone
 [group('dev')]
 verify:

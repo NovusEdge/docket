@@ -65,10 +65,10 @@ func buildViewer(ctx context.Context, target, source, checkout string) error {
 	}
 	stagePath := stage.Name()
 	if err := stage.Close(); err != nil {
-		os.Remove(stagePath)
+		_ = os.Remove(stagePath)
 		return err
 	}
-	defer os.Remove(stagePath)
+	defer func() { _ = os.Remove(stagePath) }()
 
 	args := []string{"build", "-trimpath", "-o", stagePath}
 	if version, err := checkedOutVersion(checkout); err == nil {
@@ -184,18 +184,15 @@ func atomicInstallViewer(target string, payload []byte) error {
 		return err
 	}
 	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
+	defer func() { _ = os.Remove(tmpPath) }()
 	if _, err := tmp.Write(payload); err != nil {
-		tmp.Close()
-		return err
+		return errors.Join(err, tmp.Close())
 	}
 	if err := tmp.Chmod(mode); err != nil {
-		tmp.Close()
-		return err
+		return errors.Join(err, tmp.Close())
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
+		return errors.Join(err, tmp.Close())
 	}
 	if err := tmp.Close(); err != nil {
 		return err
@@ -212,7 +209,7 @@ func fetchViewerURL(ctx context.Context, url string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		return nil, fmt.Errorf("HTTP %s", response.Status)
 	}

@@ -38,8 +38,8 @@ DOCKET_CLI = re.compile(r"^(?:[^\s;&|]*/)?docket(?:\.py)?$")
 OPAQUE = re.compile(
     r"(^|[\s;&|(])(?:python3?|perl|ruby|node|deno|bun|php|osascript|bash|sh|zsh)"
     r"\s+-\w*[ce]\b"
-    r"|<<-?\s*['\"]?\w+"           # heredoc
-    r"|\$\(|`"                      # command substitution
+    r"|<<-?\s*['\"]?\w+"  # heredoc
+    r"|\$\(|`"  # command substitution
     r"|\beval\b|\bexec\b"
     r"|base64\s+(?:-d|--decode)"
 )
@@ -93,7 +93,7 @@ def bash_targets_ledger(command: str, cwd: str) -> bool:
     for segment in re.split(r"\|\||&&|[;|&\n]", command):
         head = segment.strip().split()
         while head and ("=" in head[0] and not head[0].startswith("-")):
-            head = head[1:]          # env assignments before the command
+            head = head[1:]  # env assignments before the command
         if not head:
             continue
         name = head[0]
@@ -132,20 +132,23 @@ def main() -> int:
     if not target:
         return 0
 
-    json.dump({
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "ask",
-            "permissionDecisionReason": (
-                f"This writes {target} directly. A ledger is append-only and is "
-                "validated on every read, so an edit made around the CLI can "
-                "break it. Record with `docket claim`, `docket decision` or "
-                "`docket question`; repair with `docket check` and `docket "
-                "rebase`; convert an old ledger with `docket migrate`. Approve "
-                "only if you mean to edit the file itself."
-            ),
-        }
-    }, sys.stdout)
+    json.dump(
+        {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "ask",
+                "permissionDecisionReason": (
+                    f"This writes {target} directly. A ledger is append-only and is "
+                    "validated on every read, so an edit made around the CLI can "
+                    "break it. Record with `docket claim`, `docket decision` or "
+                    "`docket question`; repair with `docket check` and `docket "
+                    "rebase`; convert an old ledger with `docket migrate`. Approve "
+                    "only if you mean to edit the file itself."
+                ),
+            }
+        },
+        sys.stdout,
+    )
     return 0
 
 

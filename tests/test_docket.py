@@ -12,7 +12,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from docket import env as docket_env  # noqa: E402
-from docket.cli import graph as cli_graph, query as cli_query  # noqa: E402
+from docket.cli import graph as cli_graph  # noqa: E402
+from docket.cli import query as cli_query
 from docket.ledger import make_record  # noqa: E402
 
 DOCKET = str(Path(__file__).resolve().parent.parent / "bin" / "docket")
@@ -36,8 +37,9 @@ def run(cwd, *args):
     env["DOCKET_AUTHOR"] = "test"
     env["DOCKET_NO_UPDATE_CHECK"] = "1"
     env["XDG_STATE_HOME"] = str(Path(cwd) / "state")
-    return subprocess.run([sys.executable, DOCKET, *args], cwd=cwd, env=env,
-                          capture_output=True, text=True)
+    return subprocess.run(
+        [sys.executable, DOCKET, *args], cwd=cwd, env=env, capture_output=True, text=True
+    )
 
 
 class _TTYBuffer:
@@ -71,9 +73,20 @@ class CliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             result = run(root, "claim", "Postgres is supported", "--state", "accepted")
             self.assertIn("c2", result.stdout)
-            result = run(root, "decision", "Database", "--choice", "Postgres",
-                         "--alternative", "SQLite", "--depends-on", "c2",
-                         "--decided-by", "human", "--pin")
+            result = run(
+                root,
+                "decision",
+                "Database",
+                "--choice",
+                "Postgres",
+                "--alternative",
+                "SQLite",
+                "--depends-on",
+                "c2",
+                "--decided-by",
+                "human",
+                "--pin",
+            )
             self.assertIn("d3", result.stdout)
             result = run(root, "list", "--kind", "decision", "--json")
             data = json.loads(result.stdout)
@@ -101,8 +114,9 @@ class CliTests(unittest.TestCase):
             root = Path(tmp)
             link = root / "docket"
             link.symlink_to(DOCKET)
-            result = subprocess.run([str(link), "--version"], cwd=root,
-                                    capture_output=True, text=True)
+            result = subprocess.run(
+                [str(link), "--version"], cwd=root, capture_output=True, text=True
+            )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue(result.stdout.startswith("docket "))
 
@@ -113,14 +127,28 @@ class GraphDispatchTests(unittest.TestCase):
             root = Path(tmp)
             ledger = root / "ledger.jsonl"
             entries = [
-                docket_cli.make_record("claim", "Root", state="accepted", author="test", record_id="c1"),
-                docket_cli.make_record("decision", "Child", choice="yes", supports=[["c1"]], author="test", record_id="d2"),
+                docket_cli.make_record(
+                    "claim", "Root", state="accepted", author="test", record_id="c1"
+                ),
+                docket_cli.make_record(
+                    "decision",
+                    "Child",
+                    choice="yes",
+                    supports=[["c1"]],
+                    author="test",
+                    record_id="d2",
+                ),
                 docket_cli.make_record("question", "Open", author="test", record_id="q3"),
             ]
             ledger.write_text("\n".join(json.dumps(item) for item in entries) + "\n")
-            originals = (docket_env.ledger_path, sys.stdin, sys.stdout,
-                         sys.stderr, cli_graph._graph_viewer_path,
-                         cli_graph.subprocess.run)
+            originals = (
+                docket_env.ledger_path,
+                sys.stdin,
+                sys.stdout,
+                sys.stderr,
+                cli_graph._graph_viewer_path,
+                cli_graph.subprocess.run,
+            )
             try:
                 docket_env.ledger_path = lambda: ledger
                 sys.stdin = _TTYBuffer(True)
@@ -138,16 +166,38 @@ class GraphDispatchTests(unittest.TestCase):
                     return subprocess.CompletedProcess(argv, 7)
 
                 cli_graph.subprocess.run = fake_run
-                args = type("Args", (), {"style": None, "state": None, "kind": None,
-                                          "find": None, "plain": False, "pretty": False,
-                                          "interactive": False, "no_interactive": False})()
+                args = type(
+                    "Args",
+                    (),
+                    {
+                        "style": None,
+                        "state": None,
+                        "kind": None,
+                        "find": None,
+                        "plain": False,
+                        "pretty": False,
+                        "interactive": False,
+                        "no_interactive": False,
+                    },
+                )()
                 self.assertEqual(cli_graph.cmd_graph(args), 7)
                 self.assertEqual(seen["payload"]["version"], 2)
                 self.assertFalse(Path(seen["argv"][2]).exists())
 
-                pretty = type("Args", (), {"style": None, "state": None, "kind": None,
-                                            "find": None, "plain": False, "pretty": True,
-                                            "interactive": False, "no_interactive": False})()
+                pretty = type(
+                    "Args",
+                    (),
+                    {
+                        "style": None,
+                        "state": None,
+                        "kind": None,
+                        "find": None,
+                        "plain": False,
+                        "pretty": True,
+                        "interactive": False,
+                        "no_interactive": False,
+                    },
+                )()
                 self.assertEqual(cli_graph.cmd_graph(pretty), 7)
                 self.assertEqual(seen["argv"][3], "--pretty")
 
@@ -176,9 +226,20 @@ class GraphDispatchTests(unittest.TestCase):
                 self.assertIn("Root", sys.stdout.getvalue())
                 self.assertIn("build", sys.stderr.getvalue().lower())
 
-                interactive = type("Args", (), {"style": None, "state": None, "kind": None,
-                                                 "find": None, "plain": False, "pretty": False,
-                                                 "interactive": True, "no_interactive": False})()
+                interactive = type(
+                    "Args",
+                    (),
+                    {
+                        "style": None,
+                        "state": None,
+                        "kind": None,
+                        "find": None,
+                        "plain": False,
+                        "pretty": False,
+                        "interactive": True,
+                        "no_interactive": False,
+                    },
+                )()
                 self.assertEqual(cli_graph.cmd_graph(interactive), 1)
                 sys.stdin = _TTYBuffer(False)
                 self.assertEqual(cli_graph.cmd_graph(interactive), 1)
@@ -193,22 +254,32 @@ class GraphDispatchTests(unittest.TestCase):
                 self.assertEqual(cli_graph.cmd_graph(interactive), 130)
                 self.assertFalse(Path(seen["interrupt"]).exists())
             finally:
-                (docket_env.ledger_path, sys.stdin, sys.stdout,
-                 sys.stderr, cli_graph._graph_viewer_path,
-                 cli_graph.subprocess.run) = originals
+                (
+                    docket_env.ledger_path,
+                    sys.stdin,
+                    sys.stdout,
+                    sys.stderr,
+                    cli_graph._graph_viewer_path,
+                    cli_graph.subprocess.run,
+                ) = originals
 
     def test_graph_flag_conflicts(self):
-        for flags in (("--interactive", "--no-interactive"),
-                      ("--interactive", "--plain"),
-                      ("--interactive", "--style", "rail")):
-            result = subprocess.run([sys.executable, DOCKET, "graph", *flags],
-                                    capture_output=True, text=True)
+        for flags in (
+            ("--interactive", "--no-interactive"),
+            ("--interactive", "--plain"),
+            ("--interactive", "--style", "rail"),
+        ):
+            result = subprocess.run(
+                [sys.executable, DOCKET, "graph", *flags], capture_output=True, text=True
+            )
             self.assertEqual(result.returncode, 2)
 
     def test_top_level_help_and_invalid_command(self):
         release = (Path(DOCKET).parent.parent / "VERSION").read_text().strip()
         for flags in ((), ("-h",), ("--help",)):
-            result = subprocess.run([sys.executable, DOCKET, *flags], capture_output=True, text=True)
+            result = subprocess.run(
+                [sys.executable, DOCKET, *flags], capture_output=True, text=True
+            )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue(result.stdout.startswith(f"docket {release}\n"))
             self.assertIn("usage: docket", result.stdout)
@@ -216,7 +287,9 @@ class GraphDispatchTests(unittest.TestCase):
             self.assertIn("graph", result.stdout)
             self.assertNotIn("SessionStart hook", result.stdout)
             self.assertEqual(result.stderr, "")
-        result = subprocess.run([sys.executable, DOCKET, "not-a-command"], capture_output=True, text=True)
+        result = subprocess.run(
+            [sys.executable, DOCKET, "not-a-command"], capture_output=True, text=True
+        )
         self.assertEqual(result.returncode, 2)
         self.assertIn("invalid choice", result.stderr)
 
@@ -226,11 +299,31 @@ class GraphDispatchTests(unittest.TestCase):
             ledger = root / ".docket" / "ledger.jsonl"
             ledger.parent.mkdir()
             env = dict(os.environ, DOCKET_HOME=str(root / "global"), DOCKET_AUTHOR="test")
-            subprocess.run([sys.executable, DOCKET, "claim", "Premise", "--state", "accepted"],
-                           cwd=root, env=env, check=True, capture_output=True, text=True)
-            subprocess.run([sys.executable, DOCKET, "decision", "Choice", "--choice", "yes",
-                           "--depends-on", "c1"], cwd=root, env=env, check=True,
-                           capture_output=True, text=True)
+            subprocess.run(
+                [sys.executable, DOCKET, "claim", "Premise", "--state", "accepted"],
+                cwd=root,
+                env=env,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            subprocess.run(
+                [
+                    sys.executable,
+                    DOCKET,
+                    "decision",
+                    "Choice",
+                    "--choice",
+                    "yes",
+                    "--depends-on",
+                    "c1",
+                ],
+                cwd=root,
+                env=env,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
             result = run(root, "init")
             self.assertEqual(result.returncode, 0, result.stderr)
             entries = docket_cli.read(ledger)
@@ -247,8 +340,14 @@ class GraphDispatchTests(unittest.TestCase):
             ledger = root / "ledger.jsonl"
             entries = [
                 docket_cli.make_record("claim", "Unassessed", author="test", record_id="c1"),
-                docket_cli.make_record("decision", "Blocked choice", choice="yes",
-                                       depends_on=["c1"], author="test", record_id="d2"),
+                docket_cli.make_record(
+                    "decision",
+                    "Blocked choice",
+                    choice="yes",
+                    depends_on=["c1"],
+                    author="test",
+                    record_id="d2",
+                ),
             ]
             ledger.write_text("\n".join(json.dumps(item) for item in entries) + "\n")
             original = docket_env.ledger_path
@@ -256,9 +355,20 @@ class GraphDispatchTests(unittest.TestCase):
             try:
                 docket_env.ledger_path = lambda: ledger
                 sys.stdout = _TTYBuffer(False)
-                args = type("Args", (), {"style": "compact", "state": None, "kind": None,
-                                          "find": None, "plain": True, "pretty": False,
-                                          "interactive": False, "no_interactive": False})()
+                args = type(
+                    "Args",
+                    (),
+                    {
+                        "style": "compact",
+                        "state": None,
+                        "kind": None,
+                        "find": None,
+                        "plain": True,
+                        "pretty": False,
+                        "interactive": False,
+                        "no_interactive": False,
+                    },
+                )()
                 self.assertEqual(cli_graph.cmd_graph(args), 0)
                 self.assertIn("blocked by c1", sys.stdout.getvalue())
             finally:
@@ -268,9 +378,11 @@ class GraphDispatchTests(unittest.TestCase):
 
 class AutoScopeTests(unittest.TestCase):
     def _repo(self, home):
-        for command in (["git", "init", "-q"],
-                        ["git", "config", "user.email", "t@example.com"],
-                        ["git", "config", "user.name", "t"]):
+        for command in (
+            ["git", "init", "-q"],
+            ["git", "config", "user.email", "t@example.com"],
+            ["git", "config", "user.name", "t"],
+        ):
             subprocess.run(command, cwd=home, check=True)
         (Path(home) / "tracked.py").write_text("x = 1\n", encoding="utf-8")
         subprocess.run(["git", "add", "."], cwd=home, check=True)
@@ -374,8 +486,7 @@ class ShowAtTests(unittest.TestCase):
     def test_show_at_hides_a_later_supersession(self):
         with tempfile.TemporaryDirectory() as home:
             run(home, "claim", "The cache is reliable", "--state", "accepted")
-            run(home, "claim", "Replace the premise", "--state", "accepted",
-                "--supersedes", "c1")
+            run(home, "claim", "Replace the premise", "--state", "accepted", "--supersedes", "c1")
             early = run(home, "show", "c1", "--at", "c1", "--json")
             now = run(home, "show", "c1", "--json")
         # Assert the exit code first. Before the flag exists argparse rejects
@@ -443,14 +554,18 @@ class CheckTests(unittest.TestCase):
             ledger = Path(home) / ".docket" / "ledger.jsonl"
             ledger.parent.mkdir(parents=True, exist_ok=True)
             rows = [
-                docket_cli.make_record("claim", "First", state="accepted",
-                                       author="t", record_id="c1"),
-                docket_cli.make_record("claim", "Branch A", state="accepted",
-                                       author="t", record_id="c2"),
-                docket_cli.make_record("claim", "Branch B", state="accepted",
-                                       author="t", record_id="c2"),
-                docket_cli.make_record("claim", "Older", state="accepted",
-                                       author="t", record_id="c1"),
+                docket_cli.make_record(
+                    "claim", "First", state="accepted", author="t", record_id="c1"
+                ),
+                docket_cli.make_record(
+                    "claim", "Branch A", state="accepted", author="t", record_id="c2"
+                ),
+                docket_cli.make_record(
+                    "claim", "Branch B", state="accepted", author="t", record_id="c2"
+                ),
+                docket_cli.make_record(
+                    "claim", "Older", state="accepted", author="t", record_id="c1"
+                ),
             ]
             ledger.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
             result = run(home, "check")
@@ -471,9 +586,9 @@ class RebaseCommandTests(unittest.TestCase):
             run(home, "claim", "Shared premise", "--state", "accepted")
             other = Path(home) / "other.jsonl"
             mine = (Path(home) / ".docket" / "ledger.jsonl").read_text()
-            theirs = docket_cli.make_record("claim", "Their premise",
-                                            state="accepted", author="t",
-                                            record_id="c2")
+            theirs = docket_cli.make_record(
+                "claim", "Their premise", state="accepted", author="t", record_id="c2"
+            )
             other.write_text(mine + json.dumps(theirs) + "\n")
             run(home, "claim", "My premise", "--state", "accepted")
             preview = run(home, "rebase", str(other), "--dry-run")

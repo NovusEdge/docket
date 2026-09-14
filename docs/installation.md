@@ -12,9 +12,15 @@ OpenCode. You can ask your agent to set it up or follow the steps for your tool.
 | Run the downloaded installer | Python 3.11+, Git, and an internet connection |
 | Build from a Git checkout | Python 3.11+, Git, and Go 1.26+ |
 
-Docket has no Python package dependencies. The downloaded installer uses prebuilt
-binaries when Go is absent, so you do not need Go for that route. The Unix
-download example also uses `curl`; Windows uses PowerShell.
+Every command but `docket construct` runs on the standard library. Construct
+needs a provider SDK, which the installer offers to set up and keeps in its own
+virtualenv outside the checkout; that step needs
+[uv](https://docs.astral.sh/uv/) and nothing else does. See
+[Constructing on existing projects](construct.md).
+
+The downloaded installer uses prebuilt binaries when Go is absent, so you do not
+need Go for that route. The Unix download example also uses `curl`; Windows uses
+PowerShell.
 
 ## Let your agent handle setup
 
@@ -177,6 +183,12 @@ python3 "$docket_setup_dir/install.py"
 The launcher checks the native installer's release checksum before running it.
 In an interactive terminal, setup lets you select agent tools, review any PATH
 change, and confirm the plan.
+
+<!-- TODO(screenshot): the installer setup screen, on the agent-tool selection
+     step with two or three tools checked. This is the only interactive screen a
+     new user meets, and prose cannot show the selection state. Capture at 100
+     columns or narrower so it stays readable on the GitBook page. -->
+
 
 The temporary folder holds only the launcher. The installation normally lives
 at `~/.local/share/docket`, with the command in `~/.local/bin`. If

@@ -59,6 +59,12 @@ For a more specific briefing, you or your agent can run:
 docket context --query "billing database" --file billing/db.py
 ```
 
+<!-- TODO(screenshot): a real agent session where the session hook has loaded a
+     briefing, with the record block and the selection line visible. This is the
+     product working end to end, and no doc page shows it. Redact the project
+     path. -->
+
+
 The briefing distinguishes a recorded choice from a claim that may need review.
 An accepted claim still needs fresh checking when its evidence could have
 changed.

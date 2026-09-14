@@ -1,8 +1,7 @@
 import re
-import sys
 import unittest
 
-from docket.context import build_context, build_delta, _term_weights, _blocking_paths
+from docket.context import _blocking_paths, _term_weights, build_context, build_delta
 from docket.ledger import make_record, project
 
 
@@ -66,7 +65,9 @@ class ContextTests(unittest.TestCase):
         first = build_context(projected(records), ledger="project")
         second = build_context(projected(records), ledger="project")
         self.assertEqual(first, second)
-        changed = build_context(projected(records + [entry("q2", "question", "Why?")]), ledger="project")
+        changed = build_context(
+            projected(records + [entry("q2", "question", "Why?")]), ledger="project"
+        )
         self.assertNotEqual(first, changed)
         self.assertIn("revision", first)
         self.assertIn("project", first)
@@ -75,7 +76,13 @@ class ContextTests(unittest.TestCase):
         records = [
             entry("c1", "claim", "Unrelated deployment detail", scope=("docs/deploy",)),
             entry("d2", "decision", "Choose SQLite for tests", choice="SQLite", pinned=True),
-            entry("d3", "decision", "Choose Postgres for production", choice="Postgres", scope=("app/db",)),
+            entry(
+                "d3",
+                "decision",
+                "Choose Postgres for production",
+                choice="Postgres",
+                scope=("app/db",),
+            ),
             entry("c4", "claim", "The database backup is encrypted", scope=("ops/backup",)),
         ]
         # File scope with no query: an explicit query outranks a scope, and
@@ -131,7 +138,13 @@ class ContextTests(unittest.TestCase):
     def test_budget_is_hard_unicode_safe_and_never_splits_a_block(self):
         records = [
             entry("c1", "claim", "Unicode premise: café 東京 漢", state="accepted", pinned=True),
-            entry("c2", "claim", "A second long premise that should be omitted", state="accepted", pinned=True),
+            entry(
+                "c2",
+                "claim",
+                "A second long premise that should be omitted",
+                state="accepted",
+                pinned=True,
+            ),
         ]
         rendered = build_context(projected(records), ledger="repo", max_chars=700)
         self.assertLessEqual(len(rendered), 700)
@@ -156,14 +169,18 @@ class ContextTests(unittest.TestCase):
         self.assertNotIn("### c4 ", task)
         self.assertIn("c4 claim", task)
         self.assertIn("Adopt API versioning", task)
-        ids = lambda output: set(re.findall(r"^### ([cdq]\d+) ", output, re.M))
+
+        def ids(output):
+            return set(re.findall(r"^### ([cdq]\d+) ", output, re.M))
+
         self.assertEqual(ids(full), {"d1", "c2", "d3", "c4", "q5"})
         self.assertEqual(ids(task), {"d1", "d3"})
 
     def test_omitted_root_does_not_leave_orphan_neighbors(self):
-        records = [entry("c1", "claim", "Small premise", state="accepted"),
-                   entry("d2", "decision", "Unique task", rationale="x" * 5000,
-                         supports=(("c1",),))]
+        records = [
+            entry("c1", "claim", "Small premise", state="accepted"),
+            entry("d2", "decision", "Unique task", rationale="x" * 5000, supports=(("c1",),)),
+        ]
         output = build_context(projected(records), query="Unique", max_chars=900)
         self.assertNotIn("### c1", output)
         self.assertNotIn("### d2", output)
@@ -172,10 +189,11 @@ class ContextTests(unittest.TestCase):
         self.assertLessEqual(len(output), 900)
 
     def test_resolved_question_and_reverse_prerequisite_retrieve_related_records(self):
-        records = [entry("q1", "question", "Which backend?"),
-                   entry("c2", "claim", "Unique prerequisite", state="accepted"),
-                   entry("d3", "decision", "Adopt storage", answers=("q1",),
-                         depends_on=("c2",))]
+        records = [
+            entry("q1", "question", "Which backend?"),
+            entry("c2", "claim", "Unique prerequisite", state="accepted"),
+            entry("d3", "decision", "Adopt storage", answers=("q1",), depends_on=("c2",)),
+        ]
         output = build_context(projected(records), query="Which backend")
         self.assertIn("### q1 | question | resolved", output)
         self.assertIn("role: inquiry", output)
@@ -185,10 +203,12 @@ class ContextTests(unittest.TestCase):
         self.assertIn("### d3 | decision", reverse)
 
     def test_stronger_relevance_beats_pin_and_paths_are_normalized(self):
-        records = [entry("c1", "claim", "Topic", pinned=True),
-                   entry("c2", "claim", "Topic", scope=("src/*.py",)),
-                   entry("c3", "claim", "Directory rule", scope=("src/sub",)),
-                   entry("c4", "claim", "Component rule", scope=("billing",))]
+        records = [
+            entry("c1", "claim", "Topic", pinned=True),
+            entry("c2", "claim", "Topic", scope=("src/*.py",)),
+            entry("c3", "claim", "Directory rule", scope=("src/sub",)),
+            entry("c4", "claim", "Component rule", scope=("billing",)),
+        ]
         history = projected(records)
         output = build_context(history, query="Topic", files=(".\\src\\module.py",))
         self.assertLess(output.index("### c2"), output.index("### c1"))
@@ -206,8 +226,9 @@ class ContextTests(unittest.TestCase):
         # None asks for the default target, which task matches may exceed.
         self.assertTrue(build_context(history, max_chars=None))
         for budget in (512, 700, 900, 1500):
-            output = build_context(history, ledger="z" * 5000, query="Full " * 1000,
-                                   all_records=True, max_chars=budget)
+            output = build_context(
+                history, ledger="z" * 5000, query="Full " * 1000, all_records=True, max_chars=budget
+            )
             self.assertLessEqual(len(output), budget)
             self.assertNotIn("### c1", output)
             self.assertIn("c1", output)
@@ -231,7 +252,6 @@ class ContextTests(unittest.TestCase):
         self.assertNotIn("rationale: v2", rendered)
         self.assertNotIn("effective state:", rendered)
         self.assertTrue(rendered.endswith("\n"))
-
 
     def test_every_current_record_appears_in_one_tier(self):
         records = [
@@ -257,7 +277,9 @@ class ContextTests(unittest.TestCase):
         self.assertTrue(line.startswith("c2 claim accepted  A premise"))
 
     def test_index_detail_follows_the_score(self):
-        long_text = "A premise whose text runs a long way past any clip point at all, going on and on"
+        long_text = (
+            "A premise whose text runs a long way past any clip point at all, going on and on"
+        )
         records = [
             entry("c1", "claim", long_text, state="accepted"),
             entry("c2", "claim", long_text, state="accepted"),
@@ -272,7 +294,9 @@ class ContextTests(unittest.TestCase):
     def test_precise_scope_outranks_a_glob_match(self):
         records = [
             entry("d1", "decision", "Old storage decision", choice="x", scope=("storage/**",)),
-            entry("d2", "decision", "Recent storage decision", choice="y", scope=("storage/db.py",)),
+            entry(
+                "d2", "decision", "Recent storage decision", choice="y", scope=("storage/db.py",)
+            ),
         ]
         rendered = build_context(projected(records), files=("storage/db.py",), ledger="repo")
         self.assertLess(rendered.index("### d2 "), rendered.index("### d1 "))
@@ -329,8 +353,14 @@ class ContextTests(unittest.TestCase):
         records = [
             entry("c1", "claim", "Older premise", state="accepted"),
             entry("c2", "claim", "Newer premise", state="accepted"),
-            entry("d3", "decision", "Renderer budget", choice="y", scope=("lib/**",),
-                  supports=(("c1",), ("c2",))),
+            entry(
+                "d3",
+                "decision",
+                "Renderer budget",
+                choice="y",
+                scope=("lib/**",),
+                supports=(("c1",), ("c2",)),
+            ),
         ]
         rendered = build_context(projected(records), files=("lib/render.py",), ledger="repo")
         self.assertLess(rendered.index("### c2 "), rendered.index("### c1 "))
@@ -338,11 +368,18 @@ class ContextTests(unittest.TestCase):
     def test_expansion_stops_below_the_score_floor(self):
         records = [
             entry("c1", "claim", "Distant premise", state="accepted"),
-            entry("d2", "decision", "Renderer budget", choice="y", scope=("lib/**",),
-                  supports=(("c1",),)),
+            entry(
+                "d2",
+                "decision",
+                "Renderer budget",
+                choice="y",
+                scope=("lib/**",),
+                supports=(("c1",),),
+            ),
         ]
-        rendered = build_context(projected(records), files=("lib/render.py",),
-                                 ledger="repo", max_chars=1000)
+        rendered = build_context(
+            projected(records), files=("lib/render.py",), ledger="repo", max_chars=1000
+        )
         self.assertIn("### d2 ", rendered)
         self.assertLessEqual(len(rendered), 1000)
 
@@ -367,14 +404,23 @@ class ContextTests(unittest.TestCase):
         # collapse: the admission gate charged the full index against each
         # candidate, so past about 150 records nothing after the first was
         # admitted.
-        records = [entry(f"c{n}", "claim", f"Premise {n} about area{n % 6}",
-                         state="accepted", scope=(f"area{n % 6}/**",))
-                   for n in range(1, 201)]
+        records = [
+            entry(
+                f"c{n}",
+                "claim",
+                f"Premise {n} about area{n % 6}",
+                state="accepted",
+                scope=(f"area{n % 6}/**",),
+            )
+            for n in range(1, 201)
+        ]
         history = projected(records)
-        self.assertGreater(build_context(history, all_records=True,
-                                         ledger="repo").count("### "), 20)
-        self.assertGreater(build_context(history, files=("area1/x.py",),
-                                         ledger="repo").count("### "), 20)
+        self.assertGreater(
+            build_context(history, all_records=True, ledger="repo").count("### "), 20
+        )
+        self.assertGreater(
+            build_context(history, files=("area1/x.py",), ledger="repo").count("### "), 20
+        )
 
     def test_a_long_file_scope_is_identified_by_digest(self):
         records = [entry("c1", "claim", "A premise", state="accepted")]
@@ -388,32 +434,36 @@ class ContextTests(unittest.TestCase):
 
     def test_an_explicit_query_outranks_a_file_scope(self):
         records = [
-            entry("d1", "decision", "Unrelated renderer decision", choice="x",
-                  scope=("lib/**",)),
-            entry("d2", "decision", "Supersession semantics", choice="y",
-                  scope=("docs/**",)),
+            entry("d1", "decision", "Unrelated renderer decision", choice="x", scope=("lib/**",)),
+            entry("d2", "decision", "Supersession semantics", choice="y", scope=("docs/**",)),
         ]
-        rendered = build_context(projected(records), query="supersession",
-                                 files=("lib/render.py",), ledger="repo")
+        rendered = build_context(
+            projected(records), query="supersession", files=("lib/render.py",), ledger="repo"
+        )
         self.assertLess(rendered.index("### d2 "), rendered.index("### d1 "))
 
     def test_an_exact_file_scope_outranks_an_incidental_query_word(self):
         records = [
-            entry("d1", "decision", "Renderer budget rule", choice="x",
-                  scope=("lib/render.py",)),
-            entry("c2", "claim", "The installer mentions the cache in passing",
-                  state="accepted", scope=("installer/**",)),
+            entry("d1", "decision", "Renderer budget rule", choice="x", scope=("lib/render.py",)),
+            entry(
+                "c2",
+                "claim",
+                "The installer mentions the cache in passing",
+                state="accepted",
+                scope=("installer/**",),
+            ),
         ]
-        rendered = build_context(projected(records), query="cache",
-                                 files=("lib/render.py",), ledger="repo")
+        rendered = build_context(
+            projected(records), query="cache", files=("lib/render.py",), ledger="repo"
+        )
         # The query beats a glob scope. It must not beat the record scoped to
         # the file in hand, even with the full recency bonus added.
         self.assertLess(rendered.index("### d1 "), rendered.index("### c2 "))
 
     def test_index_caps_and_counts_the_remainder(self):
         from docket.config import merge
-        records = [entry(f"c{n}", "claim", f"Premise {n}", state="accepted")
-                   for n in range(1, 101)]
+
+        records = [entry(f"c{n}", "claim", f"Premise {n}", state="accepted") for n in range(1, 101)]
         settings = merge({"index": {"max_lines": 10}})
         rendered = build_context(projected(records), ledger="repo", settings=settings)
         listed = [l for l in rendered.splitlines() if re.match(r"^c\d+ claim ", l)]
@@ -422,8 +472,8 @@ class ContextTests(unittest.TestCase):
 
     def test_the_capped_index_keeps_the_highest_scoring_records(self):
         from docket.config import merge
-        records = [entry(f"c{n}", "claim", f"Premise {n}", state="accepted")
-                   for n in range(1, 101)]
+
+        records = [entry(f"c{n}", "claim", f"Premise {n}", state="accepted") for n in range(1, 101)]
         settings = merge({"index": {"max_lines": 5}})
         rendered = build_context(projected(records), ledger="repo", settings=settings)
         listed = [int(n) for n in re.findall(r"^c(\d+) claim ", rendered, re.M)]
@@ -439,11 +489,9 @@ class ContextTests(unittest.TestCase):
             entry("c1", "claim", "Old premise", state="accepted"),
             entry("c2", "claim", "Current premise", state="accepted"),
             entry("c3", "claim", "Retire old", state="accepted", supersedes=("c1",)),
-            entry("d4", "decision", "Uses the old premise", choice="x",
-                  depends_on=("c1",)),
+            entry("d4", "decision", "Uses the old premise", choice="x", depends_on=("c1",)),
         ]
-        rendered = build_context(projected(records), query="premise",
-                                 ledger="repo", max_chars=900)
+        rendered = build_context(projected(records), query="premise", ledger="repo", max_chars=900)
         counts = re.search(r"full text: (\d+); index: (\d+); retired: (\d+)", rendered)
         self.assertIsNotNone(counts)
         self.assertEqual(sum(int(value) for value in counts.groups()), 4)
@@ -452,8 +500,14 @@ class ContextTests(unittest.TestCase):
         records = [
             entry("c1", "claim", "Old premise", state="accepted"),
             entry("c2", "claim", "Replacement", state="accepted", supersedes=("c1",)),
-            entry("d3", "decision", "Cites the old premise", choice="x",
-                  scope=("lib/**",), supports=(("c1",),)),
+            entry(
+                "d3",
+                "decision",
+                "Cites the old premise",
+                choice="x",
+                scope=("lib/**",),
+                supports=(("c1",),),
+            ),
         ]
         rendered = build_context(projected(records), files=("lib/x.py",), ledger="repo")
         # A retired record carries no score, so expansion must reach it through
@@ -474,8 +528,14 @@ class ContextTests(unittest.TestCase):
         records = [
             entry("c1", "claim", "The premise is unproven", state="disputed"),
             entry("d2", "decision", "Trust it", choice="trust", depends_on=("c1",)),
-            entry("d3", "decision", "Serve from it", choice="serve",
-                  scope=("lib/**",), depends_on=("d2",)),
+            entry(
+                "d3",
+                "decision",
+                "Serve from it",
+                choice="serve",
+                scope=("lib/**",),
+                depends_on=("d2",),
+            ),
         ]
         rendered = build_context(projected(records), files=("lib/cache.py",), ledger="repo")
         self.assertIn("blocked: d2 -> c1 disputed", rendered)
@@ -484,8 +544,14 @@ class ContextTests(unittest.TestCase):
         records = [
             entry("c1", "claim", "Superseded premise", state="accepted"),
             entry("c2", "claim", "Replacement", state="accepted", supersedes=("c1",)),
-            entry("d3", "decision", "Depends on the old premise", choice="x",
-                  scope=("lib/**",), depends_on=("c1",)),
+            entry(
+                "d3",
+                "decision",
+                "Depends on the old premise",
+                choice="x",
+                scope=("lib/**",),
+                depends_on=("c1",),
+            ),
         ]
         rendered = build_context(projected(records), files=("lib/cache.py",), ledger="repo")
         # c1's effective state is still "accepted"; the reason it cannot be used
@@ -507,8 +573,15 @@ class ContextTests(unittest.TestCase):
         records = [
             entry("c1", "claim", "The cache is reliable", state="disputed"),
             entry("c2", "claim", "An unrelated supporting premise", state="accepted"),
-            entry("d3", "decision", "Serve from the cache", choice="serve",
-                  scope=("lib/**",), depends_on=("c1",), supports=(("c2",),)),
+            entry(
+                "d3",
+                "decision",
+                "Serve from the cache",
+                choice="serve",
+                scope=("lib/**",),
+                depends_on=("c1",),
+                supports=(("c2",),),
+            ),
         ]
         rendered = build_context(projected(records), files=("lib/cache.py",), ledger="repo")
         self.assertIn("### c1 ", rendered)
@@ -517,30 +590,34 @@ class ContextTests(unittest.TestCase):
 
     def test_coverage_reports_no_matches(self):
         records = [entry("c1", "claim", "A premise", state="accepted")]
-        rendered = build_context(projected(records), query="nothing matches this",
-                                 ledger="repo")
+        rendered = build_context(projected(records), query="nothing matches this", ledger="repo")
         self.assertIn("# Coverage: no matches found", rendered)
 
     def test_coverage_reports_covered(self):
         records = [
             entry("c1", "claim", "The premise is unproven", state="disputed"),
-            entry("d2", "decision", "Serve from it", choice="serve",
-                  scope=("lib/**",), depends_on=("c1",)),
+            entry(
+                "d2",
+                "decision",
+                "Serve from it",
+                choice="serve",
+                scope=("lib/**",),
+                depends_on=("c1",),
+            ),
         ]
         rendered = build_context(projected(records), files=("lib/cache.py",), ledger="repo")
         self.assertIn("# Coverage: task matches and their prerequisites covered", rendered)
 
     def test_coverage_reports_partial_when_a_task_match_is_index_only(self):
         records = [
-            entry("d1", "decision", "First", choice="a", scope=("lib/**",),
-                  rationale="x" * 900),
-            entry("d2", "decision", "Second", choice="b", scope=("lib/**",),
-                  rationale="y" * 900),
+            entry("d1", "decision", "First", choice="a", scope=("lib/**",), rationale="x" * 900),
+            entry("d2", "decision", "Second", choice="b", scope=("lib/**",), rationale="y" * 900),
         ]
         # 2200 admits one 900-character record and refuses the second, so one
         # task match reaches the index only. 1400 refuses both.
-        rendered = build_context(projected(records), files=("lib/cache.py",),
-                                 ledger="repo", max_chars=2200)
+        rendered = build_context(
+            projected(records), files=("lib/cache.py",), ledger="repo", max_chars=2200
+        )
         self.assertIn("# Coverage: partial, 1 in the index only", rendered)
 
 
@@ -559,12 +636,14 @@ class GoldenBriefingTests(unittest.TestCase):
         # Loaded by path, so the test adds nothing to sys.path and claims no
         # top-level module name.
         spec = importlib.util.spec_from_file_location(
-            "_docket_golden", Path(__file__).parent / "golden" / "regenerate.py")
+            "_docket_golden", Path(__file__).parent / "golden" / "regenerate.py"
+        )
         regenerate = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(regenerate)
 
         expected = json.loads(
-            (Path(__file__).parent / "golden" / "context_snapshots.json").read_text())
+            (Path(__file__).parent / "golden" / "context_snapshots.json").read_text()
+        )
         actual = regenerate.snapshots()
         self.assertEqual(sorted(actual), sorted(expected))
         for key in sorted(expected):
@@ -576,22 +655,31 @@ class LargeLedgerTests(unittest.TestCase):
     def ledger(self, count):
         records = []
         for number in range(1, count + 1):
-            records.append(entry(f"d{number}", "decision", f"Question {number} about caching?",
-                                 choice="Cache it", scope=("lib/**",)))
+            records.append(
+                entry(
+                    f"d{number}",
+                    "decision",
+                    f"Question {number} about caching?",
+                    choice="Cache it",
+                    scope=("lib/**",),
+                )
+            )
         return projected(records)
 
     def test_a_large_ledger_still_renders_record_content(self):
         # The gate charged one bare name per current record before admitting
         # any content, so past about 1100 records the names consumed the
         # whole budget and the briefing carried no records at all.
-        rendered = build_context(self.ledger(2000), files=("lib/cache.py",),
-                                 ledger="repo", max_chars=8000)
+        rendered = build_context(
+            self.ledger(2000), files=("lib/cache.py",), ledger="repo", max_chars=8000
+        )
         full_text = int(re.search(r"# full text: (\d+)", rendered).group(1))
         self.assertGreater(full_text, 0)
 
     def test_the_budget_still_binds_on_a_large_ledger(self):
-        rendered = build_context(self.ledger(2000), files=("lib/cache.py",),
-                                 ledger="repo", max_chars=8000)
+        rendered = build_context(
+            self.ledger(2000), files=("lib/cache.py",), ledger="repo", max_chars=8000
+        )
         self.assertLessEqual(len(rendered), 8000)
 
 
@@ -614,13 +702,26 @@ class TrialLengthTests(unittest.TestCase):
         records = []
         for number in range(1, count + 1):
             if number % 2:
-                records.append(entry(f"c{number}", "claim", f"Premise {number} on caching",
-                                     state="unassessed" if number % 4 == 1 else "accepted",
-                                     scope=("docs/notes.md",)))
+                records.append(
+                    entry(
+                        f"c{number}",
+                        "claim",
+                        f"Premise {number} on caching",
+                        state="unassessed" if number % 4 == 1 else "accepted",
+                        scope=("docs/notes.md",),
+                    )
+                )
             else:
-                records.append(entry(f"d{number}", "decision", f"Choice {number} on caching",
-                                     choice=f"option {number}", scope=("lib/**",),
-                                     depends_on=(f"c{number - 1}",)))
+                records.append(
+                    entry(
+                        f"d{number}",
+                        "decision",
+                        f"Choice {number} on caching",
+                        choice=f"option {number}",
+                        scope=("lib/**",),
+                        depends_on=(f"c{number - 1}",),
+                    )
+                )
         return projected(records)
 
     def test_every_trial_length_matches_the_rendered_length(self):
@@ -632,8 +733,9 @@ class TrialLengthTests(unittest.TestCase):
                 records = self.ledger(count)
                 for query, files in (("", ()), ("caching", ()), ("", ("lib/cache.py",))):
                     for budget in (900, 2500, 8000, None):
-                        rendered = build_context(records, query=query, files=files,
-                                                 ledger="repo", max_chars=budget)
+                        rendered = build_context(
+                            records, query=query, files=files, ledger="repo", max_chars=budget
+                        )
                         self.assertLessEqual(len(rendered), budget or 24000)
         finally:
             context._VERIFY_TRIAL = False
@@ -642,18 +744,34 @@ class TrialLengthTests(unittest.TestCase):
         # Deleting either counter's increment in _trial_length left every test
         # passing. These two footer lines are the only place they surface.
         records = [
-            entry("c1", "claim", "A premise about caching", state="accepted",
-                  scope=("lib/cache.py",)),
+            entry(
+                "c1", "claim", "A premise about caching", state="accepted", scope=("lib/cache.py",)
+            ),
             entry("q2", "question", "Which cache?", scope=("lib/cache.py",)),
-            entry("d3", "decision", "Pick a cache", choice="redis",
-                  scope=("lib/cache.py",), supports=(("c1",),), answers=("q2",)),
-            entry("c4", "claim", "An unassessed premise", state="unassessed",
-                  scope=("lib/cache.py",)),
-            entry("d5", "decision", "Blocked choice", choice="maybe",
-                  scope=("lib/cache.py",), depends_on=("c4",)),
+            entry(
+                "d3",
+                "decision",
+                "Pick a cache",
+                choice="redis",
+                scope=("lib/cache.py",),
+                supports=(("c1",),),
+                answers=("q2",),
+            ),
+            entry(
+                "c4", "claim", "An unassessed premise", state="unassessed", scope=("lib/cache.py",)
+            ),
+            entry(
+                "d5",
+                "decision",
+                "Blocked choice",
+                choice="maybe",
+                scope=("lib/cache.py",),
+                depends_on=("c4",),
+            ),
         ]
-        rendered = build_context(projected(records), files=("lib/cache.py",),
-                                 ledger="repo", max_chars=900)
+        rendered = build_context(
+            projected(records), files=("lib/cache.py",), ledger="repo", max_chars=900
+        )
         self.assertIn("# Coverage: partial,", rendered)
         self.assertRegex(rendered, r"# full text: \d+; index: \d+")
 
@@ -665,14 +783,14 @@ class DegreeTests(unittest.TestCase):
             entry("q2", "question", "The question"),
             # d3 names c1 twice, through supports and depends_on. _relation_ids
             # de-duplicates, so the pair counts once.
-            entry("d3", "decision", "First", choice="a", supports=(("c1",),),
-                  depends_on=("c1",)),
+            entry("d3", "decision", "First", choice="a", supports=(("c1",),), depends_on=("c1",)),
             entry("d4", "decision", "Second", choice="b", depends_on=("c1",)),
             entry("d5", "decision", "Third", choice="c", answers=("q2",)),
             entry("d6", "decision", "Fourth", choice="d", supersedes=("d3",)),
         ]
-        rendered = build_context(projected(records), query="premise", ledger="repo",
-                                 all_records=True)
+        rendered = build_context(
+            projected(records), query="premise", ledger="repo", all_records=True
+        )
         degrees = {}
         for block in rendered.split("### ")[1:]:
             found = re.search(r"degree=(\d+)", block)
@@ -690,8 +808,9 @@ class DegreeTests(unittest.TestCase):
 
         records = [entry("c1", "claim", "Root premise", state="accepted")]
         for index in range(2, 202):
-            records.append(entry(f"d{index}", "decision", f"Choice {index}",
-                                 choice="x", depends_on=("c1",)))
+            records.append(
+                entry(f"d{index}", "decision", f"Choice {index}", choice="x", depends_on=("c1",))
+            )
 
         original = context._relation_ids
         calls = 0
@@ -709,17 +828,17 @@ class DegreeTests(unittest.TestCase):
 
         self.assertLess(calls, 4 * len(records))
 
+
 class DeltaTests(unittest.TestCase):
     def test_delta_names_added_and_newly_unavailable_records(self):
         records = [
             entry("c1", "claim", "The cache is reliable", state="accepted"),
-            entry("d2", "decision", "Serve from the cache", choice="serve",
-                  depends_on=("c1",)),
-            entry("c3", "claim", "Replace the premise", state="accepted",
-                  supersedes=("c1",)),
+            entry("d2", "decision", "Serve from the cache", choice="serve", depends_on=("c1",)),
+            entry("c3", "claim", "Replace the premise", state="accepted", supersedes=("c1",)),
         ]
-        delta = build_delta(projected(records), since="d2",
-                            baseline=projected(records[:2]), ledger="repo")
+        delta = build_delta(
+            projected(records), since="d2", baseline=projected(records[:2]), ledger="repo"
+        )
         self.assertIn("### c3 ", delta)
         self.assertIn("since: d2", delta)
         # c1 retired and d2 lost its prerequisite, so both changed. Assert on
@@ -733,8 +852,9 @@ class DeltaTests(unittest.TestCase):
             entry("c2", "claim", "A settled premise", state="accepted"),
             entry("c3", "claim", "A later premise", state="accepted"),
         ]
-        delta = build_delta(projected(records), since="c2",
-                            baseline=projected(records[:2]), ledger="repo")
+        delta = build_delta(
+            projected(records), since="c2", baseline=projected(records[:2]), ledger="repo"
+        )
         self.assertIn("c3", delta)
         # c1 was disputed before the baseline and is disputed now. Nothing
         # changed about it, so it is not part of the delta.
@@ -743,8 +863,7 @@ class DeltaTests(unittest.TestCase):
 
     def test_delta_is_none_for_an_unknown_baseline(self):
         records = [entry("c1", "claim", "A premise", state="accepted")]
-        self.assertIsNone(build_delta(projected(records), since="d99",
-                                      baseline=[], ledger="repo"))
+        self.assertIsNone(build_delta(projected(records), since="d99", baseline=[], ledger="repo"))
 
     def test_delta_refuses_a_baseline_whose_digest_no_longer_matches(self):
         records = [
@@ -754,12 +873,14 @@ class DeltaTests(unittest.TestCase):
         history = projected(records)
         rendered = build_context(history, ledger="repo")
         token = re.search(r"latest: (c\d+@[0-9a-f]+)", rendered).group(1)
-        self.assertIsNotNone(build_delta(history, since=token,
-                                         baseline=projected(records), ledger="repo"))
+        self.assertIsNotNone(
+            build_delta(history, since=token, baseline=projected(records), ledger="repo")
+        )
         # A rebase renumbers the tail, so the same ID covers different history.
         stale = token.split("@")[0] + "@deadbeef"
-        self.assertIsNone(build_delta(history, since=stale,
-                                      baseline=projected(records), ledger="repo"))
+        self.assertIsNone(
+            build_delta(history, since=stale, baseline=projected(records), ledger="repo")
+        )
 
 
 if __name__ == "__main__":

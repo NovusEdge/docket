@@ -91,9 +91,19 @@ def git_dates(root: Path) -> dict[str, str]:
     """
     try:
         done = subprocess.run(
-            ["git", "-C", str(root), "log", "--name-only", "--date=short",
-             "--format=%x00%ad", "--no-renames"],
-            capture_output=True, timeout=60)
+            [
+                "git",
+                "-C",
+                str(root),
+                "log",
+                "--name-only",
+                "--date=short",
+                "--format=%x00%ad",
+                "--no-renames",
+            ],
+            capture_output=True,
+            timeout=60,
+        )
     except (OSError, subprocess.SubprocessError):
         return {}
     if done.returncode != 0:

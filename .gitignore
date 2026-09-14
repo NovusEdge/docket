@@ -2,8 +2,31 @@
 .claude/worktrees/
 .superpowers/
 superpowers/
+
+# Python
 __pycache__/
 *.py[cod]
+*.so
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyre/
+.ty_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Secrets. docket construct reads a provider key out of a project's .env, so
+# the file is expected to exist and must never be committed.
+.env
+.env.*
+!.env.example
+
+# Go build output. The named binaries are what the justfile and release
+# scripts write; *.test and *.out cover `go test -c` and coverage profiles.
 /installer/docket-installer
 /installer/docket-installer.exe
 /installer/installer
@@ -12,5 +35,9 @@ __pycache__/
 /graph/docket-graph.exe
 /graph/graph
 /graph/graph.exe
+*.test
+*.out
+
+# Release assets and the installer-owned marker.
 /dist/
 /.docket-managed

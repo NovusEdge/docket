@@ -7,6 +7,8 @@ edges; everything here decides which of them survive.
 
 from __future__ import annotations
 
+from typing import Any
+
 from docket.construct import schema
 
 # `contradicts` never lands on a record. Two records that disagree become a
@@ -81,10 +83,13 @@ def validate(edges: list[dict], proposals: list[dict]) -> tuple[list[dict], list
             dropped.append(f"{where}: unknown edge kind {kind!r}")
             continue
         for name in (tail, head):
-            if name not in known:
+            if not isinstance(name, str) or name not in known:
                 dropped.append(f"{where}: no record {name!r}")
                 break
         else:
+            # The loop above already rejected a non-string name. A type checker
+            # cannot follow for/else, and every lookup below indexes on these.
+            assert isinstance(tail, str) and isinstance(head, str)
             if tail == head:
                 dropped.append(f"{where}: a record cannot relate to itself")
                 continue
@@ -99,23 +104,26 @@ def validate(edges: list[dict], proposals: list[dict]) -> tuple[list[dict], list
 
             if kind == "supersedes":
                 if source["kind"] != target["kind"]:
-                    dropped.append(f"{where}: supersession needs one kind, "
-                                   f"got {source['kind']} and {target['kind']}")
+                    dropped.append(
+                        f"{where}: supersession needs one kind, "
+                        f"got {source['kind']} and {target['kind']}"
+                    )
                     continue
                 later, earlier = source["source"]["date"], target["source"]["date"]
                 if not later or not earlier:
                     dropped.append(f"{where}: supersession needs a date on both records")
                     continue
                 if later <= earlier:
-                    dropped.append(f"{where}: {tail} is earlier than or same-day as "
-                                   f"{head}, so it cannot supersede it")
+                    dropped.append(
+                        f"{where}: {tail} is earlier than or same-day as "
+                        f"{head}, so it cannot supersede it"
+                    )
                     continue
                 if head in retired:
                     # The ledger retires a target once and refuses the second
                     # append. Acceptance has no transaction, so an edge that
                     # aborts there leaves records written and the stage untouched.
-                    dropped.append(f"{where}: {head} is already superseded by "
-                                   f"{retired[head]}")
+                    dropped.append(f"{where}: {head} is already superseded by {retired[head]}")
                     continue
                 retired[head] = tail
 
@@ -123,8 +131,7 @@ def validate(edges: list[dict], proposals: list[dict]) -> tuple[list[dict], list
                 if target["kind"] == "question":
                     # ledger.py refuses support pointing at a question: an
                     # inquiry is not a ground.
-                    dropped.append(f"{where}: {head} is a question, which cannot "
-                                   "ground anything")
+                    dropped.append(f"{where}: {head} is a question, which cannot ground anything")
                     continue
                 # The new edge points tail -> head, so a path from head back to
                 # tail would close a loop.
@@ -156,17 +163,20 @@ def questions(edges: list[dict], proposals: list[dict]) -> list[dict]:
         first, second = known.get(edge["from"]), known.get(edge["to"])
         if not first or not second:
             continue
-        asked.append(schema.proposal(
-            kind="question",
-            text=(f"Which holds? {first['text']} "
-                  f"Against: {second['text']}"),
-            anchor=first["anchor"],
-            key_kind="contradiction",
-            rationale=(f"Extraction found both, from {first['source']['path']} "
-                       f"and {second['source']['path']}. Neither source settles it."),
-            source=dict(first["source"]),
-            confidence="low",
-        ))
+        asked.append(
+            schema.proposal(
+                kind="question",
+                text=(f"Which holds? {first['text']} Against: {second['text']}"),
+                anchor=first["anchor"],
+                key_kind="contradiction",
+                rationale=(
+                    f"Extraction found both, from {first['source']['path']} "
+                    f"and {second['source']['path']}. Neither source settles it."
+                ),
+                source=dict(first["source"]),
+                confidence="low",
+            )
+        )
     return asked
 
 
@@ -207,10 +217,14 @@ def apply(edges: list[dict], proposals: list[dict]) -> list[dict]:
     key_of = labels(proposals)
     # Deep enough to own every list this function appends to, so an input
     # record's own relations are never mutated.
-    out = [{**item,
+    out: list[dict[str, Any]] = [
+        {
+            **item,
             "supports": [list(group) for group in item.get("supports") or []],
-            "supersedes": list(item.get("supersedes") or [])}
-           for item in proposals]
+            "supersedes": list(item.get("supersedes") or []),
+        }
+        for item in proposals
+    ]
     index_of = {_label(index): index for index in range(len(proposals))}
 
     for edge in edges:

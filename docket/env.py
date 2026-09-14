@@ -61,7 +61,7 @@ def resolved_author() -> str:
     if a:
         return a
     print(
-        "docket: could not detect an author; recording \"unknown\". "
+        'docket: could not detect an author; recording "unknown". '
         "Set DOCKET_AUTHOR to identify this harness.",
         file=sys.stderr,
     )
@@ -77,7 +77,9 @@ def branch(root: Path) -> str:
     try:
         r = subprocess.run(
             ["git", "-C", str(root), "branch", "--show-current"],
-            capture_output=True, text=True, timeout=2,
+            capture_output=True,
+            text=True,
+            timeout=2,
         )
         return r.stdout.strip() if r.returncode == 0 else ""
     except (OSError, subprocess.SubprocessError):

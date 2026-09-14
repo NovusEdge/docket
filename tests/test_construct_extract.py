@@ -9,34 +9,37 @@ from docket.construct import extract
 
 
 class AnchorMatchTests(unittest.TestCase):
-    SOURCE = "\n".join([
-        "# Anti-Context-Pollution Architecture Decisions",
-        "",
-        "Date: 2026-06-18",
-        "",
-        "### 1. SAVER Audit-Repair: Tiered by Layer",
-        "",
-        "**Decision:** Option B - tiered checking by layer.",
-        "",
-        "**Rationale:** State contamination requires sanitization first.",
-    ])
+    SOURCE = "\n".join(
+        [
+            "# Anti-Context-Pollution Architecture Decisions",
+            "",
+            "Date: 2026-06-18",
+            "",
+            "### 1. SAVER Audit-Repair: Tiered by Layer",
+            "",
+            "**Decision:** Option B - tiered checking by layer.",
+            "",
+            "**Rationale:** State contamination requires sanitization first.",
+        ]
+    )
 
     def test_finds_a_line_quoted_verbatim(self):
         self.assertEqual(
-            extract.anchor_line("### 1. SAVER Audit-Repair: Tiered by Layer", self.SOURCE),
-            5)
+            extract.anchor_line("### 1. SAVER Audit-Repair: Tiered by Layer", self.SOURCE), 5
+        )
 
     def test_finds_a_line_whose_emphasis_the_model_dropped(self):
         # The spike's entire batch-one miss: source has the bold markers, the
         # model's anchor does not.
         self.assertEqual(
-            extract.anchor_line("Decision: Option B - tiered checking by layer.", self.SOURCE),
-            7)
+            extract.anchor_line("Decision: Option B - tiered checking by layer.", self.SOURCE), 7
+        )
 
     def test_finds_a_line_the_model_respaced(self):
         self.assertEqual(
             extract.anchor_line("Decision:   Option B - tiered   checking by layer.", self.SOURCE),
-            7)
+            7,
+        )
 
     def test_returns_none_when_the_anchor_is_not_in_the_source(self):
         self.assertIsNone(extract.anchor_line("Decision: use JWT everywhere", self.SOURCE))
@@ -84,14 +87,12 @@ class DateFromTextTests(unittest.TestCase):
 
 class DateFromNameTests(unittest.TestCase):
     def test_reads_a_leading_date(self):
-        self.assertEqual(extract.date_from_name("2026-06-18-coherence-layer.md"),
-                         "2026-06-18")
+        self.assertEqual(extract.date_from_name("2026-06-18-coherence-layer.md"), "2026-06-18")
 
     def test_reads_a_date_sitting_mid_name(self):
         # positioning-2026-05-24.md in the real corpus; a leading-date parse
         # misses it entirely.
-        self.assertEqual(extract.date_from_name("positioning-2026-05-24.md"),
-                         "2026-05-24")
+        self.assertEqual(extract.date_from_name("positioning-2026-05-24.md"), "2026-05-24")
 
     def test_returns_none_for_an_undated_name(self):
         self.assertIsNone(extract.date_from_name("silo-portability.md"))
@@ -103,8 +104,10 @@ class DateFromNameTests(unittest.TestCase):
 class GitDatesTests(unittest.TestCase):
     def repo(self, tmp):
         root = Path(tmp)
-        run = lambda *a: subprocess.run(["git", "-C", str(root), *a],
-                                        capture_output=True, check=True)
+
+        def run(*a):
+            return subprocess.run(["git", "-C", str(root), *a], capture_output=True, check=True)
+
         run("init", "-q")
         run("config", "user.email", "t@example.com")
         run("config", "user.name", "t")
@@ -148,19 +151,22 @@ class GitDatesTests(unittest.TestCase):
 class ResolveDateTests(unittest.TestCase):
     def test_a_date_line_wins_over_the_filename(self):
         self.assertEqual(
-            extract.resolve_date("2026-01-01-thing.md", "Date: 2026-06-18\n", {}),
-            "2026-06-18")
+            extract.resolve_date("2026-01-01-thing.md", "Date: 2026-06-18\n", {}), "2026-06-18"
+        )
 
     def test_the_filename_wins_over_git(self):
         self.assertEqual(
-            extract.resolve_date("2026-01-01-thing.md", "no date here",
-                                 {"2026-01-01-thing.md": "2026-09-09"}),
-            "2026-01-01")
+            extract.resolve_date(
+                "2026-01-01-thing.md", "no date here", {"2026-01-01-thing.md": "2026-09-09"}
+            ),
+            "2026-01-01",
+        )
 
     def test_git_answers_when_nothing_else_does(self):
         self.assertEqual(
             extract.resolve_date("thing.md", "no date here", {"thing.md": "2026-09-09"}),
-            "2026-09-09")
+            "2026-09-09",
+        )
 
     def test_a_document_with_no_date_anywhere_resolves_to_none(self):
         # Pass 2 proposes no supersession edge for such a record.

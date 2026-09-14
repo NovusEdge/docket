@@ -61,6 +61,11 @@ func DiscoverEnvironment(opts Options) (Environment, error) {
 		if err != nil {
 			return e, err
 		}
+	} else {
+		// Uninstall must work on a machine whose Python has since gone, so a
+		// failure here is not fatal. It only costs the construct SDK cleanup,
+		// which the planner then reports as a note.
+		e.Python, _ = findPython()
 	}
 	return e, nil
 }
@@ -87,7 +92,7 @@ func findPython() (string, error) {
 			return result.Executable, nil
 		}
 	}
-	return "", errors.New("Python 3.11 or later is required for Docket; install Python and make python3, python, or the py launcher available on PATH")
+	return "", errors.New("docket needs Python 3.11 or later; install Python and make python3, python, or the py launcher available on PATH")
 }
 
 func PreparePlan(env Environment, opts Options) (Plan, error) {
@@ -219,7 +224,7 @@ func parseInstalledCodex(data []byte) (bool, error) {
 		return false, fmt.Errorf("read Codex plugin list: %w", err)
 	}
 	if result.Installed == nil {
-		return false, errors.New("Codex plugin list has no installed array")
+		return false, errors.New("the Codex plugin list has no installed array")
 	}
 	for _, p := range result.Installed {
 		if p.ID == "docket@NovusEdge" {

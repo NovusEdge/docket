@@ -37,7 +37,9 @@ COMMON_DEFAULTS: dict[str, Any] = {
     "cost_if_wrong": "",
     "pinned": False,
 }
-COMMON_FIELDS = frozenset({"schema", "kind", "id", "text", "state", "ts", "author", "session", "branch", *COMMON_DEFAULTS})
+COMMON_FIELDS = frozenset(
+    {"schema", "kind", "id", "text", "state", "ts", "author", "session", "branch", *COMMON_DEFAULTS}
+)
 DECISION_FIELDS = frozenset({"choice", "alternatives", "decided_by"})
 AUDIT_FIELDS = frozenset({"legacy"})
 ALLOWED_FIELDS = COMMON_FIELDS | DECISION_FIELDS | AUDIT_FIELDS
@@ -126,7 +128,11 @@ def make_record(
         if choice is not None and not isinstance(choice, str):
             raise _error("record", "choice must be a string")
         record["choice"] = choice if choice is not None else ""
-        record["alternatives"] = alternatives.copy() if isinstance(alternatives, list) else (alternatives if alternatives is not None else [])
+        record["alternatives"] = (
+            alternatives.copy()
+            if isinstance(alternatives, list)
+            else (alternatives if alternatives is not None else [])
+        )
         if choice and choice not in record["alternatives"]:
             record["alternatives"].insert(0, choice)
         record["decided_by"] = decided_by if decided_by is not None else ""
@@ -168,8 +174,9 @@ class _Prefix:
             self.retired[target] = ident
 
 
-def validate_record(record: Any, *, previous: list[dict[str, Any]] | None = None,
-                    prefix: _Prefix | None = None) -> dict[str, Any]:
+def validate_record(
+    record: Any, *, previous: list[dict[str, Any]] | None = None, prefix: _Prefix | None = None
+) -> dict[str, Any]:
     """Validate and return a record without mutating the caller's object.
 
     ``previous`` enables the ordering and cross-record relation checks used by
@@ -181,7 +188,9 @@ def validate_record(record: Any, *, previous: list[dict[str, Any]] | None = None
     if any(not isinstance(key, str) for key in record):
         raise _error("record", "field names must be strings")
     if record.get("schema") in (None, 1):
-        raise _error("schema", "legacy format is unsupported; run 'docket migrate' to convert it to schema 2")
+        raise _error(
+            "schema", "legacy format is unsupported; run 'docket migrate' to convert it to schema 2"
+        )
     unknown_fields = sorted(set(record) - ALLOWED_FIELDS)
     if unknown_fields:
         raise _error("record", f"unknown field(s): {', '.join(unknown_fields)}")
@@ -213,13 +222,19 @@ def validate_record(record: Any, *, previous: list[dict[str, Any]] | None = None
         if not _is_string_list(record.get(field)):
             raise _error(record_id, f"{field} must be a list of non-empty ID strings")
     supports = record.get("supports")
-    if not isinstance(supports, list) or any(not _is_string_list(group) or not group for group in supports):
+    if not isinstance(supports, list) or any(
+        not _is_string_list(group) or not group for group in supports
+    ):
         raise _error(record_id, "supports must be a list of conjunctive ID lists")
     evidence = record.get("evidence")
     if not isinstance(evidence, list):
         raise _error(record_id, "evidence must be a list of objects")
     for item in evidence:
-        if not isinstance(item, dict) or not isinstance(item.get("ref"), str) or not item["ref"].strip():
+        if (
+            not isinstance(item, dict)
+            or not isinstance(item.get("ref"), str)
+            or not item["ref"].strip()
+        ):
             raise _error(record_id, "each evidence object needs a non-empty ref")
         for field in ("checked_at", "commit"):
             if field in item and not isinstance(item[field], str):
@@ -243,15 +258,31 @@ def validate_record(record: Any, *, previous: list[dict[str, Any]] | None = None
         legacy = record["legacy"]
         if not isinstance(legacy, dict) or set(legacy) != {"source_id", "raw", "relation_map"}:
             raise _error(record_id, "legacy must contain source_id, raw, and relation_map")
-        if not isinstance(legacy["source_id"], str) or not isinstance(legacy["raw"], dict) or not isinstance(legacy["relation_map"], dict):
-            raise _error(record_id, "legacy source_id must be a string and raw/relation_map must be objects")
-        if not re.fullmatch(r"d[1-9][0-9]*", legacy["source_id"]) or legacy["raw"].get("id") != legacy["source_id"]:
+        if (
+            not isinstance(legacy["source_id"], str)
+            or not isinstance(legacy["raw"], dict)
+            or not isinstance(legacy["relation_map"], dict)
+        ):
+            raise _error(
+                record_id, "legacy source_id must be a string and raw/relation_map must be objects"
+            )
+        if (
+            not re.fullmatch(r"d[1-9][0-9]*", legacy["source_id"])
+            or legacy["raw"].get("id") != legacy["source_id"]
+        ):
             raise _error(record_id, "legacy source_id must identify its raw source record")
         audit = legacy["relation_map"]
-        source_fields = {"because": "supports", "depends_on": "depends_on",
-                         "answers": "answers", "supersedes": "supersedes"}
-        expected = {"overrides"} | {"source_" + name for name in source_fields} | {
-            "mapped_" + name for name in source_fields.values()}
+        source_fields = {
+            "because": "supports",
+            "depends_on": "depends_on",
+            "answers": "answers",
+            "supersedes": "supersedes",
+        }
+        expected = (
+            {"overrides"}
+            | {"source_" + name for name in source_fields}
+            | {"mapped_" + name for name in source_fields.values()}
+        )
         if set(audit) != expected:
             raise _error(record_id, "legacy relation_map has missing or unknown audit fields")
         overrides = audit["overrides"]
@@ -263,7 +294,9 @@ def validate_record(record: Any, *, previous: list[dict[str, Any]] | None = None
             if audit["mapped_" + mapped_name] != record[mapped_name]:
                 raise _error(record_id, "legacy relation_map differs from the mapped relations")
     if kind == "question" and state != "open":
-        raise _error(record_id, "questions have recorded state open; resolution is derived from answers")
+        raise _error(
+            record_id, "questions have recorded state open; resolution is derived from answers"
+        )
     if kind == "question" and record["answers"]:
         raise _error(record_id, "questions cannot answer other questions")
     if kind != "decision" and record["depends_on"]:
@@ -280,7 +313,11 @@ def validate_record(record: Any, *, previous: list[dict[str, Any]] | None = None
         if number <= prefix.max_number:
             raise _error(record_id, "global sequence must increase monotonically; gaps are allowed")
         for field in ("supports", "depends_on", "answers", "supersedes"):
-            ids = [ref for group in supports for ref in group] if field == "supports" else record[field]
+            ids = (
+                [ref for group in supports for ref in group]
+                if field == "supports"
+                else record[field]
+            )
             for ref in ids:
                 if ref == record_id:
                     raise _error(record_id, f"{field} cannot refer to itself")
@@ -391,7 +428,9 @@ def resolved_by(entries: list[dict[str, Any]]) -> dict[str, list[str]]:
         if retired.get(entry["id"]):
             continue
         acceptable = (entry["kind"] == "claim" and entry["state"] == "accepted") or (
-            entry["kind"] == "decision" and entry["state"] == "adopted" and applicability.get(entry["id"], False)
+            entry["kind"] == "decision"
+            and entry["state"] == "adopted"
+            and applicability.get(entry["id"], False)
         )
         if not acceptable:
             continue
@@ -402,7 +441,8 @@ def resolved_by(entries: list[dict[str, Any]]) -> dict[str, list[str]]:
 
 
 def _decision_applicability(
-    entries: list[dict[str, Any]], retired: dict[str, str] | None = None,
+    entries: list[dict[str, Any]],
+    retired: dict[str, str] | None = None,
 ) -> tuple[dict[str, bool], dict[str, list[str]]]:
     """Evaluate decision prerequisites without changing recorded state."""
     retired = retired if retired is not None else retired_by(entries)
@@ -491,10 +531,14 @@ def graph_payload(entries: list[dict[str, Any]]) -> dict[str, Any]:
     """Return the graph viewer's version 2 wire representation."""
     # CLI filters may pass a projected subset whose relation targets are not
     # present in that subset.  It has already crossed the validation boundary.
-    projected = copy.deepcopy(entries) if all(
-        isinstance(entry, dict) and "recorded_state" in entry and "retired_by" in entry
-        for entry in entries
-    ) else project(entries)
+    projected = (
+        copy.deepcopy(entries)
+        if all(
+            isinstance(entry, dict) and "recorded_state" in entry and "retired_by" in entry
+            for entry in entries
+        )
+        else project(entries)
+    )
     result = []
     for entry in projected:
         sets = copy.deepcopy(entry["supports"])
@@ -504,13 +548,15 @@ def graph_payload(entries: list[dict[str, Any]]) -> dict[str, Any]:
                 if ref not in union:
                     union.append(ref)
         node = copy.deepcopy(entry)
-        node.update({
-            "question": entry["text"],
-            "answer": entry.get("choice", entry.get("rationale", "")),
-            "cost": entry["cost_if_wrong"],
-            "sets": sets,
-            "supports": union,
-        })
+        node.update(
+            {
+                "question": entry["text"],
+                "answer": entry.get("choice", entry.get("rationale", "")),
+                "cost": entry["cost_if_wrong"],
+                "sets": sets,
+                "supports": union,
+            }
+        )
         result.append(node)
     return {"version": 2, "entries": result}
 
@@ -526,6 +572,7 @@ def _ledger_lock(path: Path, exclusive: bool = True) -> Iterator[None]:
             # Windows reader that races a long append fails where a POSIX one
             # waits. The alternative is a torn read.
             import msvcrt
+
             lock.seek(0)
             msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
             try:
@@ -535,6 +582,7 @@ def _ledger_lock(path: Path, exclusive: bool = True) -> Iterator[None]:
                 msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
         else:
             import fcntl
+
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
             try:
                 yield
@@ -559,7 +607,7 @@ def append(path: Path | str, record: dict[str, Any]) -> dict[str, Any]:
         entries = read(path, lock=False)
         candidate = copy.deepcopy(record)
         if not candidate.get("id"):
-            kind = candidate.get("kind")
+            kind = candidate.get("kind") or ""
             candidate["id"] = allocate_id(entries, kind)
         validate_record(candidate, previous=entries)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -573,7 +621,9 @@ def append(path: Path | str, record: dict[str, Any]) -> dict[str, Any]:
                         stream.write("\n")
                     else:
                         stream.seek(0, os.SEEK_END)
-                stream.write(json.dumps(candidate, ensure_ascii=False, separators=(",", ":")) + "\n")
+                stream.write(
+                    json.dumps(candidate, ensure_ascii=False, separators=(",", ":")) + "\n"
+                )
                 stream.flush()
                 os.fsync(stream.fileno())
         except OSError as exc:
