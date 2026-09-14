@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
+from unittest.mock import patch
 
 from docket.cli import construct as cli_construct
 from docket.construct import schema, stage
@@ -252,6 +253,24 @@ class DependencyTests(unittest.TestCase):
         message = cli_construct.MISSING_SDK
         self.assertIn("pip install", message)
         self.assertIn("openai", message)
+
+    def test_a_missing_key_prints_one_line_and_no_traceback(self):
+        # A missing environment variable is the most ordinary way to reach this
+        # command, and it reached the user as a stack trace.
+        from docket.construct import client, run
+
+        def no_key(*_args, **_kwargs):
+            raise client.ClientError("needs OPENROUTER_API_KEY")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "a.md").write_text("# a\n")
+            original, run.two_pass = run.two_pass, no_key
+            self.addCleanup(setattr, run, "two_pass", original)
+            err = io.StringIO()
+            with redirect_stderr(err), patch.dict(sys.modules, {"openai": object()}):
+                rc = cli_construct.cmd_construct(args(paths=[tmp]))
+            self.assertEqual(rc, 1)
+            self.assertIn("OPENROUTER_API_KEY", err.getvalue())
 
     def test_importing_the_command_module_does_not_import_the_sdk(self):
         self.assertNotIn("openai", sys.modules)

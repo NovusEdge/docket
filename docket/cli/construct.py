@@ -20,11 +20,15 @@ from docket import env
 # SessionStart hook builds this parser on every session, and it must not pay for
 # a subpackage only this command uses.
 
+# The first form installs nothing and works on a distro-managed interpreter,
+# where Debian and Arch mark python3 EXTERNALLY-MANAGED and pip refuses
+# --user outright.
 MISSING_SDK = (
-    "docket construct needs the openai SDK:\n"
-    "    uv pip install openai        (or: python3 -m pip install --user openai)\n"
-    "It is the only command that does. Every other command, and the "
-    "SessionStart hook, run without it."
+    "docket construct needs the openai SDK. Run it without installing:\n"
+    "    uv run --with openai --no-project docket construct ...\n"
+    "or install it: pipx inject docket openai, or pip install openai inside a\n"
+    "virtualenv. It is the only command that needs it. Every other command, and\n"
+    "the SessionStart hook, run without it."
 )
 
 _WIDTH = 88
@@ -162,7 +166,7 @@ def _extract(args: argparse.Namespace, staged: Path) -> int:
 
     The SDK import lives here, inside the one command body that needs it.
     """
-    from docket.construct import run, stage
+    from docket.construct import client, run, stage
 
     # A dry run reads nothing and calls nothing, so it must not demand the
     # dependency. It is the one command someone runs to see what would happen.
@@ -180,7 +184,9 @@ def _extract(args: argparse.Namespace, staged: Path) -> int:
                                          dry_run=args.dry_run,
                                          exclude=exclude,
                                          untracked=args.untracked)
-    except run.RunError as exc:
+    except (run.RunError, client.ClientError) as exc:
+        # An absent key is the most ordinary way to reach this command. It
+        # reached the user as a stack trace out of client.config().
         print(f"docket: {exc}", file=sys.stderr)
         return 1
 
