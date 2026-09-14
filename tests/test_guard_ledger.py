@@ -82,6 +82,34 @@ class BashTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual(bash(command), "ask")
 
+    def test_a_reader_in_its_write_mode_asks(self):
+        for command in (
+            "git checkout HEAD~3 -- .docket/ledger.jsonl",
+            "git restore .docket/ledger.jsonl",
+            "git -C /home/user/project checkout main -- .docket/ledger.jsonl",
+            "git reset --hard -- .docket/ledger.jsonl",
+            "find .docket -name 'ledger.jsonl' -delete",
+            "find .docket -name 'ledger.jsonl' -exec rm {} +",
+            "sort -o .docket/ledger.jsonl .docket/ledger.jsonl",
+            "sort --output=.docket/ledger.jsonl /tmp/x",
+            "uniq /tmp/x .docket/ledger.jsonl",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(bash(command), "ask")
+
+    def test_the_same_readers_still_pass_when_they_only_read(self):
+        for command in (
+            "git log --oneline -- .docket/ledger.jsonl",
+            "git show HEAD:.docket/ledger.jsonl",
+            "git diff .docket/ledger.jsonl",
+            "git -C /home/user/project log -1 .docket/ledger.jsonl",
+            "find .docket -name 'ledger.jsonl'",
+            "sort .docket/ledger.jsonl",
+            "uniq .docket/ledger.jsonl",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(bash(command), "allow")
+
     def test_an_opaque_command_naming_a_ledger_asks(self):
         # None of these say what they do, which is the point of asking.
         for command in (

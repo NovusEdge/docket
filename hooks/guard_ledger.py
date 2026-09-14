@@ -30,6 +30,70 @@ READERS = re.compile(
     r"md5sum|sha256sum|stat|file|ls|find|diff|cmp|git|python3?\s+-m\s+json\.tool)$"
 )
 
+# Four of the readers write when asked to. `git restore` and `git checkout --`
+# rewrite a tracked ledger from history, `find -delete` removes it, `sort -o`
+# and `uniq in out` write over it. The name alone settles nothing for these, so
+# their arguments decide.
+GIT_READ_SUBCOMMANDS = frozenset(
+    {
+        "blame",
+        "cat-file",
+        "diff",
+        "grep",
+        "log",
+        "ls-files",
+        "ls-tree",
+        "rev-list",
+        "rev-parse",
+        "show",
+        "shortlog",
+        "status",
+    }
+)
+
+FIND_WRITE_ACTIONS = frozenset(
+    {"-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0", "-fprintf"}
+)
+
+
+# Global options that take a separate value. Without these, the value of `git
+# -C path log` reads as the subcommand.
+GIT_VALUE_OPTIONS = frozenset(
+    {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path"}
+)
+
+
+def _git_writes(args: list[str]) -> bool:
+    skip = False
+    for arg in args:
+        if skip:
+            skip = False
+            continue
+        if arg in GIT_VALUE_OPTIONS:
+            skip = True
+            continue
+        if arg.startswith("-"):
+            continue
+        return arg not in GIT_READ_SUBCOMMANDS
+    return False
+
+
+def _sort_writes(args: list[str]) -> bool:
+    return any(arg == "-o" or arg.startswith("--output") for arg in args)
+
+
+def _uniq_writes(args: list[str]) -> bool:
+    # uniq INPUT OUTPUT writes the second operand.
+    return sum(1 for arg in args if not arg.startswith("-")) > 1
+
+
+WRITE_MODES = {
+    "git": _git_writes,
+    "find": lambda args: any(arg in FIND_WRITE_ACTIONS for arg in args),
+    "sort": _sort_writes,
+    "uniq": _uniq_writes,
+}
+
 # The sanctioned path. `docket` alone is the installed name; bin/docket is the
 # checkout. Both validate every record before they append it.
 DOCKET_CLI = re.compile(r"^(?:[^\s;&|]*/)?docket(?:\.py)?$")
@@ -64,6 +128,10 @@ def is_ledger(path: str, cwd: str) -> bool:
     except (OSError, ValueError):
         return False
     name = resolved.name
+    # The directory counts as a target. A command can name the ledger by a
+    # pattern it never spells out, as `find .docket -name 'ledger.jsonl'` does.
+    if name == ".docket":
+        return True
     if not name.endswith(LEDGER_SUFFIXES):
         return False
     if ".docket" in resolved.parts:
@@ -72,6 +140,14 @@ def is_ledger(path: str, cwd: str) -> bool:
         return global_root() in resolved.parents
     except (OSError, ValueError):
         return False
+
+
+def _names_ledger(word: str, cwd: str) -> bool:
+    """Whether a shell word names a ledger, plain or as --flag=path."""
+    if is_ledger(word, cwd):
+        return True
+    _, sep, value = word.partition("=")
+    return bool(sep and value) and is_ledger(value, cwd)
 
 
 def bash_targets_ledger(command: str, cwd: str) -> bool:
@@ -84,7 +160,7 @@ def bash_targets_ledger(command: str, cwd: str) -> bool:
     """
 
     words = re.findall(r"[^\s'\"<>|;&()]+", command)
-    if not any(is_ledger(word, cwd) for word in words):
+    if not any(_names_ledger(word, cwd) for word in words):
         return False
     if OPAQUE.search(command):
         return True
@@ -97,9 +173,12 @@ def bash_targets_ledger(command: str, cwd: str) -> bool:
         if not head:
             continue
         name = head[0]
+        writes = WRITE_MODES.get(Path(name).name)
+        if writes and writes(head[1:]):
+            return True
         if DOCKET_CLI.match(name) or READERS.match(name):
             continue
-        if any(is_ledger(word, cwd) for word in head):
+        if any(_names_ledger(word, cwd) for word in head):
             return True
     return False
 
