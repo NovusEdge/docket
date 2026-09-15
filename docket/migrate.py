@@ -456,7 +456,7 @@ def build_records(
             choice = entry.get("choice", answer)
             if not isinstance(choice, str) or not choice:
                 raise MigrationError(f"decision mapping for {old_id} requires non-empty choice")
-            alternatives = entry.get("alternatives", [choice])
+            alternatives = entry.get("alternatives", [])
             if not isinstance(alternatives, list) or not all(
                 isinstance(item, str) and item for item in alternatives
             ):
@@ -464,7 +464,11 @@ def build_records(
                     f"decision mapping for {old_id} alternatives must be a list of strings"
                 )
             record["choice"] = choice
-            record["alternatives"] = list(dict.fromkeys([*alternatives, choice]))
+            # The choice is no longer folded in. A schema 1 ledger records no
+            # alternatives, and a list holding only the choice says nothing.
+            record["alternatives"] = [
+                item for item in dict.fromkeys(alternatives) if item != choice
+            ]
             record["decided_by"] = _metadata(raw, entry, "decided_by", "")
         elif "decided_by" in entry:
             raise MigrationError(f"decided_by is decision-only for {old_id}")
