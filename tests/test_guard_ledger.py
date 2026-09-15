@@ -91,7 +91,9 @@ class BashTests(unittest.TestCase):
             "find .docket -name 'ledger.jsonl' -delete",
             "find .docket -name 'ledger.jsonl' -exec rm {} +",
             "sort -o .docket/ledger.jsonl .docket/ledger.jsonl",
+            "sort -uo .docket/ledger.jsonl /tmp/x",
             "sort --output=.docket/ledger.jsonl /tmp/x",
+            "sort --output .docket/ledger.jsonl /tmp/x",
             "uniq /tmp/x .docket/ledger.jsonl",
         ):
             with self.subTest(command=command):

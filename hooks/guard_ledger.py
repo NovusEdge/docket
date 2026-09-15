@@ -79,7 +79,9 @@ def _git_writes(args: list[str]) -> bool:
 
 
 def _sort_writes(args: list[str]) -> bool:
-    return any(arg == "-o" or arg.startswith("--output") for arg in args)
+    # -o bundles, so `sort -uo FILE` writes FILE. Any short cluster ending in o
+    # counts, which also catches `-ko` at the cost of a prompt nobody minds.
+    return any(re.fullmatch(r"-[A-Za-z]*o", arg) or arg.startswith("--output") for arg in args)
 
 
 def _uniq_writes(args: list[str]) -> bool:
