@@ -31,8 +31,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   has carried since the repository began tracking its own ledger. The installed
   ledger now replaces the clone's outright.
 - The ledger guard hook let `git restore`, `git checkout --`, `find -delete`,
-  `sort -o` and `uniq IN OUT` through. Those four programs sat on the reader
-  allowlist by name, and their arguments went unread.
+  `sort -o`, `sort -uo` and `uniq IN OUT` through. Those four programs sat on
+  the reader allowlist by name, and their arguments went unread.
+- `docket migrate` folded the choice into `alternatives` for every decision. A
+  schema 1 ledger records no alternatives, so the result was a one-element list
+  carrying nothing. Migrated decisions now get an empty list.
 - `docket update` lost a custom installation. It passed only `--update` to the
   downloaded launcher, which runs outside the checkout and could resolve neither
   the checkout nor the recorded prefix.
