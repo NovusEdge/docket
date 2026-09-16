@@ -180,14 +180,19 @@ detail pane. Use these keys:
 | Key | Action |
 |---|---|
 | `↑`/`k`, `↓`/`j` | Move through entries |
+| `gg`, `G` | Jump to the first or last entry |
 | `space`/`enter` | Collapse or expand a branch |
 | `tab` | Switch between the tree and detail pane |
+| `s` | Cycle the sort field: ledger, id, timestamp, kind, state |
+| `r` | Reverse the sort direction |
 | `/` | Search IDs, kinds, states, text, choices, and costs |
 | `q`/`Ctrl-C` | Quit |
 
 When the detail pane is focused, `PgUp`/`Ctrl-U` and `PgDn`/`Ctrl-D` scroll it;
 `h`/`left` and `l`/`right` move horizontally. Press `Enter` to apply a search
-and `Esc` to cancel it.
+and `Esc` to cancel it. A sort reorders roots only, and each subtree moves with
+its root. The selection follows the record, not the row. The footer names the
+active sort field and direction.
 
 Piped output stays static. Use `--no-interactive` or `--plain` to force static
 output, or choose `--style forest`, `--style rail`, or `--style compact`.

@@ -385,6 +385,117 @@ func TestLedgerGraphTitleAndBlockedStyle(t *testing.T) {
 	}
 }
 
+func TestVimJumpsLandOnFirstAndLastRow(t *testing.T) {
+	m := NewModel(testData())
+	m, _ = updateModel(m, keyMsg('G'))
+	last := m.visibleRows()[len(m.visibleRows())-1].id
+	if m.selectedID() != last || m.detailID != last {
+		t.Fatalf("G selection = %q, want %q", m.selectedID(), last)
+	}
+	m, _ = updateModel(m, keyMsg('g'))
+	if m.selectedID() != last {
+		t.Fatalf("pending g moved the selection to %q", m.selectedID())
+	}
+	m, _ = updateModel(m, keyMsg('g'))
+	if m.selectedID() != m.visibleRows()[0].id || m.selected != 0 {
+		t.Fatalf("gg selection = %q at index %d", m.selectedID(), m.selected)
+	}
+}
+
+func TestForeignKeyCancelsTheGPrefix(t *testing.T) {
+	m := NewModel(testData())
+	m, _ = updateModel(m, keyMsg('G'))
+	last := m.selected
+	m, _ = updateModel(m, keyMsg('g'))
+	m, _ = updateModel(m, keyMsg('x'))
+	if m.pendingG || m.selected != last {
+		t.Fatalf("x did not cancel the g prefix: pending=%v selected=%d", m.pendingG, m.selected)
+	}
+	m, _ = updateModel(m, keyMsg('g'))
+	if m.selected != last {
+		t.Fatalf("a lone g after the cancelled prefix jumped to %d", m.selected)
+	}
+}
+
+func TestSortReordersRootsAndKeepsSubtreesContiguous(t *testing.T) {
+	m := NewModel(GraphData{Version: 2, Entries: []Entry{
+		{ID: "a", Kind: "claim", TS: "2026-01-02"},
+		{ID: "a1", Kind: "claim", TS: "2026-01-03", Supports: []string{"a"}},
+		{ID: "a2", Kind: "claim", TS: "2026-01-04", Supports: []string{"a1"}},
+		{ID: "b", Kind: "decision", TS: "2026-01-01", Supports: nil},
+		{ID: "b1", Kind: "decision", TS: "2026-01-05", Supports: []string{"b"}},
+	}})
+	m, _ = updateModel(m, keyMsg('s'))
+	if m.sortBy != sortID {
+		t.Fatalf("one s gave sort field %v, want id", m.sortBy)
+	}
+	m, _ = updateModel(m, keyMsg('r'))
+	if !m.sortDesc {
+		t.Fatal("r did not reverse the direction")
+	}
+	assertRowOrder(t, m, "b", "b1", "a", "a1", "a2")
+	assertTreeIntact(t, m)
+	if !strings.Contains(ansi.Strip(m.footer()), "sort id desc") {
+		t.Fatalf("footer hid the active sort: %q", ansi.Strip(m.footer()))
+	}
+
+	m, _ = updateModel(m, keyMsg('r'))
+	m, _ = updateModel(m, keyMsg('s'))
+	if m.sortBy != sortTimestamp {
+		t.Fatalf("two s gave sort field %v, want timestamp", m.sortBy)
+	}
+	assertRowOrder(t, m, "b", "b1", "a", "a1", "a2")
+	assertTreeIntact(t, m)
+}
+
+// assertTreeIntact fails when a child no longer sits under its own parent,
+// which is what a sort that flattened the traversal would produce.
+func assertTreeIntact(t *testing.T, m model) {
+	t.Helper()
+	open := map[int]string{}
+	for _, row := range m.rows {
+		open[row.depth] = row.id
+		if row.depth == 0 {
+			continue
+		}
+		want := m.entries[row.id].Supports[0]
+		if open[row.depth-1] != want {
+			t.Fatalf("row %q sits under %q, want %q", row.id, open[row.depth-1], want)
+		}
+	}
+}
+
+func assertRowOrder(t *testing.T, m model, want ...string) {
+	t.Helper()
+	got := make([]string, 0, len(m.rows))
+	for _, row := range m.rows {
+		got = append(got, row.id)
+	}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("rows = %v, want %v", got, want)
+	}
+}
+
+func TestSelectionFollowsTheRecordAcrossASort(t *testing.T) {
+	m := NewModel(testData())
+	for m.selectedID() != "d4" {
+		m, _ = updateModel(m, keyMsg('j'))
+	}
+	before := m.selected
+	m, _ = updateModel(m, keyMsg('s'))
+	m, _ = updateModel(m, keyMsg('r'))
+	if m.selectedID() != "d4" || m.detailID != "d4" {
+		t.Fatalf("selection = %q after re-sort, want d4", m.selectedID())
+	}
+	if m.selected == before {
+		t.Fatalf("fixture did not move d4 to a different row index (%d)", before)
+	}
+	m, _ = updateModel(m, keyMsg('r'))
+	if m.selectedID() != "d4" {
+		t.Fatalf("selection = %q after a direction flip, want d4", m.selectedID())
+	}
+}
+
 func keyMsg(k rune) tea.KeyPressMsg { return tea.KeyPressMsg(tea.Key{Code: k}) }
 
 func updateModel(m model, msg tea.Msg) (model, tea.Cmd) {

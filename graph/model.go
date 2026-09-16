@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"unicode"
 
@@ -74,6 +75,9 @@ type model struct {
 	projectedChildren map[string]bool
 	collapsed         map[string]bool
 	selected          int
+	sortBy            sortField
+	sortDesc          bool
+	pendingG          bool
 
 	searchInput   textinput.Model
 	searching     bool
@@ -97,6 +101,10 @@ var (
 	keyPageDown    = key.NewBinding(key.WithKeys("pgdown", "ctrl+d"), key.WithHelp("pgdn", "detail down"))
 	keyLeft        = key.NewBinding(key.WithKeys("left", "h"), key.WithHelp("h/←", "detail left"))
 	keyRight       = key.NewBinding(key.WithKeys("right", "l"), key.WithHelp("l/→", "detail right"))
+	keyTop         = key.NewBinding(key.WithKeys("g"), key.WithHelp("gg", "first row"))
+	keyBottom      = key.NewBinding(key.WithKeys("G"), key.WithHelp("G", "last row"))
+	keySort        = key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sort field"))
+	keyReverse     = key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reverse sort"))
 	footerUp       = key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "move"))
 	footerDown     = key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "move"))
 	footerCollapse = key.NewBinding(key.WithKeys("space", "enter"), key.WithHelp("space", "fold"))
@@ -107,7 +115,29 @@ var (
 	footerPageDown = key.NewBinding(key.WithKeys("pgdown", "ctrl+d"), key.WithHelp("pgdn", "down"))
 	footerLeft     = key.NewBinding(key.WithKeys("left", "h"), key.WithHelp("h/←", "left"))
 	footerRight    = key.NewBinding(key.WithKeys("right", "l"), key.WithHelp("l/→", "right"))
+	footerJump     = key.NewBinding(key.WithKeys("g", "G"), key.WithHelp("gg/G", "ends"))
+	footerSort     = key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sort"))
+	footerReverse  = key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reverse"))
 )
+
+type sortField int
+
+const (
+	sortLedger sortField = iota
+	sortID
+	sortTimestamp
+	sortKind
+	sortState
+)
+
+var sortFieldLabels = []string{"ledger", "id", "timestamp", "kind", "state"}
+
+func (f sortField) label() string {
+	if int(f) < 0 || int(f) >= len(sortFieldLabels) {
+		return sortFieldLabels[0]
+	}
+	return sortFieldLabels[f]
+}
 
 func NewModel(data GraphData) model {
 	return newModel(data, os.Getenv("NO_COLOR") == "")
@@ -181,6 +211,63 @@ func buildRows(order []string, entries map[string]Entry) []graphRow {
 	return rows
 }
 
+// sortRows reorders whole root blocks. A block runs from one depth-0 row to the
+// row before the next one, so every subtree moves with its root and the tree
+// stays intact.
+func sortRows(rows []graphRow, entries map[string]Entry, field sortField, desc bool) []graphRow {
+	if field == sortLedger && !desc {
+		return rows
+	}
+	type block struct {
+		head Entry
+		seq  int
+		rows []graphRow
+	}
+	blocks := make([]block, 0, len(rows))
+	for _, row := range rows {
+		if row.depth == 0 || len(blocks) == 0 {
+			blocks = append(blocks, block{head: entries[row.id], seq: len(blocks)})
+		}
+		blocks[len(blocks)-1].rows = append(blocks[len(blocks)-1].rows, row)
+	}
+	sort.SliceStable(blocks, func(i, j int) bool {
+		if field == sortLedger {
+			if desc {
+				return blocks[i].seq > blocks[j].seq
+			}
+			return blocks[i].seq < blocks[j].seq
+		}
+		a, b := sortKey(field, blocks[i].head), sortKey(field, blocks[j].head)
+		if a == b {
+			return blocks[i].seq < blocks[j].seq
+		}
+		if desc {
+			return a > b
+		}
+		return a < b
+	})
+	out := make([]graphRow, 0, len(rows))
+	for _, blk := range blocks {
+		out = append(out, blk.rows...)
+	}
+	return out
+}
+
+func sortKey(field sortField, entry Entry) string {
+	switch field {
+	case sortID:
+		return strings.ToLower(sanitize(entry.ID))
+	case sortTimestamp:
+		return sanitize(entry.TS)
+	case sortKind:
+		return strings.ToLower(sanitize(kindLabel(entry.Kind)))
+	case sortState:
+		return strings.ToLower(sanitize(stateLabel(overviewState(entry))))
+	default:
+		return ""
+	}
+}
+
 func projectedChildren(rows []graphRow) map[string]bool {
 	children := make(map[string]bool)
 	stack := make([]string, 0)
@@ -203,6 +290,23 @@ func (m model) selectedID() string {
 	}
 	index := max(0, min(m.selected, len(rows)-1))
 	return rows[index].id
+}
+
+func (m *model) applySort() {
+	m.rows = sortRows(buildRows(m.order, m.entries), m.entries, m.sortBy, m.sortDesc)
+}
+
+// selectRow keeps the cursor on a record rather than on a row index, which a
+// re-sort invalidates. A hidden or missing id falls back to the nearest row.
+func (m *model) selectRow(id string) {
+	rows := m.visibleRows()
+	m.selected = min(m.selected, max(0, len(rows)-1))
+	for i, row := range rows {
+		if row.id == id {
+			m.selected = i
+			return
+		}
+	}
 }
 
 func (m model) visibleRows() []graphRow {
@@ -524,6 +628,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.searchInput, cmd = m.searchInput.Update(msg)
 			return m, cmd
 		}
+		if m.pendingG {
+			m.pendingG = false
+			if key.Matches(msg, keyTop) && !m.detailFocus {
+				if len(m.visibleRows()) > 0 {
+					m.selected = 0
+					m.refreshDetail()
+				}
+				return m, nil
+			}
+		}
 		if key.Matches(msg, keySearch) {
 			m.searching = true
 			m.searchInput.SetValue(m.query)
@@ -561,6 +675,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		rows := m.visibleRows()
+		if key.Matches(msg, keyTop) {
+			m.pendingG = true
+			return m, nil
+		}
+		if key.Matches(msg, keyBottom) && len(rows) > 0 {
+			m.selected = len(rows) - 1
+			m.refreshDetail()
+			return m, nil
+		}
+		if key.Matches(msg, keySort) || key.Matches(msg, keyReverse) {
+			id := m.selectedID()
+			if key.Matches(msg, keySort) {
+				m.sortBy = (m.sortBy + 1) % sortField(len(sortFieldLabels))
+			} else {
+				m.sortDesc = !m.sortDesc
+			}
+			m.applySort()
+			m.selectRow(id)
+			m.refreshDetail()
+			return m, nil
+		}
 		if key.Matches(msg, keyUp) && len(rows) > 0 {
 			m.selected = max(0, m.selected-1)
 			m.refreshDetail()
@@ -831,18 +966,30 @@ func (m model) footer() string {
 		if m.detailFocus {
 			return "pgup/pgdn scroll  h/l side  tab tree  q quit"
 		}
-		return "j/k move  space fold  tab detail  / search  q quit"
+		// Below 70 columns fitLine truncates the tail, so the sort state leads:
+		// a dropped key hint is recoverable at a wider size, the state is not.
+		return m.sortStatus() + "  j/k move  gg/G ends  space fold  tab detail  / find  q quit"
 	}
-	m.help.SetWidth(m.width)
-	bindings := []key.Binding{footerUp, footerDown, footerCollapse, footerTab, footerSearch, footerQuit}
+	bindings := []key.Binding{footerUp, footerDown, footerJump, footerCollapse, footerTab, footerSearch, footerSort, footerReverse, footerQuit}
+	status := "  " + m.sortStatus()
 	if m.detailFocus {
 		bindings = []key.Binding{footerPageUp, footerPageDown, footerLeft, footerRight, footerTab, footerQuit}
+		status = ""
 	}
-	result := m.help.ShortHelpView(bindings)
+	m.help.SetWidth(max(1, m.width-lipgloss.Width(status)))
+	result := m.help.ShortHelpView(bindings) + status
 	if !m.pretty {
 		return ansi.Strip(result)
 	}
 	return result
+}
+
+func (m model) sortStatus() string {
+	direction := "asc"
+	if m.sortDesc {
+		direction = "desc"
+	}
+	return "sort " + m.sortBy.label() + " " + direction
 }
 
 func (m model) paint(style lipgloss.Style, value string) string {

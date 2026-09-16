@@ -64,8 +64,11 @@ terminal. Select a record in the tree to read its details.
 | Key | Action |
 |---|---|
 | Arrow keys or `j` and `k` | Move through records |
+| `gg` and `G` | Jump to the first or last record |
 | `space` or `enter` | Collapse or expand a branch |
 | `tab` | Switch between the tree and details |
+| `s` | Cycle the sort field: ledger, id, timestamp, kind, state |
+| `r` | Reverse the sort direction |
 | `/` | Search |
 | `q` | Quit |
 
