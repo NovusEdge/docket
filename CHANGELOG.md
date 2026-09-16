@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-09-16
+
+### Added
+
+- `gg` and `G` jump the graph viewer to the first and last record. `g` is a
+  prefix key, and any other key clears it and then runs normally.
+- `s` cycles the graph viewer's sort field through ledger order, id, timestamp,
+  kind and state, and `r` reverses the direction. A sort reorders roots only and
+  each subtree moves with its root, so a support tree stays readable. The
+  selection follows the record across a re-sort, and the footer names the active
+  field and direction.
+
 ## [0.14.0] - 2026-09-15
 
 ### Added
@@ -402,7 +414,10 @@ the breaking-change notes before upgrading.
 
 Versions before 0.6.1 carry no git tag. Their history is in the commit log.
 
-[Unreleased]: https://github.com/NovusEdge/docket/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/NovusEdge/docket/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/NovusEdge/docket/compare/v0.14.0...v0.15.0
+[0.14.0]: https://github.com/NovusEdge/docket/compare/v0.13.0...v0.14.0
+[0.13.0]: https://github.com/NovusEdge/docket/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/NovusEdge/docket/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/NovusEdge/docket/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/NovusEdge/docket/compare/v0.9.0...v0.10.0
