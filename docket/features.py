@@ -79,6 +79,9 @@ def _error(where: str, message: str) -> FeatureError:
     return FeatureError(f"docket: {where}: {message}")
 
 
+from docket.feature_project import project, resolve  # noqa: E402
+
+
 def _is_string_list(value: Any) -> bool:
     return isinstance(value, list) and all(isinstance(item, str) and item.strip() for item in value)
 
@@ -205,6 +208,7 @@ def append(path: Path | str, record: dict[str, Any]) -> dict[str, Any]:
         if not candidate.get("id"):
             candidate["id"] = next_id(events)
         validate_event(candidate)
+        project(events + [candidate])
         path.parent.mkdir(parents=True, exist_ok=True)
         try:
             with path.open("a", encoding="utf-8") as stream:
@@ -230,7 +234,9 @@ __all__ = [
     "append",
     "make_event",
     "next_id",
+    "project",
     "qualified",
     "read",
+    "resolve",
     "validate_event",
 ]
