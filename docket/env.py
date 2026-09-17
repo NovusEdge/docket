@@ -120,6 +120,14 @@ def ledger_path(start: Path | None = None) -> Path:
     return global_root() / slug(project_root(here)) / "ledger.jsonl"
 
 
+def features_path(start: Path | None = None) -> Path:
+    """The feature store, always beside the ledger it accompanies.
+
+    One store location, never split: docket init moves both files together.
+    """
+    return ledger_path(start).parent / "features.jsonl"
+
+
 def read(path: Path, lock: bool = True) -> list[dict]:
     return ledger_read(path, lock=lock)
 

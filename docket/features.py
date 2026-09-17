@@ -10,8 +10,13 @@ Every line is an event. Current state is a projection over them.
 from __future__ import annotations
 
 import copy
+import json
+import os
 import re
+from pathlib import Path
 from typing import Any
+
+from docket.ledger import ledger_lock
 
 SCHEMA = 1
 EVENTS = ("start", "amend", "note", "done", "abandon")
@@ -143,6 +148,76 @@ def validate_event(record: Any) -> dict[str, Any]:
     return record
 
 
+def next_id(events: list[dict[str, Any]]) -> str:
+    """Allocate the next sequence number, local to this file."""
+    numbers = []
+    for event in events:
+        match = ID_RE.fullmatch(str(event.get("id", "")))
+        if match:
+            numbers.append(int(match.group(1)))
+    return "f" + str(max(numbers, default=0) + 1)
+
+
+def qualified(event: dict[str, Any]) -> str:
+    """The disambiguating form, used when a union merge leaves two of one ID.
+
+    Short form first, the way git abbreviates a SHA until it is ambiguous.
+    """
+    base = str(event.get("base", ""))
+    return f"{event['id']}@{base[:8]}" if base else str(event["id"])
+
+
+def read(path: Path | str, lock: bool = True) -> list[dict[str, Any]]:
+    """Read and strictly validate the store, raising on corruption."""
+    path = Path(path)
+    if not path.exists():
+        return []
+    try:
+        if lock:
+            with ledger_lock(path, exclusive=False):
+                text = path.read_text(encoding="utf-8")
+        else:
+            text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise _error("read", f"cannot read {path}: {exc}") from exc
+
+    events: list[dict[str, Any]] = []
+    for line_number, line in enumerate(text.splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise _error(f"line {line_number}", f"invalid JSON: {exc.msg}") from exc
+        try:
+            events.append(validate_event(value))
+        except FeatureError as exc:
+            raise _error(f"line {line_number}", str(exc).removeprefix("docket: ")) from exc
+    return events
+
+
+def append(path: Path | str, record: dict[str, Any]) -> dict[str, Any]:
+    """Validate and append one event under the same lock the ledger uses."""
+    path = Path(path)
+    with ledger_lock(path):
+        events = read(path, lock=False)
+        candidate = copy.deepcopy(record)
+        if not candidate.get("id"):
+            candidate["id"] = next_id(events)
+        validate_event(candidate)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with path.open("a", encoding="utf-8") as stream:
+                stream.write(
+                    json.dumps(candidate, ensure_ascii=False, separators=(",", ":")) + "\n"
+                )
+                stream.flush()
+                os.fsync(stream.fileno())
+        except OSError as exc:
+            raise _error("append", f"cannot write {path}: {exc}") from exc
+    return candidate
+
+
 __all__ = [
     "ALLOWED_FIELDS",
     "EVENTS",
@@ -152,6 +227,10 @@ __all__ = [
     "STATUSES",
     "TERMINAL_STATES",
     "FeatureError",
+    "append",
     "make_event",
+    "next_id",
+    "qualified",
+    "read",
     "validate_event",
 ]

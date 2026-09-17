@@ -1,4 +1,5 @@
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -53,6 +54,52 @@ class EventSchemaTests(unittest.TestCase):
         event["id"] = "d3"
         with self.assertRaisesRegex(features.FeatureError, "id"):
             features.validate_event(event)
+
+
+class StoreTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = Path(self.tmp.name) / "features.jsonl"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def add(self, event, slug, **fields):
+        return features.append(self.path, features.make_event(event, slug, **fields))
+
+    def test_reading_a_missing_file_returns_no_events(self):
+        self.assertEqual(features.read(self.path), [])
+
+    def test_ids_are_allocated_in_sequence(self):
+        self.assertEqual(self.add("start", "one", text="t", paths=["a"])["id"], "f1")
+        self.assertEqual(self.add("note", "one", text="n")["id"], "f2")
+        self.assertEqual(self.add("done", "one")["id"], "f3")
+
+    def test_appended_events_read_back_in_order(self):
+        self.add("start", "one", text="t", paths=["a"])
+        self.add("note", "one", text="n")
+        self.assertEqual([e["event"] for e in features.read(self.path)], ["start", "note"])
+
+    def test_a_corrupt_line_names_its_line_number(self):
+        self.path.write_text('{"schema":1,"event":"nope"}\n', encoding="utf-8")
+        with self.assertRaisesRegex(features.FeatureError, "line 1"):
+            features.read(self.path)
+
+    def test_qualified_id_appends_eight_characters_of_base(self):
+        event = self.add("start", "one", text="t", paths=["a"], base="6f0898e2c1f4a9")
+        self.assertEqual(features.qualified(event), "f1@6f0898e2")
+
+    def test_qualified_id_is_the_bare_id_without_a_base(self):
+        event = self.add("start", "one", text="t", paths=["a"])
+        self.assertEqual(features.qualified(event), "f1")
+
+
+class PathTests(unittest.TestCase):
+    def test_features_file_sits_beside_the_ledger(self):
+        import docket.env as env
+
+        self.assertEqual(env.features_path().parent, env.ledger_path().parent)
+        self.assertEqual(env.features_path().name, "features.jsonl")
 
 
 if __name__ == "__main__":
