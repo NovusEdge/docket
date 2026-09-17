@@ -333,5 +333,33 @@ class FeatureVerificationTests(FeatureCloseTests):
         self.assertEqual(json.loads(out)["unanswered"], ["c1"])
 
 
+class FeatureOverlapTests(FeatureCloseTests):
+    def test_done_names_another_feature_sharing_the_change_set(self):
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        self.commit("installer/planner.go")
+        subprocess.run(
+            ["git", "-C", str(self.root), "checkout", "-b", "feat/y"],
+            check=True,
+            capture_output=True,
+        )
+        self.run_cli("feature", "start", "two", "--text", "t", "--path", "installer/planner.go")
+        subprocess.run(
+            ["git", "-C", str(self.root), "checkout", "feat/x"],
+            check=True,
+            capture_output=True,
+        )
+        code, out = self.run_cli("feature", "done", "one")
+        self.assertEqual(code, 0)
+        self.assertIn("two", out)
+        self.assertIn("overlap", out)
+
+    def test_no_overlap_prints_no_advisory(self):
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        self.commit("installer/planner.go")
+        code, out = self.run_cli("feature", "done", "one")
+        self.assertEqual(code, 0)
+        self.assertNotIn("overlap", out)
+
+
 if __name__ == "__main__":
     unittest.main()

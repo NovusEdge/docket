@@ -1,7 +1,6 @@
-"""Argparse wiring and rendering for the feature command group.
+"""Argparse wiring for the feature command group.
 
-Logic lives in docket.features and docket.feature_outcome. This module builds
-records, prints them, and returns exit codes.
+Logic lives in docket.features and docket.feature_outcome.
 """
 
 from __future__ import annotations
@@ -152,7 +151,8 @@ def cmd_feature_done(args) -> int:
 
     path = env.features_path()
     root = env.project_root()
-    feature = feature_project.resolve(_current(path), args.slug)
+    current = _current(path)
+    feature = feature_project.resolve(current, args.slug)
     if feature["state"] in features.TERMINAL_STATES:
         print(f"docket: {args.slug}: feature is already closed", file=sys.stderr)
         return 1
@@ -175,8 +175,9 @@ def cmd_feature_done(args) -> int:
     ]
 
     entries = ledger.project(ledger.read(env.ledger_path()), validated=True)
+    realized = intentional + unintentional
     claims, held, failed, unanswered = feature_outcome.verify_claims(
-        entries, intentional + unintentional, _csv(args.held), _csv(args.failed)
+        entries, realized, _csv(args.held), _csv(args.failed)
     )
 
     features.append(
@@ -197,9 +198,10 @@ def cmd_feature_done(args) -> int:
         print(f"  outside declared paths: {item}")
 
     by_id = {e["id"]: e for e in entries}
-    for line in feature_outcome.verification_report(
+    report = feature_outcome.verification_report(
         by_id, claims, held, failed, features.qualified(feature)
-    ):
+    ) + feature_outcome.overlap_report(current, feature["id"], realized, features.TERMINAL_STATES)
+    for line in report:
         print(line)
     return 0
 

@@ -177,6 +177,28 @@ def verification_report(
     return lines
 
 
+def overlap_report(
+    current: list[dict], feature_id: str, realized: list[str], terminal_states: tuple[str, ...]
+) -> list[str]:
+    """One advisory line per other open feature whose declared paths cover this change set.
+
+    Two active features on different branches are allowed, the way branches
+    diverge freely and conflict only at merge. This is the report at merge
+    time; it never changes the exit code.
+    """
+
+    lines = []
+    for other in current:
+        if other["id"] == feature_id or other["state"] in terminal_states:
+            continue
+        shared = classify(other["paths"], realized)[0]
+        if shared:
+            lines.append(
+                f"  overlap: {other['id']} {other['slug']} also declares {', '.join(shared[:3])}"
+            )
+    return lines
+
+
 def is_dirty(root: Path) -> bool:
     """Whether the working tree holds uncommitted changes.
 
@@ -195,6 +217,7 @@ __all__ = [
     "classify",
     "fork_point",
     "is_dirty",
+    "overlap_report",
     "verification_report",
     "verify_claims",
 ]
