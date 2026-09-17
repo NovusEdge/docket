@@ -306,6 +306,37 @@ def _print_context(text: str, args: argparse.Namespace, notice: str | None = Non
     return 0
 
 
+def _feature_block(root) -> str:
+    """The active feature's brief, or an empty string when nothing applies.
+
+    This runs on every session start through the hook. A repository with no
+    feature store, no git, or a store that will not read must still get a
+    briefing, so every failure here degrades to no header.
+    """
+    from docket import feature_brief, feature_project, features, ledger
+
+    try:
+        path = env.features_path()
+        if not path.exists():
+            return ""
+        current = feature_project.project(features.read(path))
+        branch = env.branch(root)
+        open_now = [f for f in current if f["state"] not in features.TERMINAL_STATES]
+        on_branch = [f for f in open_now if f["branch"] == branch] if branch else []
+        candidates = on_branch or open_now
+        if not candidates:
+            return ""
+        feature = candidates[-1]
+        entries = ledger.project(ledger.read(env.ledger_path()), validated=True)
+        files = feature_brief.expand(root, feature["paths"])
+        attached = feature_brief.attach(
+            entries, files, include=feature["include"], exclude=feature["exclude"]
+        )
+        return feature_brief.render(feature, attached, limit_chars=feature_brief.budget_share())
+    except (features.FeatureError, LedgerError, OSError):
+        return ""
+
+
 def cmd_context(args: argparse.Namespace) -> int:
     from docket.config import ConfigError
     from docket.config import load as load_settings
@@ -367,6 +398,7 @@ def cmd_context(args: argparse.Namespace) -> int:
             all_records=args.all_records,
             settings=settings,
             settings_id=settings_id,
+            feature=_feature_block(env.project_root()),
         )
     except (LedgerError, OSError) as exc:
         print(str(exc), file=sys.stderr)

@@ -516,6 +516,7 @@ def build_context(
     all_records: bool = False,
     settings: Mapping[str, Any] | None = None,
     settings_id: str = "default",
+    feature: str = "",
 ) -> str:
     """Render whole records under tiered budget rules.
 
@@ -609,8 +610,35 @@ def build_context(
         # here is the whole history. A rebase renumbers the tail, so an agent
         # that passes the pair back to --since learns its baseline is stale.
         latest = f"{latest}@{revision}"
+    feature_prefix = ""
+    if feature:
+        # A quarter of this call's own budget, the same share the spec fixes
+        # for the brief inside docket context. Clipped at a line boundary so
+        # a cut record never renders half a line. It sits above even the
+        # ledger's own header line, because that header cites the latest
+        # record id and would otherwise put a record ahead of the feature
+        # naming the work in progress.
+        feature_limit = max(1, soft_limit // 4)
+        clipped: list[str] = []
+        used = 0
+        truncated = False
+        for line in feature.splitlines():
+            added = len(line) + 1
+            if used + added > feature_limit and clipped:
+                truncated = True
+                break
+            clipped.append(line)
+            used += added
+        feature_block = "\n".join(clipped)
+        if truncated:
+            feature_block += "\n# feature brief truncated to fit the budget"
+            used = len(feature_block) + 1
+        feature_prefix = feature_block + "\n\n"
+        soft_limit = max(cfg["budget"]["minimum"], soft_limit - used)
+        hard_limit = max(cfg["budget"]["minimum"], hard_limit - used)
     prefix = (
-        "\n".join(
+        feature_prefix
+        + "\n".join(
             _header(ledger, revision, query, tuple(file_list), all_records, latest, settings_id)
         )
         + "\n\n"
@@ -683,7 +711,10 @@ def build_context(
     # Shorten only diagnostic metadata. Propositions and relationship formulas
     # are never sliced, even when the caller supplies a giant path or query.
     if len(prefix) + len(footer(set())) > hard_limit:
-        prefix = f"# docket: {_clip_metadata(ledger or 'ledger', 60)} | revision: {revision}\n\n"
+        prefix = (
+            feature_prefix
+            + f"# docket: {_clip_metadata(ledger or 'ledger', 60)} | revision: {revision}\n\n"
+        )
     included: set[str] = set()
     order: list[str] = []
     labels: dict[str, str] = {}

@@ -886,5 +886,43 @@ class DeltaTests(unittest.TestCase):
         )
 
 
+class FeatureHeaderTests(unittest.TestCase):
+    def entries(self):
+        import docket.ledger as ledger
+
+        return [
+            ledger.make_record(
+                "decision",
+                "pick a path",
+                choice="this",
+                author="test",
+                scope=["installer/**"],
+                record_id="d1",
+            )
+        ]
+
+    def test_the_feature_block_prints_above_the_records(self):
+        from docket.context import build_context
+
+        out = build_context(self.entries(), feature="### f1 | one [active] do the thing")
+        self.assertIn("f1", out)
+        self.assertLess(out.index("f1"), out.index("d1"))
+
+    def test_no_feature_block_leaves_the_briefing_unchanged(self):
+        from docket.context import build_context
+
+        self.assertEqual(
+            build_context(self.entries(), feature=""),
+            build_context(self.entries()),
+        )
+
+    def test_the_feature_block_counts_against_the_budget(self):
+        from docket.context import build_context
+
+        block = "### f1 | one [active] " + ("x" * 3000)
+        out = build_context(self.entries(), feature=block, max_chars=2000)
+        self.assertLessEqual(len(out), 2000)
+
+
 if __name__ == "__main__":
     unittest.main()
