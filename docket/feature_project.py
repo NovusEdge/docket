@@ -19,6 +19,19 @@ def _error(where: str, message: str) -> FeatureError:
     return FeatureError(f"docket: {where}: {message}")
 
 
+def duplicate_ids(events: list[dict[str, Any]]) -> list[tuple[str, list[str]]]:
+    """Ids carried by more than one event, with the slugs that carry them.
+
+    Reads the raw event list, so a caller can report a union merge's
+    collisions without going through project(), which refuses that store.
+    """
+
+    seen: dict[str, list[str]] = {}
+    for event in events:
+        seen.setdefault(event["id"], []).append(event["slug"])
+    return [(ident, slugs) for ident, slugs in seen.items() if len(slugs) > 1]
+
+
 def project(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Fold events into one record per feature, newest run of a slug last.
 
@@ -138,4 +151,4 @@ def remap_changes(
     return changes
 
 
-__all__ = ["project", "remap_changes", "resolve"]
+__all__ = ["duplicate_ids", "project", "remap_changes", "resolve"]

@@ -362,6 +362,39 @@ class FeatureOverlapTests(FeatureCloseTests):
 
 
 class FeatureRemapTests(FeatureCliTests):
+    def test_remap_names_the_duplicate_ids_a_union_merge_left(self):
+        import json
+
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        store = self.root / ".docket" / "features.jsonl"
+        first = store.read_text(encoding="utf-8").splitlines()[0]
+        store.write_text(
+            store.read_text(encoding="utf-8") + first.replace('"one"', '"two"') + "\n",
+            encoding="utf-8",
+        )
+        mapping = self.root / "map.json"
+        mapping.write_text(json.dumps({"d5": "d42"}), encoding="utf-8")
+        # remap projected first, and project() refuses a store holding two
+        # events with one id by telling the reader to run remap.
+        code, _ = self.run_cli("feature", "remap", str(mapping))
+        self.assertEqual(code, 1)
+
+    def test_remap_refuses_a_mapfile_that_is_not_an_object(self):
+        import json
+
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        mapping = self.root / "map.json"
+        mapping.write_text(json.dumps(["d5", "d42"]), encoding="utf-8")
+        code, _ = self.run_cli("feature", "remap", str(mapping))
+        self.assertEqual(code, 1)
+
+    def test_remap_refuses_malformed_json(self):
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        mapping = self.root / "map.json"
+        mapping.write_text("{not json}", encoding="utf-8")
+        code, _ = self.run_cli("feature", "remap", str(mapping))
+        self.assertEqual(code, 1)
+
     def test_remap_rewrites_include_lists_through_new_amend_events(self):
         import json
 

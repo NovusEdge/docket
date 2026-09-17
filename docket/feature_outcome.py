@@ -147,16 +147,39 @@ def verify_claims(
 
     Only the realized set, never the declared paths: a claim about code the
     work never touched has gained no new evidence.
+
+    A retired claim is skipped. Something already revisited it, and asking
+    again records a verdict against a line that no current view shows.
     """
 
     from docket import feature_brief
 
     touched = feature_brief.attach(entries, realized)
-    claims = [e["id"] for e in touched if e.get("kind") == "claim"]
+    claims = [
+        e["id"]
+        for e in touched
+        if e.get("kind") == "claim"
+        and not e.get("retired_by")
+        and e.get("state") in ("accepted", "unassessed")
+    ]
     held = [c for c in held_csv if c in claims]
     failed = [c for c in failed_csv if c in claims]
     unanswered = [c for c in claims if c not in held and c not in failed]
     return claims, held, failed, unanswered
+
+
+def unattached_verdicts(claims: list[str], held_csv: list[str], failed_csv: list[str]) -> list[str]:
+    """Ids a verdict named that the change set never touched.
+
+    Dropping these in silence is the one outcome a recorder cannot detect:
+    done exits 0 and the event records the claim as unanswered.
+    """
+
+    named = []
+    for ident in [*held_csv, *failed_csv]:
+        if ident not in claims and ident not in named:
+            named.append(ident)
+    return named
 
 
 def verification_report(

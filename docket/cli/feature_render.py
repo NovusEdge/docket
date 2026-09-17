@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 
-from docket import env, feature_project, features
+from docket import config, env, feature_project, features
 
 
 def cmd_feature_brief(args) -> int:
@@ -33,7 +33,14 @@ def cmd_feature_brief(args) -> int:
     attached = feature_brief.attach(
         entries, files, include=feature["include"], exclude=feature["exclude"]
     )
-    print(feature_brief.render(feature, attached, limit_chars=feature_brief.budget_share()))
+    # Standalone brief takes the whole budget. budget_share is the slice the
+    # briefing header gets, where the record selection needs the rest.
+    settings, _ = config.load(path.parent)
+    feature = dict(feature)
+    blockers = feature_brief.blocking(attached)
+    if blockers and feature["state"] not in features.TERMINAL_STATES:
+        feature["state"] = "blocked"
+    print(feature_brief.render(feature, attached, limit_chars=settings["budget"]["target"]))
     return 0
 
 

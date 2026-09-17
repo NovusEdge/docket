@@ -96,12 +96,17 @@ def attach(
         marked["brief_strength"] = strength
         marked["brief_specificity"] = spec
         marked["brief_matches"] = count
+        marked["brief_forced"] = ident in forced
         attached.append(marked)
 
     def order(entry):
         ident = str(entry.get("id", ""))
         sequence = int(ident[1:]) if ident[1:].isdigit() else 0
+        # A forced record sorts first. Its strength is often 0, because the
+        # globs missed it, which is the reason somebody named it by id. Ranking
+        # it by that 0 puts it last and the budget drops it first.
         return (
+            0 if entry["brief_forced"] else 1,
             -entry["brief_strength"],
             -entry["brief_specificity"],
             -entry["brief_matches"],
@@ -186,16 +191,22 @@ def blocking(attached: list[dict[str, Any]]) -> list[str]:
 
     d109: this is the ledger's own relation, computed at
     docket/ledger.py:517-541. An open question in the feature's scope never
-    blocks it. Scope overlap rests on a transient property — read by recorded
-    state it fires on nearly every feature, read by the projection it fires on
-    whatever files today's one open question scopes. Work stalled on a
-    question is declared paused instead.
+    blocks it. Work stalled on a question is declared paused instead.
+
+    applicable is False for two unrelated reasons. A retired or revoked
+    decision carries blocked_by == [its own id]. A decision whose
+    prerequisites are unmet carries the ids of those prerequisites. Only the
+    second is a blocker. Reading applicable alone made every supersession in
+    scope block the feature, which on this repository was eight false
+    positives and no true ones.
     """
 
     return [
         entry["id"]
         for entry in attached
-        if entry.get("kind") == "decision" and not entry.get("applicable", True)
+        if entry.get("kind") == "decision"
+        and not entry.get("applicable", True)
+        and [ident for ident in entry.get("blocked_by") or [] if ident != entry["id"]]
     ]
 
 

@@ -171,6 +171,32 @@ class BlockingTests(unittest.TestCase):
         attached = [{"id": "d2", "kind": "decision", "applicable": True, "blocked_by": []}]
         self.assertEqual(brief.blocking(attached), [])
 
+    def test_a_superseded_decision_does_not_block(self):
+        # ledger.project marks a retired or revoked decision applicable False
+        # with blocked_by naming itself. Reading applicable alone made every
+        # supersession in scope block the feature: eight false positives and
+        # no true ones on this repository's own ledger.
+        attached = [{"id": "d1", "kind": "decision", "applicable": False, "blocked_by": ["d1"]}]
+        self.assertEqual(brief.blocking(attached), [])
+
+    def test_a_decision_blocked_by_itself_and_a_prerequisite_still_blocks(self):
+        attached = [
+            {"id": "d1", "kind": "decision", "applicable": False, "blocked_by": ["d1", "c9"]}
+        ]
+        self.assertEqual(brief.blocking(attached), ["d1"])
+
+
+class ForcedAttachmentTests(unittest.TestCase):
+    def test_an_included_record_the_globs_miss_sorts_first(self):
+        entries = [
+            record("d1", "decision", ["installer/**"]),
+            record("d9", "decision", ["graph/**"]),
+        ]
+        got = brief.attach(entries, ["installer/planner.go"], include=["d9"])
+        # d9 scores 0 because the globs missed it, which is why somebody named
+        # it by id. Ranking it by that 0 put it last and the budget dropped it.
+        self.assertEqual(got[0]["id"], "d9")
+
 
 if __name__ == "__main__":
     unittest.main()

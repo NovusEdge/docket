@@ -181,6 +181,13 @@ def cmd_feature_done(args) -> int:
     claims, held, failed, unanswered = feature_outcome.verify_claims(
         entries, realized, _csv(args.held), _csv(args.failed)
     )
+    stray = feature_outcome.unattached_verdicts(claims, _csv(args.held), _csv(args.failed))
+    if stray:
+        print(
+            f"docket: {', '.join(stray)} named a verdict but the change set did not "
+            "touch it; no verdict recorded",
+            file=sys.stderr,
+        )
 
     features.append(
         path,
@@ -225,9 +232,38 @@ def cmd_feature_remap(args) -> int:
     start or amend line in place is what hooks/guard_ledger.py exists to stop.
     """
 
-    mapping = json.loads(Path(args.mapfile).read_text(encoding="utf-8"))
+    source = Path(args.mapfile)
+    try:
+        mapping = json.loads(source.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"docket: {source}: {exc}", file=sys.stderr)
+        return 1
+    if not isinstance(mapping, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in mapping.items()
+    ):
+        print(f"docket: {source}: expected a JSON object of old id to new id", file=sys.stderr)
+        return 1
+
     path = env.features_path()
-    changes = feature_project.remap_changes(_current(path), mapping)
+    # Read the raw events, never the projection. A union merge is the reason
+    # this command exists, and project() refuses a store holding two events
+    # with one id. Projecting first made remap die with the error that names
+    # remap as the fix.
+    events = features.read(path)
+    duplicates = feature_project.duplicate_ids(events)
+    if duplicates:
+        print(
+            "docket: cannot repoint a store with duplicate ids: "
+            + ", ".join(f"{ident} ({', '.join(slugs)})" for ident, slugs in duplicates),
+            file=sys.stderr,
+        )
+        print(
+            "docket: renumber them by hand first; two branches recorded the same id",
+            file=sys.stderr,
+        )
+        return 1
+
+    changes = feature_project.remap_changes(feature_project.project(events), mapping)
     for slug, fields in changes:
         features.append(path, _record("amend", slug, **fields))
     print(f"docket: remapped {len(changes)} feature(s)")
@@ -249,7 +285,9 @@ def add_feature_parser(sub) -> None:
     st.set_defaults(func=cmd_feature_start)
 
     ls = verbs.add_parser("list", help="list features")
-    ls.add_argument("--state", choices=(*features.STATUSES, *features.TERMINAL_STATES))
+    # "blocked" is a projected state, never a declared one, so it is absent
+    # from STATUSES. list must still filter on what list prints.
+    ls.add_argument("--state", choices=(*features.STATUSES, "blocked", *features.TERMINAL_STATES))
     ls.add_argument("--oneline", action="store_true", help="id and slug only")
     ls.add_argument("--json", action="store_true")
     ls.set_defaults(func=cmd_feature_list)
