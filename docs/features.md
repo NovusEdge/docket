@@ -60,6 +60,7 @@ docket feature done <slug> [--held CSV] [--failed CSV]
 docket feature abandon <slug> --text REASON
 docket feature brief [<slug|id>]
 docket feature remap MAPFILE
+docket feature gc [--expire DAYS]
 ```
 
 ```
@@ -170,8 +171,30 @@ or `exclude` list naming a ledger ID a rebase renumbered.
 needs one. Remapping never edits a written `start` or `amend` line in place,
 the way `hooks/guard_ledger.py` requires for every append-only store.
 
-## What is not here yet
+## The briefing header
 
-Stage 2 ships the brief, derived `blocked`, claim verification at `done`, and
-branch convergence. Archival (`docket feature gc`) and a `docket context`
-header naming the active feature remain unbuilt.
+`docket context` names the active feature above the record selection: its
+slug, state, and declared intent, followed by its three highest-ranked
+attached records. The header takes a reserved share of the same character
+budget the record selection draws from, at most a quarter of the total, so
+naming the feature never crowds out every record. A repository with no
+feature store, no git, or a feature store that fails to read produces no
+header at all; a session briefing never fails because of it.
+
+## Archival
+
+Nothing shrinks `features.jsonl` on its own. `docket feature gc` moves a
+feature's events into `.docket/archive/features-<revision>.jsonl` when the
+feature is closed (`done` or `abandon`) and nothing currently references its
+ID. Per d96, a record count never triggers this by itself: `gc` only ever
+runs when invoked. `--expire DAYS` narrows the set further to features closed
+more than that many days ago; it filters what `gc` may move, it does not
+trigger a move on its own.
+
+```
+$ docket feature gc
+docket: archived 4 feature event(s) to .docket/archive/features-9f2ab1c4e8a0.jsonl
+```
+
+`docket feature show` reads the archive when a slug or ID misses in the live
+store, so a closed feature stays retrievable after `gc` moves it.

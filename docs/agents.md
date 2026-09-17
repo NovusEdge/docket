@@ -69,6 +69,12 @@ The briefing distinguishes a recorded choice from a claim that may need review.
 An accepted claim still needs fresh checking when its evidence could have
 changed.
 
+When a feature is open on the current branch, the briefing names it above the
+record selection: its slug, state, and declared intent, then its
+highest-ranked attached records. The header draws from the same character
+budget as the rest of the briefing, so it takes a bounded share rather than a
+fixed count. See [Feature tracking](features.md).
+
 After compaction or a long break, ask the agent to read the context again. The
 integration's refresh behavior depends on the agent tool, and a briefing already
 loaded into a conversation does not update itself.
@@ -111,3 +117,13 @@ attribution, not an authenticated identity.
 For the hook formats and instruction files, see
 [Agent setup reference](integrations.md). For how a briefing is selected, see
 [Bounded context](ledger.md#bounded-context).
+
+## Two skills, two moments
+
+`skills/docket/SKILL.md` covers recording: claims, decisions, and questions.
+`skills/docket-feature/SKILL.md` covers a piece of work in flight: starting
+it, resuming it with `docket feature brief`, and closing it with `docket
+feature done`. The harness selects between them on each skill's
+`description`, so a task that only records a decision never loads feature
+guidance, and a task that starts or resumes a feature never loads the
+recording skill unless it also records something.

@@ -36,6 +36,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docket feature remap MAPFILE` and `docket rebase --emit-map PATH` repoint
   a feature's `include`/`exclude` lists through the ID map a rebase produces,
   each correction a new append-only `amend` event.
+- `docket feature gc --expire DAYS` archives closed, unreferenced features
+  into `.docket/archive/features-<revision>.jsonl`, following d96's
+  mechanism: a record count never triggers the move, only invoking `gc`
+  does. `docket feature show` reads the archive when a slug or ID misses in
+  the live store.
+- `docket context` names the active feature above the record selection: its
+  slug, state, declared intent, and highest-ranked attached records, taking
+  a bounded share of the same character budget. A repository with no
+  feature store, no git, or a store that fails to read produces no header.
+- `skills/docket-feature/SKILL.md`, a second skill covering when to start a
+  feature, resuming with `docket feature brief`, and closing with `docket
+  feature done`. `skills/docket/SKILL.md` stays about recording.
 
 ## [0.15.0] - 2026-09-16
 

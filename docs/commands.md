@@ -106,6 +106,7 @@ docket feature done <slug> [--held CSV] [--failed CSV]
 docket feature abandon <slug> --text REASON
 docket feature brief [<slug|id>]
 docket feature remap MAPFILE
+docket feature gc [--expire DAYS]
 ```
 
 `status` for `start` and `amend` is one of `active`, `paused`, `review`.
@@ -116,7 +117,9 @@ which ledger records a feature's brief attaches, by ID. `--held` and
 touched; anything attached but unanswered comes back `unanswered`. `brief`
 prints the ledger records governing a feature, strongest first; `remap`
 repoints `include`/`exclude` lists through the ID map `docket rebase
---emit-map` writes. See [Feature tracking](features.md).
+--emit-map` writes. `gc` moves closed, unreferenced features into
+`.docket/archive/`; `--expire DAYS` narrows which closed features qualify
+and never triggers a move by itself. See [Feature tracking](features.md).
 
 ## Maintenance
 
