@@ -155,5 +155,22 @@ class RenderTests(unittest.TestCase):
         self.assertIn("1 more", out)
 
 
+class BlockingTests(unittest.TestCase):
+    def test_an_attached_blocked_decision_blocks_the_feature(self):
+        attached = [
+            {"id": "d1", "kind": "decision", "applicable": False, "blocked_by": ["c9"]},
+            {"id": "d2", "kind": "decision", "applicable": True, "blocked_by": []},
+        ]
+        self.assertEqual(brief.blocking(attached), ["d1"])
+
+    def test_an_open_question_does_not_block(self):
+        attached = [{"id": "q1", "kind": "question", "state": "open"}]
+        self.assertEqual(brief.blocking(attached), [])
+
+    def test_nothing_blocked_returns_nothing(self):
+        attached = [{"id": "d2", "kind": "decision", "applicable": True, "blocked_by": []}]
+        self.assertEqual(brief.blocking(attached), [])
+
+
 if __name__ == "__main__":
     unittest.main()

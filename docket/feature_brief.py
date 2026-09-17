@@ -164,4 +164,22 @@ def budget_share(settings: Mapping[str, Any] | None = None) -> int:
     return max(cfg["budget"]["minimum"], cfg["budget"]["target"] // 4)
 
 
-__all__ = ["attach", "budget_share", "expand", "render", "specificity"]
+def blocking(attached: list[dict[str, Any]]) -> list[str]:
+    """Attached decisions whose prerequisites are unavailable.
+
+    d109: this is the ledger's own relation, computed at
+    docket/ledger.py:517-541. An open question in the feature's scope never
+    blocks it. Scope overlap rests on a transient property — read by recorded
+    state it fires on nearly every feature, read by the projection it fires on
+    whatever files today's one open question scopes. Work stalled on a
+    question is declared paused instead.
+    """
+
+    return [
+        entry["id"]
+        for entry in attached
+        if entry.get("kind") == "decision" and not entry.get("applicable", True)
+    ]
+
+
+__all__ = ["attach", "blocking", "budget_share", "expand", "render", "specificity"]

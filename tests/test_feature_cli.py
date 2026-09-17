@@ -230,5 +230,36 @@ class FeatureIncludeExcludeTests(FeatureCliTests):
         self.assertIn("d404", out)
 
 
+class FeatureBlockedTests(FeatureCliTests):
+    def test_a_feature_governed_by_a_blocked_decision_lists_as_blocked(self):
+        (self.root / "installer").mkdir()
+        (self.root / "installer" / "main.go").write_text("x\n", encoding="utf-8")
+        subprocess.run(
+            ["git", "-C", str(self.root), "add", "installer/main.go"],
+            check=True,
+            capture_output=True,
+        )
+        self.run_cli("claim", "a premise", "--state", "disputed", "--scope", "installer/**")
+        self.run_cli(
+            "decision",
+            "pick one",
+            "--choice",
+            "this",
+            "--scope",
+            "installer/**",
+            "--depends-on",
+            "c1",
+        )
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        _, out = self.run_cli("feature", "list")
+        self.assertIn("blocked", out)
+
+    def test_an_open_question_in_scope_does_not_block(self):
+        self.run_cli("question", "still open", "--scope", "installer/**")
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        _, out = self.run_cli("feature", "list")
+        self.assertNotIn("blocked", out)
+
+
 if __name__ == "__main__":
     unittest.main()

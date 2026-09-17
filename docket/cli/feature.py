@@ -77,8 +77,27 @@ def cmd_feature_start(args) -> int:
     return 0
 
 
+def _with_blocked(current: list[dict[str, Any]], root) -> list[dict[str, Any]]:
+    """Overlay the derived blocked state on every open feature."""
+    from docket import feature_brief, ledger
+
+    entries = ledger.project(ledger.read(env.ledger_path()), validated=True)
+    for feature in current:
+        if feature["state"] in features.TERMINAL_STATES:
+            continue
+        files = feature_brief.expand(root, feature["paths"])
+        attached = feature_brief.attach(
+            entries, files, include=feature["include"], exclude=feature["exclude"]
+        )
+        blockers = feature_brief.blocking(attached)
+        if blockers:
+            feature["state"] = "blocked"
+            feature["blocked_by"] = blockers
+    return current
+
+
 def cmd_feature_list(args) -> int:
-    current = _current(env.features_path())
+    current = _with_blocked(_current(env.features_path()), env.project_root())
     if args.state:
         current = [f for f in current if f["state"] == args.state]
     if args.json:
@@ -95,7 +114,8 @@ def cmd_feature_list(args) -> int:
 
 
 def cmd_feature_show(args) -> int:
-    feature = feature_project.resolve(_current(env.features_path()), args.name)
+    current = _with_blocked(_current(env.features_path()), env.project_root())
+    feature = feature_project.resolve(current, args.name)
     if args.json:
         print(json.dumps(feature, ensure_ascii=False, indent=2))
         return 0
@@ -104,6 +124,8 @@ def cmd_feature_show(args) -> int:
     for label in ("paths", "intends", "intentional", "unintentional"):
         for value in feature[label]:
             print(f"  {label}: {value}")
+    if feature.get("blocked_by"):
+        print(f"  blocked_by: {', '.join(feature['blocked_by'])}")
     for note in feature["log"]:
         print(f"  note {note['ts']}: {note['text']}")
     return 0
