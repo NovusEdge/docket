@@ -87,12 +87,24 @@ a feature declared partway through work still captures everything the branch
 has done. On the default branch itself, `base` is HEAD and `start` warns that
 there is no fork point.
 
-`done` diffs `base...HEAD` (three dots, so a branch that merged the default
-branch in does not pick up its files) and classifies each changed path
-against the feature's declared `paths`, using the same matcher `docket
-context` uses to select records. Run `done` before squashing or rebasing the
-branch: once `base` is no longer an ancestor of HEAD, `done` refuses and
-names the stale SHA.
+`done` walks the branch's own commits with `git log --first-parent --no-merges
+-M base..HEAD`, then classifies each changed path against the feature's
+declared `paths`, using the same matcher `docket context` uses to select
+records.
+
+A plain two-tree diff cannot answer this. `base` is an ancestor of HEAD, so
+`base...HEAD` collapses to two dots and carries in every file the default
+branch gained after the fork. `--first-parent` keeps the walk on this branch's
+line, so a merged-in default branch arrives through a second parent and never
+counts. `--no-merges` drops the merge commits, which also drops any conflict
+resolution made inside one.
+
+Run `done` before squashing or rebasing the branch: once `base` is no longer
+an ancestor of HEAD, `done` refuses and names the stale SHA.
+
+A declared path must contain a `/` or a glob character. The shared matcher
+skips a bare word, so `--path Makefile` or `--path installer` would match
+nothing; `start` and `amend` refuse both and tell you to write `installer/**`.
 
 ## What is not here yet
 

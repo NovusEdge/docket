@@ -11,7 +11,7 @@ import sys
 from datetime import datetime, timezone
 from typing import Any
 
-from docket import env, features
+from docket import env, feature_project, features
 
 
 def _now() -> str:
@@ -30,7 +30,7 @@ def _record(event: str, slug: str, **fields: Any) -> dict[str, Any]:
 
 
 def _current(path) -> list[dict[str, Any]]:
-    return features.project(features.read(path))
+    return feature_project.project(features.read(path))
 
 
 def cmd_feature_start(args) -> int:
@@ -41,11 +41,23 @@ def cmd_feature_start(args) -> int:
     base, warning = fork_point(root)
     if warning:
         print(f"docket: {warning}", file=sys.stderr)
-    # Checked before the append. project() raises on a duplicate open slug, but
-    # only once the offending start is already a line in the file.
-    for existing in _current(path):
+    current = _current(path)
+    for existing in current:
         if existing["slug"] == args.slug and existing["state"] not in features.TERMINAL_STATES:
             print(f"docket: {args.slug}: a feature with this slug is already open", file=sys.stderr)
+            return 1
+    branch = env.branch(root)
+    if branch:
+        others = [
+            f["slug"]
+            for f in current
+            if f["branch"] == branch and f["state"] not in features.TERMINAL_STATES
+        ]
+        if others:
+            print(
+                f"docket: {branch} already carries an active feature: {', '.join(others)}",
+                file=sys.stderr,
+            )
             return 1
     event = _record(
         "start",
@@ -54,10 +66,10 @@ def cmd_feature_start(args) -> int:
         paths=args.path,
         intends=args.intends,
         base=base,
-        branch=env.branch(root),
+        branch=branch,
     )
     written = features.append(path, event)
-    print(f"{features.qualified(written)} {args.slug}")
+    print(f"{written['id']} {args.slug}")
     return 0
 
 
@@ -69,12 +81,17 @@ def cmd_feature_list(args) -> int:
         print(json.dumps(current, ensure_ascii=False, indent=2))
         return 0
     for feature in current:
-        print(f"{feature['id']:<5} {feature['state']:<10} {feature['slug']:<24} {feature['text']}")
+        if args.oneline:
+            print(f"{feature['id']} {feature['slug']}")
+        else:
+            print(
+                f"{feature['id']:<5} {feature['state']:<10} {feature['slug']:<24} {feature['text']}"
+            )
     return 0
 
 
 def cmd_feature_show(args) -> int:
-    feature = features.resolve(_current(env.features_path()), args.name)
+    feature = feature_project.resolve(_current(env.features_path()), args.name)
     if args.json:
         print(json.dumps(feature, ensure_ascii=False, indent=2))
         return 0
@@ -90,14 +107,14 @@ def cmd_feature_show(args) -> int:
 
 def cmd_feature_note(args) -> int:
     path = env.features_path()
-    features.resolve(_current(path), args.slug)
+    feature_project.resolve(_current(path), args.slug)
     features.append(path, _record("note", args.slug, text=args.text))
     return 0
 
 
 def cmd_feature_amend(args) -> int:
     path = env.features_path()
-    feature = features.resolve(_current(path), args.slug)
+    feature = feature_project.resolve(_current(path), args.slug)
     if feature["state"] in features.TERMINAL_STATES:
         print(f"docket: {args.slug}: feature is closed", file=sys.stderr)
         return 1
@@ -122,7 +139,7 @@ def cmd_feature_done(args) -> int:
 
     path = env.features_path()
     root = env.project_root()
-    feature = features.resolve(_current(path), args.slug)
+    feature = feature_project.resolve(_current(path), args.slug)
     if feature["state"] in features.TERMINAL_STATES:
         print(f"docket: {args.slug}: feature is already closed", file=sys.stderr)
         return 1
@@ -159,7 +176,7 @@ def cmd_feature_done(args) -> int:
 
 def cmd_feature_abandon(args) -> int:
     path = env.features_path()
-    feature = features.resolve(_current(path), args.slug)
+    feature = feature_project.resolve(_current(path), args.slug)
     if feature["state"] in features.TERMINAL_STATES:
         print(f"docket: {args.slug}: feature is already closed", file=sys.stderr)
         return 1
@@ -182,6 +199,7 @@ def add_feature_parser(sub) -> None:
 
     ls = verbs.add_parser("list", help="list features")
     ls.add_argument("--state", choices=(*features.STATUSES, *features.TERMINAL_STATES))
+    ls.add_argument("--oneline", action="store_true", help="id and slug only")
     ls.add_argument("--json", action="store_true")
     ls.set_defaults(func=cmd_feature_list)
 

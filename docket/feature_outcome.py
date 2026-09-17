@@ -65,35 +65,46 @@ def fork_point(root: Path) -> tuple[str, str]:
 def changed_files(root: Path, base: str) -> tuple[list[str], list[tuple[str, str]]]:
     """Files this branch changed since the fork point, with renames named.
 
-    Three dots, because two dots diffs two trees: a branch that merged the
-    default branch in would report every upstream file as its own change.
+    Walks the branch's own commits instead of diffing two trees. A single
+    `git diff base...HEAD` cannot answer this: the caller has already proved
+    base is an ancestor of HEAD, so the three-dot form collapses to two dots
+    and carries in every file the default branch gained after the fork.
+    Recomputing the base against the default branch's tip fails the other way,
+    reporting nothing once the branch merges back.
+
+    --first-parent stays on this branch's line, so a merged-in default branch
+    arrives through a second parent and never counts. --no-merges drops the
+    merge commits themselves, which also drops any conflict resolution made
+    inside one.
+
     -M, because without it a rename reports as delete-old plus add-new, which
     inverts the classification when a file moves out of the declared paths.
     """
 
+    if not base:
+        raise OutcomeError(
+            "docket: this feature recorded no base commit, so its change set "
+            "cannot be computed; abandon it and start again now the repository "
+            "has a commit"
+        )
     if _git(root, "merge-base", "--is-ancestor", base, "HEAD").returncode != 0:
         raise OutcomeError(
             f"docket: {base} is no longer an ancestor of HEAD; "
             "record the outcome before squashing or rebasing the branch"
         )
 
-    # base is already an ancestor of HEAD by the check above, so a three-dot
-    # diff against it collapses to a two-dot diff and stops excluding commits
-    # the default branch gained after the feature forked. Recompute the merge
-    # base against the default branch's current tip instead.
-    diff_base = base
-    current = _current_branch(root)
-    for candidate in DEFAULT_BRANCHES:
-        if candidate == current or _git(root, "rev-parse", "--verify", candidate).returncode != 0:
-            continue
-        merge_base = _git(root, "merge-base", "HEAD", candidate)
-        if merge_base.returncode == 0 and merge_base.stdout.strip():
-            diff_base = merge_base.stdout.strip()
-            break
-
-    result = _git(root, "diff", "--name-status", "-M", f"{diff_base}...HEAD")
+    result = _git(
+        root,
+        "log",
+        "--first-parent",
+        "--no-merges",
+        "--name-status",
+        "-M",
+        "--format=",
+        f"{base}..HEAD",
+    )
     if result.returncode != 0:
-        raise OutcomeError(f"docket: cannot diff {base}...HEAD: {result.stderr.strip()}")
+        raise OutcomeError(f"docket: cannot read {base}..HEAD: {result.stderr.strip()}")
 
     changed: list[str] = []
     renames: list[tuple[str, str]] = []
@@ -102,11 +113,17 @@ def changed_files(root: Path, base: str) -> tuple[list[str], list[tuple[str, str
         if not fields or not fields[0]:
             continue
         if fields[0].startswith("R") and len(fields) == 3:
-            renames.append((fields[1], fields[2]))
-            changed.append(fields[2])
+            pair = (fields[1], fields[2])
+            if pair not in renames:
+                renames.append(pair)
+            name = fields[2]
         elif len(fields) >= 2:
-            changed.append(fields[1])
-    return changed, renames
+            name = fields[1]
+        else:
+            continue
+        if name not in changed:
+            changed.append(name)
+    return sorted(changed), renames
 
 
 def classify(paths: list[str], changed: list[str]) -> tuple[list[str], list[str]]:

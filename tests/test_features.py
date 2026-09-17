@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+import docket.feature_project as feature_project
 import docket.features as features
 
 
@@ -27,12 +28,12 @@ class EventSchemaTests(unittest.TestCase):
 
     def test_status_outside_the_enum_is_refused(self):
         with self.assertRaisesRegex(features.FeatureError, "status"):
-            features.make_event("start", "slug-one", text="t", paths=["a"], status="urgent")
+            features.make_event("start", "slug-one", text="t", paths=["a/**"], status="urgent")
 
     def test_status_cannot_be_a_terminal_state(self):
         for value in ("done", "abandoned"):
             with self.assertRaisesRegex(features.FeatureError, "status"):
-                features.make_event("start", "slug-one", text="t", paths=["a"], status=value)
+                features.make_event("start", "slug-one", text="t", paths=["a/**"], status=value)
 
     def test_unknown_event_verb_is_refused(self):
         with self.assertRaisesRegex(features.FeatureError, "event"):
@@ -42,7 +43,7 @@ class EventSchemaTests(unittest.TestCase):
         with self.assertRaisesRegex(features.FeatureError, "paths"):
             features.make_event("start", "slug-one", text="t")
         with self.assertRaisesRegex(features.FeatureError, "text"):
-            features.make_event("start", "slug-one", paths=["a"])
+            features.make_event("start", "slug-one", paths=["a/**"])
 
     def test_slug_shape_is_enforced(self):
         for bad in ("Has-Caps", "-leading", "has spaces", ""):
@@ -71,12 +72,12 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(features.read(self.path), [])
 
     def test_ids_are_allocated_in_sequence(self):
-        self.assertEqual(self.add("start", "one", text="t", paths=["a"])["id"], "f1")
+        self.assertEqual(self.add("start", "one", text="t", paths=["a/**"])["id"], "f1")
         self.assertEqual(self.add("note", "one", text="n")["id"], "f2")
         self.assertEqual(self.add("done", "one")["id"], "f3")
 
     def test_appended_events_read_back_in_order(self):
-        self.add("start", "one", text="t", paths=["a"])
+        self.add("start", "one", text="t", paths=["a/**"])
         self.add("note", "one", text="n")
         self.assertEqual([e["event"] for e in features.read(self.path)], ["start", "note"])
 
@@ -86,11 +87,11 @@ class StoreTests(unittest.TestCase):
             features.read(self.path)
 
     def test_qualified_id_appends_eight_characters_of_base(self):
-        event = self.add("start", "one", text="t", paths=["a"], base="6f0898e2c1f4a9")
+        event = self.add("start", "one", text="t", paths=["a/**"], base="6f0898e2c1f4a9")
         self.assertEqual(features.qualified(event), "f1@6f0898e2")
 
     def test_qualified_id_is_the_bare_id_without_a_base(self):
-        event = self.add("start", "one", text="t", paths=["a"])
+        event = self.add("start", "one", text="t", paths=["a/**"])
         self.assertEqual(features.qualified(event), "f1")
 
 
@@ -114,70 +115,80 @@ class ProjectionTests(unittest.TestCase):
         return features.append(self.path, features.make_event(event, slug, **fields))
 
     def current(self):
-        return features.project(features.read(self.path))
+        return feature_project.project(features.read(self.path))
 
     def test_a_start_projects_as_active(self):
-        self.add("start", "one", text="t", paths=["a"])
+        self.add("start", "one", text="t", paths=["a/**"])
         [feature] = self.current()
         self.assertEqual(feature["state"], "active")
         self.assertEqual(feature["id"], "f1")
 
     def test_amend_replaces_a_field_wholesale(self):
-        self.add("start", "one", text="t", paths=["a", "b"])
-        self.add("amend", "one", paths=["c"])
-        self.assertEqual(self.current()[0]["paths"], ["c"])
+        self.add("start", "one", text="t", paths=["a/**", "b/**"])
+        self.add("amend", "one", paths=["c/**"])
+        self.assertEqual(self.current()[0]["paths"], ["c/**"])
 
     def test_amend_changes_the_declared_status(self):
-        self.add("start", "one", text="t", paths=["a"])
+        self.add("start", "one", text="t", paths=["a/**"])
         self.add("amend", "one", status="paused")
         self.assertEqual(self.current()[0]["state"], "paused")
 
     def test_a_terminal_event_outranks_the_declared_status(self):
-        self.add("start", "one", text="t", paths=["a"])
+        self.add("start", "one", text="t", paths=["a/**"])
         self.add("amend", "one", status="paused")
         self.add("done", "one")
         self.assertEqual(self.current()[0]["state"], "done")
 
     def test_notes_accumulate_in_the_log(self):
-        self.add("start", "one", text="t", paths=["a"])
+        self.add("start", "one", text="t", paths=["a/**"])
         self.add("note", "one", text="first")
         self.add("note", "one", text="second")
         self.assertEqual([n["text"] for n in self.current()[0]["log"]], ["first", "second"])
 
     def test_a_second_start_on_an_open_slug_is_refused(self):
-        self.add("start", "one", text="t", paths=["a"])
+        self.add("start", "one", text="t", paths=["a/**"])
         with self.assertRaisesRegex(features.FeatureError, "already open"):
-            self.add("start", "one", text="t", paths=["b"])
+            self.add("start", "one", text="t", paths=["b/**"])
 
     def test_a_slug_may_be_reused_after_a_close(self):
-        self.add("start", "one", text="first", paths=["a"])
+        self.add("start", "one", text="first", paths=["a/**"])
         self.add("done", "one")
-        self.add("start", "one", text="second", paths=["b"])
+        self.add("start", "one", text="second", paths=["b/**"])
         states = sorted(f["state"] for f in self.current())
         self.assertEqual(states, ["active", "done"])
 
     def test_amend_on_a_closed_feature_is_refused(self):
-        self.add("start", "one", text="t", paths=["a"])
+        self.add("start", "one", text="t", paths=["a/**"])
         self.add("done", "one")
         with self.assertRaisesRegex(features.FeatureError, "closed"):
             self.add("amend", "one", status="paused")
 
     def test_resolve_prefers_the_open_feature(self):
-        self.add("start", "one", text="first", paths=["a"])
+        self.add("start", "one", text="first", paths=["a/**"])
         self.add("done", "one")
-        self.add("start", "one", text="second", paths=["b"])
-        self.assertEqual(features.resolve(self.current(), "one")["text"], "second")
+        self.add("start", "one", text="second", paths=["b/**"])
+        self.assertEqual(feature_project.resolve(self.current(), "one")["text"], "second")
+
+    def test_two_events_sharing_an_id_are_refused(self):
+        self.add("start", "alpha", text="t", paths=["a/**"])
+        line = self.path.read_text(encoding="utf-8").splitlines()[0]
+        self.path.write_text(
+            self.path.read_text(encoding="utf-8") + line.replace('"alpha"', '"beta"') + "\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(features.FeatureError, "already used by alpha"):
+            self.current()
 
     def test_resolve_by_id_reaches_a_closed_feature(self):
-        self.add("start", "one", text="first", paths=["a"])
+        self.add("start", "one", text="first", paths=["a/**"])
         self.add("done", "one")
-        self.assertEqual(features.resolve(self.current(), "f1")["state"], "done")
+        self.assertEqual(feature_project.resolve(self.current(), "f1")["state"], "done")
 
     def test_resolve_names_closed_ids_when_only_those_match(self):
-        self.add("start", "one", text="first", paths=["a"])
+        self.add("start", "one", text="first", paths=["a/**"])
         self.add("done", "one")
         with self.assertRaisesRegex(features.FeatureError, "f1"):
-            features.resolve(self.current(), "one")
+            feature_project.resolve(self.current(), "one")
 
 
 if __name__ == "__main__":

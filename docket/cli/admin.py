@@ -8,7 +8,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from docket import ROOT, env, features, version
+from docket import ROOT, env, feature_project, features, version
 from docket.ledger import ID_RE, LedgerError, _Prefix, append, validate_record
 
 
@@ -188,7 +188,7 @@ def cmd_check(args: argparse.Namespace) -> int:
     store = env.features_path()
     if store.exists():
         try:
-            features.project(features.read(store))
+            feature_project.project(features.read(store))
         except features.FeatureError as exc:
             print(f"{store}: {str(exc).removeprefix('docket: ')}")
             failed = True
@@ -212,7 +212,8 @@ def cmd_init(args: argparse.Namespace) -> int:
         print(f"docket: already project-local at {target}")
         return 0
 
-    existing = env.read(env.global_root() / env.slug(root) / "ledger.jsonl")
+    global_dir = env.global_root() / env.slug(root)
+    existing = env.read(global_dir / "ledger.jsonl")
     with target.open("w") as f:
         for e in existing:
             f.write(json.dumps(e) + "\n")
@@ -220,6 +221,18 @@ def cmd_init(args: argparse.Namespace) -> int:
         f", moved {len(existing)} entr{'y' if len(existing) == 1 else 'ies'}" if existing else ""
     )
     print(f"docket: created {target}{moved}")
+
+    # features_path derives from the ledger's directory, so writing the ledger
+    # above has already moved the feature store's location. Anything recorded
+    # before this point is stranded in the global store, and the id counter
+    # restarts at f1 against ids that still exist there.
+    events = features.read(global_dir / "features.jsonl")
+    if events:
+        store = root / env.LEDGER.parent / "features.jsonl"
+        with store.open("w", encoding="utf-8") as f:
+            for event in events:
+                f.write(json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n")
+        print(f"docket: created {store}, moved {len(events)} feature event(s)")
     return 0
 
 

@@ -79,9 +79,6 @@ def _error(where: str, message: str) -> FeatureError:
     return FeatureError(f"docket: {where}: {message}")
 
 
-from docket.feature_project import project, resolve  # noqa: E402
-
-
 def _is_string_list(value: Any) -> bool:
     return isinstance(value, list) and all(isinstance(item, str) and item.strip() for item in value)
 
@@ -139,6 +136,15 @@ def validate_event(record: Any) -> dict[str, Any]:
             raise _error(slug, f"status {status!r} arrives through its event, never declared")
         if status not in STATUSES:
             raise _error(slug, f"status must be one of {', '.join(STATUSES)}")
+
+    for scope in record["paths"]:
+        if "/" not in scope and not any(mark in scope for mark in "*?[]"):
+            raise _error(
+                slug,
+                f"path {scope!r} can never match: the scope matcher skips a bare word "
+                "with no directory separator and no glob character. Write a directory "
+                "as 'name/**'",
+            )
 
     if event == "start":
         if not record["text"].strip():
@@ -200,7 +206,16 @@ def read(path: Path | str, lock: bool = True) -> list[dict[str, Any]]:
 
 
 def append(path: Path | str, record: dict[str, Any]) -> dict[str, Any]:
-    """Validate and append one event under the same lock the ledger uses."""
+    """Validate and append one event under the ledger's locking mechanism.
+
+    The lock file is this store's own, beside this path. Only the mechanism is
+    shared with the ledger.
+    """
+    # Imported here, not at module scope: feature_project imports this module
+    # for FeatureError and TERMINAL_STATES, and a module-level import back
+    # makes docket.feature_project unimportable on its own.
+    from docket.feature_project import project
+
     path = Path(path)
     with ledger_lock(path):
         events = read(path, lock=False)
@@ -234,9 +249,7 @@ __all__ = [
     "append",
     "make_event",
     "next_id",
-    "project",
     "qualified",
     "read",
-    "resolve",
     "validate_event",
 ]

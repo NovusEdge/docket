@@ -79,6 +79,29 @@ class RepositoryTests(unittest.TestCase):
         changed, _ = outcome.changed_files(self.root, base)
         self.assertEqual(changed, ["work.txt"])
 
+    def test_merging_the_branch_into_the_default_branch_keeps_its_change_set(self):
+        git(self.root, "checkout", "-b", "feat/x")
+        base, _ = outcome.fork_point(self.root)
+        (self.root / "work.txt").write_text("work\n", encoding="utf-8")
+        git(self.root, "add", "work.txt")
+        git(self.root, "commit", "-m", "work")
+        git(self.root, "checkout", "main")
+        git(self.root, "merge", "feat/x", "-m", "merge")
+        git(self.root, "checkout", "feat/x")
+        changed, _ = outcome.changed_files(self.root, base)
+        self.assertEqual(changed, ["work.txt"])
+
+    def test_a_feature_with_no_base_cannot_be_closed(self):
+        with self.assertRaisesRegex(outcome.OutcomeError, "no base commit"):
+            outcome.changed_files(self.root, "")
+
+    def test_a_bare_scope_is_refused_before_it_can_match_nothing(self):
+        import docket.features as features
+
+        for bad in ("Makefile", "installer", "a"):
+            with self.assertRaisesRegex(features.FeatureError, "can never match"):
+                features.make_event("start", "one", text="t", paths=[bad])
+
     def test_a_rename_is_reported_as_a_rename(self):
         git(self.root, "checkout", "-b", "feat/x")
         base, _ = outcome.fork_point(self.root)

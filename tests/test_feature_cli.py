@@ -44,23 +44,23 @@ class FeatureCliTests(unittest.TestCase):
         self.assertIn("active", out)
 
     def test_a_duplicate_start_is_refused(self):
-        self.run_cli("feature", "start", "one", "--text", "t", "--path", "a")
-        code, _ = self.run_cli("feature", "start", "one", "--text", "t", "--path", "b")
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "a/**")
+        code, _ = self.run_cli("feature", "start", "one", "--text", "t", "--path", "b/**")
         self.assertEqual(code, 1)
 
     def test_amend_changes_the_status(self):
-        self.run_cli("feature", "start", "one", "--text", "t", "--path", "a")
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "a/**")
         self.run_cli("feature", "amend", "one", "--status", "paused")
         _, out = self.run_cli("feature", "show", "one")
         self.assertIn("paused", out)
 
     def test_an_invalid_status_is_rejected_by_the_parser(self):
-        self.run_cli("feature", "start", "one", "--text", "t", "--path", "a")
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "a/**")
         with self.assertRaises(SystemExit):
             self.run_cli("feature", "amend", "one", "--status", "urgent")
 
     def test_note_appears_in_show(self):
-        self.run_cli("feature", "start", "one", "--text", "t", "--path", "a")
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "a/**")
         self.run_cli("feature", "note", "one", "a thing happened")
         _, out = self.run_cli("feature", "show", "one")
         self.assertIn("a thing happened", out)
@@ -68,7 +68,7 @@ class FeatureCliTests(unittest.TestCase):
     def test_list_json_is_machine_readable(self):
         import json
 
-        self.run_cli("feature", "start", "one", "--text", "t", "--path", "a")
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "a/**")
         _, out = self.run_cli("feature", "list", "--json")
         self.assertEqual(json.loads(out)[0]["slug"], "one")
 
@@ -124,6 +124,33 @@ class FeatureCloseTests(FeatureCliTests):
         code, _ = self.run_cli("feature", "done", "one")
         self.assertEqual(code, 1)
 
+    def test_a_rename_out_of_the_declared_paths_is_recorded(self):
+        self.commit("installer/planner.go")
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        (self.root / "graph").mkdir(exist_ok=True)
+        subprocess.run(
+            ["git", "-C", str(self.root), "mv", "installer/planner.go", "graph/planner.go"],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.root), "commit", "-m", "move out"],
+            check=True,
+            capture_output=True,
+        )
+        self.run_cli("feature", "done", "one")
+        _, out = self.run_cli("feature", "show", "f1", "--json")
+        import json
+
+        self.assertEqual(
+            json.loads(out)["renamed_out"], ["installer/planner.go -> graph/planner.go"]
+        )
+
+    def test_one_branch_carries_one_active_feature(self):
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        code, _ = self.run_cli("feature", "start", "two", "--text", "t", "--path", "graph/**")
+        self.assertEqual(code, 1)
+
     def test_abandon_closes_without_a_change_set(self):
         self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
         code, _ = self.run_cli("feature", "abandon", "one", "--text", "went nowhere")
@@ -138,12 +165,12 @@ class FeatureCloseTests(FeatureCliTests):
 
 class FeatureCheckTests(FeatureCliTests):
     def test_check_passes_on_a_healthy_store(self):
-        self.run_cli("feature", "start", "one", "--text", "t", "--path", "a")
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "a/**")
         code, _ = self.run_cli("check")
         self.assertEqual(code, 0)
 
     def test_check_reports_a_corrupt_feature_store(self):
-        self.run_cli("feature", "start", "one", "--text", "t", "--path", "a")
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "a/**")
         store = self.root / ".docket" / "features.jsonl"
         store.write_text(store.read_text(encoding="utf-8") + "{not json}\n", encoding="utf-8")
         code, out = self.run_cli("check")
@@ -151,7 +178,7 @@ class FeatureCheckTests(FeatureCliTests):
         self.assertIn("features.jsonl", out)
 
     def test_check_reports_a_duplicate_open_slug(self):
-        self.run_cli("feature", "start", "one", "--text", "t", "--path", "a")
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "a/**")
         store = self.root / ".docket" / "features.jsonl"
         first = store.read_text(encoding="utf-8").splitlines()[0]
         store.write_text(

@@ -1,7 +1,8 @@
 """Fold feature events into current state.
 
-Split from docket.features because the schema, validation, store and
-projection together crossed the 300-line limit.
+A slug is a ref and an id is the permanent address, so one slug can own
+several entries here: at most one open, plus every closed run that reused the
+name.
 """
 
 from __future__ import annotations
@@ -28,9 +29,24 @@ def project(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     features_by_key: dict[str, dict[str, Any]] = {}
     open_key: dict[str, str] = {}
     order: list[str] = []
+    seen_ids: dict[str, str] = {}
 
     for event in events:
         slug, verb = event["slug"], event["event"]
+        # Two events sharing an id would overwrite each other in features_by_key,
+        # losing one feature and duplicating the survivor. A union merge of two
+        # branches produces exactly this, so it is a normal input, not corruption
+        # that only a hand edit could cause.
+        event_id = event["id"]
+        if not event_id:
+            raise _error(slug, f"{verb} carries no id")
+        if event_id in seen_ids:
+            raise _error(
+                event_id,
+                f"already used by {seen_ids[event_id]}; run 'docket feature remap'",
+            )
+        seen_ids[event_id] = slug
+
         if verb == "start":
             if slug in open_key:
                 raise _error(slug, "a feature with this slug is already open")
