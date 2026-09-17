@@ -11,6 +11,7 @@
 
 * [Recording decisions](recording.md)
 * [Reading your ledger](reading.md)
+* [Feature tracking](features.md)
 * [Working with your agent](agents.md)
 * [Constructing on existing projects](construct.md)
 * [Sharing and maintenance](maintenance.md)

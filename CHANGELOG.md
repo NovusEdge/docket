@@ -5,6 +5,18 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `docket feature`, a work-tracking store kept beside the decision ledger in
+  `.docket/features.jsonl`. `start`, `list`, `show`, `note`, `amend`, `done`
+  and `abandon` record a named piece of work, its declared paths, and its
+  lifecycle. `done` classifies the branch's realized change set against the
+  declared paths and closes the feature; `docket check` reports corruption in
+  the feature store alongside the ledger. The feature store never reads or
+  writes a ledger record.
+
 ## [0.15.0] - 2026-09-16
 
 ### Added

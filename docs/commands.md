@@ -15,6 +15,7 @@ Ledger commands use the file that `docket where` reports. Run
 | `docket context` | Print the briefing an agent reads |
 | `docket where` | Print which ledger file is in use |
 | `docket check` | Report what makes the ledger unreadable |
+| `docket feature ...` | Track a piece of work in flight; see below |
 | `docket init` | Create a project ledger and copy any existing private records into it |
 | `docket migrate` | Convert a pre-0.8 ledger to the current schema |
 | `docket rebase` | Renumber another branch's records onto this ledger |
@@ -92,6 +93,22 @@ remains recorded as adopted but reports that it is blocked. See the
 | `--auto-scope`, `--no-auto-scope` | Derive scope from the working tree, or never |
 | `--since ID` | Report changes after that record; also accepts `ID@DIGEST` from a briefing |
 | `--for gemini\|copilot\|cursor` | Wrap the output in that tool's hook format |
+
+## Feature tracking
+
+```
+docket feature start <slug> --text TEXT --path GLOB [--path GLOB] [--intends TEXT]
+docket feature list [--state STATE] [--json]
+docket feature show <slug|id> [--json]
+docket feature note <slug> TEXT
+docket feature amend <slug> [--status STATUS] [--path GLOB] [--intends TEXT]
+docket feature done <slug>
+docket feature abandon <slug> --text REASON
+```
+
+`status` for `start` and `amend` is one of `active`, `paused`, `review`.
+`done` and `abandon` close a feature and cannot be reopened under the same
+ID; `start` a new one to resume the slug. See [Feature tracking](features.md).
 
 ## Maintenance
 
