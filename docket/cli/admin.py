@@ -295,8 +295,20 @@ _COMPLETION_CMDS = (
     "rebase",
     "migrate",
     "init",
+    "feature",
     "completion",
     "update",
+)
+_COMPLETION_FEATURE_VERBS = (
+    "start",
+    "list",
+    "show",
+    "note",
+    "amend",
+    "done",
+    "abandon",
+    "brief",
+    "remap",
 )
 
 _BASH_COMPLETION = f"""\
@@ -304,6 +316,13 @@ _docket() {{
     local cur prev
     cur="${{COMP_WORDS[COMP_CWORD]}}"
     prev="${{COMP_WORDS[COMP_CWORD-1]}}"
+    if [[ "${{COMP_WORDS[1]}}" == "feature" ]]; then
+        case "$prev" in
+            --state) COMPREPLY=($(compgen -W "active paused review done abandoned" -- "$cur")); return ;;
+            feature) COMPREPLY=($(compgen -W "{" ".join(_COMPLETION_FEATURE_VERBS)}" -- "$cur")); return ;;
+        esac
+        return
+    fi
     case "$prev" in
         --state) COMPREPLY=($(compgen -W "unassessed accepted disputed rejected adopted revoked open resolved" -- "$cur")); return ;;
         --supports|--depends-on|--answers|--supersedes|show)
@@ -334,6 +353,13 @@ _arguments -C \\
 case $words[1] in
     show) _docket_ids ;;
     completion) _values 'shell' bash zsh fish ;;
+    feature)
+        case $words[2] in
+            list) _arguments '--state[state]:state:(active paused review done abandoned)' '--oneline' '--json' ;;
+            show) _arguments '--json' ;;
+            *) _values 'verb' {" ".join(_COMPLETION_FEATURE_VERBS)} ;;
+        esac
+        ;;
     claim|decision|question)
         _arguments \\
             '--state[state]:state:(unassessed accepted disputed rejected adopted revoked open resolved)' \\

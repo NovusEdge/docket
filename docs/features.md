@@ -55,9 +55,11 @@ docket feature start <slug> --text TEXT --path GLOB [--path GLOB] [--intends TEX
 docket feature list [--state STATE] [--json]
 docket feature show <slug|id> [--json]
 docket feature note <slug> TEXT
-docket feature amend <slug> [--status STATUS] [--path GLOB] [--intends TEXT]
-docket feature done <slug>
+docket feature amend <slug> [--status STATUS] [--path GLOB] [--intends TEXT] [--include CSV] [--exclude CSV]
+docket feature done <slug> [--held CSV] [--failed CSV]
 docket feature abandon <slug> --text REASON
+docket feature brief [<slug|id>]
+docket feature remap MAPFILE
 ```
 
 ```
@@ -106,10 +108,70 @@ A declared path must contain a `/` or a glob character. The shared matcher
 skips a bare word, so `--path Makefile` or `--path installer` would match
 nothing; `start` and `amend` refuse both and tell you to write `installer/**`.
 
+## The brief
+
+`docket feature brief [SLUG_OR_ID]` derives which ledger records govern a
+feature from its declared paths, without any hand-drawn link between the two
+stores. Paths expand against the files git tracks, and every ledger record
+whose scope covers one of those files attaches, strongest match first.
+
+Each attached record's line names why it attached: `strength` is the same
+scope score `docket context` ranks records by, `specificity` is the length of
+the matching glob's literal prefix (a record scoped to
+`installer/planner.go` outranks one scoped to `installer/**` even at equal
+strength), and `matches` is how many of the feature's files that glob covers.
+A rank you disagree with is visible on the line that produced it, and
+`docket feature amend --exclude ID` drops a record the globs pulled in
+wrongly; `--include ID` attaches one the globs miss.
+
+```
+$ docket feature brief opencode-discovery
+### f1 | opencode-discovery [active] Installer places the OpenCode plugin...
+intends: the plugin loads
+paths: installer/**
+d81 | decision | ... [strength 1000, specificity 20, matches 1]
+q75 | question | ... [strength 1000, specificity 10, matches 4]
+```
+
+## Blocked
+
+`blocked` replaces the declared status on `feature list` and `feature show`
+when an attached decision derives as blocked — the same prerequisite relation
+`docket context` already computes for every decision (d109). An open question
+in the feature's scope never blocks it: scope overlap is a transient property
+that would fire on nearly every feature merely because some question happens
+to be open in its files today. Work actually stalled on a question is
+declared `paused` instead.
+
+## Claim verification at `done`
+
+`done` asks only about claims whose scope intersects the change set the
+branch actually realized; a claim about code the work never touched has
+gained no new evidence either way. `--held CSV` and `--failed CSV` mark
+verdicts; anything else attached comes back as `unanswered`. For each
+`--failed` claim, `done` prints the `docket claim ... --supersedes` command
+that would record the correction and stops — **it never writes the disputing
+record for you.** The three verdict lists are stored on the `done` event and
+read back with `feature show --json`.
+
+## Branch convergence
+
+Two active features on different branches are allowed to declare overlapping
+paths, the way branches diverge freely and conflict only at merge; `done`
+prints an advisory naming another open feature whose declared paths overlap
+the realized change set, without changing its exit code.
+
+`.gitattributes` marks both `.docket/*.jsonl` stores `merge=union`, so a
+branch merge keeps every line from both sides instead of conflicting on
+append-only files. A union merge can duplicate `f` IDs and leave an `include`
+or `exclude` list naming a ledger ID a rebase renumbered.
+`docket feature remap MAPFILE` repoints those lists through the ID map
+`docket rebase --emit-map PATH` writes, one new `amend` event per feature that
+needs one — remapping never edits a written `start` or `amend` line in place,
+the way `hooks/guard_ledger.py` requires for every append-only store.
+
 ## What is not here yet
 
-Stage 1 ships the store, the five events, declared status, and outcome
-classification at `done`. The `include`/`exclude` fields exist in the schema
-but carry no CLI flags yet, and there is no derived `blocked` state and no
-claim verification at `done` — those, along with the ledger-scoped brief,
-arrive in stage 2.
+Stage 2 ships the brief, derived `blocked`, claim verification at `done`, and
+branch convergence. Archival (`docket feature gc`) and a `docket context`
+header naming the active feature remain unbuilt.

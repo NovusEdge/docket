@@ -101,14 +101,22 @@ docket feature start <slug> --text TEXT --path GLOB [--path GLOB] [--intends TEX
 docket feature list [--state STATE] [--json]
 docket feature show <slug|id> [--json]
 docket feature note <slug> TEXT
-docket feature amend <slug> [--status STATUS] [--path GLOB] [--intends TEXT]
-docket feature done <slug>
+docket feature amend <slug> [--status STATUS] [--path GLOB] [--intends TEXT] [--include CSV] [--exclude CSV]
+docket feature done <slug> [--held CSV] [--failed CSV]
 docket feature abandon <slug> --text REASON
+docket feature brief [<slug|id>]
+docket feature remap MAPFILE
 ```
 
 `status` for `start` and `amend` is one of `active`, `paused`, `review`.
 `done` and `abandon` close a feature and cannot be reopened under the same
-ID; `start` a new one to resume the slug. See [Feature tracking](features.md).
+ID; `start` a new one to resume the slug. `--include` and `--exclude` correct
+which ledger records a feature's brief attaches, by ID. `--held` and
+`--failed` on `done` record a verdict on a claim the realized change set
+touched; anything attached but unanswered comes back `unanswered`. `brief`
+prints the ledger records governing a feature, strongest first; `remap`
+repoints `include`/`exclude` lists through the ID map `docket rebase
+--emit-map` writes. See [Feature tracking](features.md).
 
 ## Maintenance
 

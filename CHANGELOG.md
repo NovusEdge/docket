@@ -16,6 +16,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   declared paths and closes the feature; `docket check` reports corruption in
   the feature store alongside the ledger. The feature store never reads or
   writes a ledger record.
+- `docket feature brief` derives which ledger records govern a feature from
+  its declared paths and prints them strongest first, each with the strength,
+  specificity, and match count that ranked it. `feature amend --include` and
+  `--exclude` correct the derived set by ID, and `docket check` validates
+  every ID named there against the ledger.
+- `feature list` and `feature show` report `blocked` in place of the declared
+  status when an attached decision derives as blocked, the same prerequisite
+  relation `docket context` computes for `docket decision`. An open question
+  in the feature's scope never blocks it.
+- `feature done --held CSV` and `--failed CSV` record a verdict on a claim the
+  realized change set touched; an attached claim with no verdict is recorded
+  `unanswered`. A `--failed` claim prints the `docket claim --supersedes`
+  command that would record the correction and stops — the feature store
+  still never writes to the ledger. `done` also prints an advisory naming
+  another open feature whose declared paths overlap the realized change set.
+- `.gitattributes` marks `.docket/*.jsonl` `merge=union`, so two branches'
+  ledgers or feature stores merge by keeping every line from both sides.
+  `docket feature remap MAPFILE` and `docket rebase --emit-map PATH` repoint
+  a feature's `include`/`exclude` lists through the ID map a rebase produces,
+  each correction a new append-only `amend` event.
 
 ## [0.15.0] - 2026-09-16
 
