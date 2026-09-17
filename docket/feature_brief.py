@@ -1,0 +1,114 @@
+"""Which ledger records govern a feature's declared paths.
+
+Nothing is linked by hand. A feature declares paths, those paths expand
+against the tracked tree, and every ledger record whose scope covers one of
+those files attaches.
+"""
+
+from __future__ import annotations
+
+import fnmatch
+import subprocess
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Any
+
+from docket.config import DEFAULTS
+from docket.context import scope_strength
+
+_WILDCARDS = "*?["
+
+
+def specificity(scope: str) -> int:
+    """Length of the literal prefix before the first wildcard.
+
+    gitignore resolves competing patterns by taking the most specific one.
+    The same rule breaks the ties scope_strength leaves: it returns max() over
+    the file set, one integer with no match count and no decay, so a feature
+    scoped to one file finds every blanket-scoped record sitting level with
+    the record that names it.
+    """
+
+    cut = len(scope)
+    for mark in _WILDCARDS:
+        found = scope.find(mark)
+        if found != -1:
+            cut = min(cut, found)
+    return cut
+
+
+def expand(root: Path, paths: list[str]) -> list[str]:
+    """Declared globs, resolved against the files git tracks."""
+
+    result = subprocess.run(
+        ["git", "-C", str(root), "ls-files"], capture_output=True, text=True, timeout=30
+    )
+    if result.returncode != 0:
+        return []
+    tracked = result.stdout.splitlines()
+    matched = set()
+    for scope in paths:
+        for path in tracked:
+            if path == scope or fnmatch.fnmatchcase(path, scope):
+                matched.add(path)
+            elif "/" in scope and path.startswith(scope.rstrip("/*") + "/"):
+                matched.add(path)
+    return sorted(matched)
+
+
+def _best(entry: dict[str, Any], files: list[str], weights) -> tuple[int, int, int]:
+    strength = scope_strength(entry, tuple(files), weights)
+    if not strength:
+        return 0, 0, 0
+    best_spec, best_count = 0, 0
+    for scope in entry.get("scope") or []:
+        covered = [f for f in files if scope_strength({"scope": [scope]}, (f,), weights)]
+        if not covered:
+            continue
+        spec = specificity(scope)
+        if (spec, len(covered)) > (best_spec, best_count):
+            best_spec, best_count = spec, len(covered)
+    return strength, best_spec, best_count
+
+
+def attach(
+    entries: list[dict[str, Any]],
+    files: list[str],
+    *,
+    include: Sequence[str] = (),
+    exclude: Sequence[str] = (),
+    weights=None,
+) -> list[dict[str, Any]]:
+    """Ledger records governing these files, strongest first."""
+
+    weights = weights if weights is not None else DEFAULTS["weights"]
+    excluded = set(exclude)
+    forced = set(include) - excluded
+    attached = []
+    for entry in entries:
+        ident = str(entry.get("id", ""))
+        if ident in excluded:
+            continue
+        strength, spec, count = _best(entry, files, weights)
+        if not strength and ident not in forced:
+            continue
+        marked = dict(entry)
+        marked["brief_strength"] = strength
+        marked["brief_specificity"] = spec
+        marked["brief_matches"] = count
+        attached.append(marked)
+
+    def order(entry):
+        ident = str(entry.get("id", ""))
+        sequence = int(ident[1:]) if ident[1:].isdigit() else 0
+        return (
+            -entry["brief_strength"],
+            -entry["brief_specificity"],
+            -entry["brief_matches"],
+            sequence,
+        )
+
+    return sorted(attached, key=order)
+
+
+__all__ = ["attach", "expand", "specificity"]
