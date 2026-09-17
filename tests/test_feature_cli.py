@@ -190,5 +190,23 @@ class FeatureCheckTests(FeatureCliTests):
         self.assertIn("already open", out)
 
 
+class FeatureBriefTests(FeatureCliTests):
+    def test_brief_resolves_the_active_feature_without_a_slug(self):
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        code, out = self.run_cli("feature", "brief")
+        self.assertEqual(code, 0)
+        self.assertIn("one", out)
+
+    def test_brief_names_a_slug_explicitly(self):
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        code, out = self.run_cli("feature", "brief", "one")
+        self.assertEqual(code, 0)
+        self.assertIn("f1", out)
+
+    def test_brief_with_no_active_feature_exits_one(self):
+        code, _ = self.run_cli("feature", "brief")
+        self.assertEqual(code, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

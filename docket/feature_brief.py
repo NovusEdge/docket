@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import fnmatch
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -111,4 +111,57 @@ def attach(
     return sorted(attached, key=order)
 
 
-__all__ = ["attach", "expand", "specificity"]
+def render(feature: dict[str, Any], attached: list[dict[str, Any]], *, limit_chars: int) -> str:
+    """The feature header and the records governing it, strongest first.
+
+    Every record line carries the three numbers that ordered it, so a rank
+    the reader disagrees with is visible on the screen that shows it and one
+    `docket feature amend --exclude` corrects it.
+    """
+
+    lines = [f"### {feature['id']} | {feature['slug']} [{feature['state']}] {feature['text']}"]
+    for intent in feature.get("intends") or []:
+        lines.append(f"intends: {intent}")
+    for scope in feature.get("paths") or []:
+        lines.append(f"paths: {scope}")
+
+    head = "\n".join(lines)
+    body: list[str] = []
+    used = len(head)
+    shown = 0
+    # Reserved so the drop-count footer itself never pushes the render past
+    # limit_chars: the footer is appended after this loop decides to stop,
+    # so its length has to be budgeted for before that decision, not after.
+    footer_reserve = len("(999 more attached record(s) past the budget; docket feature show)")
+    for entry in attached:
+        line = (
+            f"{entry['id']} | {entry.get('kind', '')} | {entry.get('text', '')} "
+            f"[strength {entry['brief_strength']}, "
+            f"specificity {entry['brief_specificity']}, "
+            f"matches {entry['brief_matches']}]"
+        )
+        if used + len(line) + 1 + footer_reserve > limit_chars and shown:
+            break
+        body.append(line)
+        used += len(line) + 1
+        shown += 1
+
+    dropped = len(attached) - shown
+    if dropped:
+        body.append(f"({dropped} more attached record(s) past the budget; docket feature show)")
+    return "\n".join([head, *body])
+
+
+def budget_share(settings: Mapping[str, Any] | None = None) -> int:
+    """The brief's slice of the context budget: a quarter of the target.
+
+    A fixed record count would fork q100, which asks whether the character
+    budget tracks the token budget it stands in for. A share moves with
+    whatever q100 settles on.
+    """
+
+    cfg = settings if settings is not None else DEFAULTS
+    return max(cfg["budget"]["minimum"], cfg["budget"]["target"] // 4)
+
+
+__all__ = ["attach", "budget_share", "expand", "render", "specificity"]

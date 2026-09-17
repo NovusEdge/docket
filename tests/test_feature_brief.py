@@ -101,5 +101,59 @@ class ExpandTests(unittest.TestCase):
         self.assertEqual(brief.expand(self.root, ["nowhere/**"]), [])
 
 
+class RenderTests(unittest.TestCase):
+    def setUp(self):
+        self.feature = {
+            "id": "f1",
+            "slug": "one",
+            "state": "active",
+            "text": "do the thing",
+            "paths": ["installer/**"],
+            "intends": ["the plugin loads"],
+            "base": "6f0898e2c1f4a9",
+            "branch": "feat/x",
+            "log": [],
+        }
+        self.attached = [
+            dict(
+                record("d3", "decision", ["installer/planner.go"], "pick a path"),
+                brief_strength=1000,
+                brief_specificity=20,
+                brief_matches=1,
+            ),
+            dict(
+                record("d1", "decision", ["installer/**"], "port to go"),
+                brief_strength=700,
+                brief_specificity=10,
+                brief_matches=4,
+            ),
+        ]
+
+    def test_the_header_names_the_feature_and_its_state(self):
+        out = brief.render(self.feature, self.attached, limit_chars=4000)
+        self.assertIn("f1", out)
+        self.assertIn("one", out)
+        self.assertIn("active", out)
+
+    def test_intends_appear(self):
+        out = brief.render(self.feature, self.attached, limit_chars=4000)
+        self.assertIn("the plugin loads", out)
+
+    def test_records_appear_strongest_first(self):
+        out = brief.render(self.feature, self.attached, limit_chars=4000)
+        self.assertLess(out.index("d3"), out.index("d1"))
+
+    def test_each_record_says_why_it_attached(self):
+        out = brief.render(self.feature, self.attached, limit_chars=4000)
+        self.assertIn("1000", out)
+        self.assertIn("700", out)
+
+    def test_the_budget_stops_the_list_and_says_what_it_dropped(self):
+        out = brief.render(self.feature, self.attached, limit_chars=260)
+        self.assertLessEqual(len(out), 260 + 80)
+        self.assertIn("d3", out)
+        self.assertIn("1 more", out)
+
+
 if __name__ == "__main__":
     unittest.main()

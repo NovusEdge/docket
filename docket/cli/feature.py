@@ -184,10 +184,40 @@ def cmd_feature_abandon(args) -> int:
     return 0
 
 
+def cmd_feature_brief(args) -> int:
+    from docket import feature_brief, ledger
+
+    path = env.features_path()
+    root = env.project_root()
+    current = _current(path)
+    if args.name:
+        feature = feature_project.resolve(current, args.name)
+    else:
+        branch = env.branch(root)
+        open_now = [f for f in current if f["state"] not in features.TERMINAL_STATES]
+        on_branch = [f for f in open_now if f["branch"] == branch] if branch else []
+        candidates = on_branch or open_now
+        if not candidates:
+            print(
+                "docket: no active feature; name one or run 'docket feature start'",
+                file=sys.stderr,
+            )
+            return 1
+        feature = candidates[-1]
+
+    entries = ledger.project(ledger.read(env.ledger_path()), validated=True)
+    files = feature_brief.expand(root, feature["paths"])
+    attached = feature_brief.attach(
+        entries, files, include=feature["include"], exclude=feature["exclude"]
+    )
+    print(feature_brief.render(feature, attached, limit_chars=feature_brief.budget_share()))
+    return 0
+
+
 def add_feature_parser(sub) -> None:
     fe = sub.add_parser("feature", help="track a piece of work in flight")
     verbs = fe.add_subparsers(
-        dest="feature_cmd", metavar="{start,list,show,note,amend,done,abandon}"
+        dest="feature_cmd", metavar="{start,list,show,note,amend,done,abandon,brief}"
     )
 
     st = verbs.add_parser("start", help="declare a piece of work")
@@ -228,3 +258,7 @@ def add_feature_parser(sub) -> None:
     ab.add_argument("slug")
     ab.add_argument("--text", required=True)
     ab.set_defaults(func=cmd_feature_abandon)
+
+    br = verbs.add_parser("brief", help="print the ledger records governing a feature")
+    br.add_argument("name", nargs="?", default="", metavar="SLUG_OR_ID")
+    br.set_defaults(func=cmd_feature_brief)
