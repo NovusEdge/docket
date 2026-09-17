@@ -104,6 +104,12 @@ def _scope_strength(
     return best
 
 
+# Feature classification calls this, so selection and classification share one
+# matcher. Two matchers would let a file in the brief fall out of the
+# intentional set at done.
+scope_strength = _scope_strength
+
+
 def _score(
     entry: Mapping[str, Any],
     *,
