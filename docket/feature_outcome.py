@@ -127,10 +127,12 @@ def is_dirty(root: Path) -> bool:
     """Whether the working tree holds uncommitted changes.
 
     done reads committed history, so uncommitted work would land in neither
-    the intentional nor the unintentional set.
+    the intentional nor the unintentional set. .docket/ is excluded: it is
+    docket's own bookkeeping, not part of the feature's realized change set,
+    and a fresh feature store is always untracked the moment it is written.
     """
 
-    return bool(_git(root, "status", "--porcelain").stdout.strip())
+    return bool(_git(root, "status", "--porcelain", "--", ".", ":!.docket").stdout.strip())
 
 
 __all__ = ["OutcomeError", "changed_files", "classify", "fork_point", "is_dirty"]

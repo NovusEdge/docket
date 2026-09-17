@@ -237,8 +237,10 @@ def main(argv: list[str] | None = None) -> int:
             p.error("graph --interactive conflicts with --style")
     if args.cmd == "feature" and getattr(args, "feature_cmd", None) is None:
         p.error("feature needs a subcommand")
+    from docket.feature_outcome import OutcomeError
+
     try:
         return args.func(args)
-    except (LedgerError, features.FeatureError, OSError) as exc:
+    except (LedgerError, features.FeatureError, OutcomeError, OSError) as exc:
         print(str(exc), file=sys.stderr)
         return 1

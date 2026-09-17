@@ -73,5 +73,68 @@ class FeatureCliTests(unittest.TestCase):
         self.assertEqual(json.loads(out)[0]["slug"], "one")
 
 
+class FeatureCloseTests(FeatureCliTests):
+    def commit(self, name, body="x\n"):
+        (self.root / name).parent.mkdir(parents=True, exist_ok=True)
+        (self.root / name).write_text(body, encoding="utf-8")
+        subprocess.run(["git", "-C", str(self.root), "add", name], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-C", str(self.root), "commit", "-m", name], check=True, capture_output=True
+        )
+
+    def setUp(self):
+        super().setUp()
+        subprocess.run(
+            ["git", "-C", str(self.root), "config", "user.email", "t@example.test"],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.root), "config", "user.name", "t"],
+            check=True,
+            capture_output=True,
+        )
+        self.commit("base.txt")
+        subprocess.run(
+            ["git", "-C", str(self.root), "checkout", "-b", "feat/x"],
+            check=True,
+            capture_output=True,
+        )
+
+    def test_done_splits_the_change_set(self):
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        self.commit("installer/planner.go")
+        self.commit("graph/model.go")
+        code, _ = self.run_cli("feature", "done", "one")
+        self.assertEqual(code, 0)
+        _, out = self.run_cli("feature", "show", "f1", "--json")
+        import json
+
+        feature = json.loads(out)
+        self.assertEqual(feature["intentional"], ["installer/planner.go"])
+        self.assertEqual(feature["unintentional"], ["graph/model.go"])
+        self.assertEqual(feature["state"], "done")
+
+    def test_done_refuses_a_dirty_working_tree(self):
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        (self.root / "dirty.txt").write_text("dirty\n", encoding="utf-8")
+        subprocess.run(
+            ["git", "-C", str(self.root), "add", "dirty.txt"], check=True, capture_output=True
+        )
+        code, _ = self.run_cli("feature", "done", "one")
+        self.assertEqual(code, 1)
+
+    def test_abandon_closes_without_a_change_set(self):
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        code, _ = self.run_cli("feature", "abandon", "one", "--text", "went nowhere")
+        self.assertEqual(code, 0)
+        _, out = self.run_cli("feature", "show", "f1", "--json")
+        import json
+
+        feature = json.loads(out)
+        self.assertEqual(feature["state"], "abandoned")
+        self.assertEqual(feature["intentional"], [])
+
+
 if __name__ == "__main__":
     unittest.main()

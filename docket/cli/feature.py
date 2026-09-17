@@ -117,9 +117,61 @@ def cmd_feature_amend(args) -> int:
     return 0
 
 
+def cmd_feature_done(args) -> int:
+    from docket.feature_outcome import changed_files, classify, is_dirty
+
+    path = env.features_path()
+    root = env.project_root()
+    feature = features.resolve(_current(path), args.slug)
+    if feature["state"] in features.TERMINAL_STATES:
+        print(f"docket: {args.slug}: feature is already closed", file=sys.stderr)
+        return 1
+    if is_dirty(root):
+        print(
+            "docket: the working tree has uncommitted changes; "
+            "the change set reads committed history only",
+            file=sys.stderr,
+        )
+        return 1
+
+    changed, renames = changed_files(root, feature["base"])
+    intentional, unintentional = classify(feature["paths"], changed)
+    renamed_out = [
+        f"{old} -> {new}"
+        for old, new in renames
+        if classify(feature["paths"], [old])[0] and not classify(feature["paths"], [new])[0]
+    ]
+    features.append(
+        path,
+        _record(
+            "done",
+            args.slug,
+            intentional=intentional,
+            unintentional=unintentional,
+            renamed_out=renamed_out,
+        ),
+    )
+    print(f"{feature['id']} done: {len(intentional)} intentional, {len(unintentional)} outside")
+    for item in unintentional:
+        print(f"  outside declared paths: {item}")
+    return 0
+
+
+def cmd_feature_abandon(args) -> int:
+    path = env.features_path()
+    feature = features.resolve(_current(path), args.slug)
+    if feature["state"] in features.TERMINAL_STATES:
+        print(f"docket: {args.slug}: feature is already closed", file=sys.stderr)
+        return 1
+    features.append(path, _record("abandon", args.slug, text=args.text))
+    return 0
+
+
 def add_feature_parser(sub) -> None:
     fe = sub.add_parser("feature", help="track a piece of work in flight")
-    verbs = fe.add_subparsers(dest="feature_cmd", metavar="{start,list,show,note,amend}")
+    verbs = fe.add_subparsers(
+        dest="feature_cmd", metavar="{start,list,show,note,amend,done,abandon}"
+    )
 
     st = verbs.add_parser("start", help="declare a piece of work")
     st.add_argument("slug")
@@ -149,3 +201,12 @@ def add_feature_parser(sub) -> None:
     am.add_argument("--path", action="append", default=[])
     am.add_argument("--intends", action="append", default=[])
     am.set_defaults(func=cmd_feature_amend)
+
+    dn = verbs.add_parser("done", help="close a feature and record what it changed")
+    dn.add_argument("slug")
+    dn.set_defaults(func=cmd_feature_done)
+
+    ab = verbs.add_parser("abandon", help="close a feature without a change set")
+    ab.add_argument("slug")
+    ab.add_argument("--text", required=True)
+    ab.set_defaults(func=cmd_feature_abandon)
