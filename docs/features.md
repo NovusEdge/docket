@@ -27,8 +27,8 @@ current state is a projection over the whole log, never an edit in place.
 
 ## Status versus state
 
-A feature carries a declared `status` — `active` (the default), `paused`, or
-`review` — and projects to a `state`. `done` and `abandoned` are not legal
+A feature carries a declared `status` and projects to a `state`. The status is
+`active` (the default), `paused`, or `review`. `done` and `abandoned` are not legal
 values for `status`: they arrive only through the `done` and `abandon`
 events, so nothing can type a feature closed against its own log.
 
@@ -45,8 +45,8 @@ IDs.
 
 The composite form `f7@6f0898e2` appends eight characters of the feature's
 `base` SHA. It appears only when two features collide on the same bare ID,
-such as after a union merge — the same way git abbreviates a SHA only once
-it becomes ambiguous.
+such as after a union merge. Git abbreviates a SHA the same way, only once it
+becomes ambiguous.
 
 ## Commands
 
@@ -84,10 +84,10 @@ $ docket feature abandon some-other-slug --text "superseded by a different appro
 
 ## The fork-point base and the change set
 
-`start` records `base` as the merge base with the default branch, not HEAD —
-a feature declared partway through work still captures everything the branch
-has done. On the default branch itself, `base` is HEAD and `start` warns that
-there is no fork point.
+`start` records `base` as the merge base with the default branch. HEAD would be
+wrong: a feature declared partway through work still captures everything the
+branch has done. On the default branch itself, `base` is HEAD and `start` warns
+that there is no fork point.
 
 `done` walks the branch's own commits with `git log --first-parent --no-merges
 -M base..HEAD`, then classifies each changed path against the feature's
@@ -136,8 +136,8 @@ q75 | question | ... [strength 1000, specificity 10, matches 4]
 ## Blocked
 
 `blocked` replaces the declared status on `feature list` and `feature show`
-when an attached decision derives as blocked — the same prerequisite relation
-`docket context` already computes for every decision (d109). An open question
+when an attached decision derives as blocked. That is the same prerequisite
+relation `docket context` already computes for every decision (d109). An open question
 in the feature's scope never blocks it: scope overlap is a transient property
 that would fire on nearly every feature merely because some question happens
 to be open in its files today. Work actually stalled on a question is
@@ -150,7 +150,7 @@ branch actually realized; a claim about code the work never touched has
 gained no new evidence either way. `--held CSV` and `--failed CSV` mark
 verdicts; anything else attached comes back as `unanswered`. For each
 `--failed` claim, `done` prints the `docket claim ... --supersedes` command
-that would record the correction and stops — **it never writes the disputing
+that would record the correction and stops. **It never writes the disputing
 record for you.** The three verdict lists are stored on the `done` event and
 read back with `feature show --json`.
 
@@ -167,7 +167,7 @@ append-only files. A union merge can duplicate `f` IDs and leave an `include`
 or `exclude` list naming a ledger ID a rebase renumbered.
 `docket feature remap MAPFILE` repoints those lists through the ID map
 `docket rebase --emit-map PATH` writes, one new `amend` event per feature that
-needs one — remapping never edits a written `start` or `amend` line in place,
+needs one. Remapping never edits a written `start` or `amend` line in place,
 the way `hooks/guard_ledger.py` requires for every append-only store.
 
 ## What is not here yet

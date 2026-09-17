@@ -28,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `feature done --held CSV` and `--failed CSV` record a verdict on a claim the
   realized change set touched; an attached claim with no verdict is recorded
   `unanswered`. A `--failed` claim prints the `docket claim --supersedes`
-  command that would record the correction and stops — the feature store
+  command that would record the correction and stops. The feature store
   still never writes to the ledger. `done` also prints an advisory naming
   another open feature whose declared paths overlap the realized change set.
 - `.gitattributes` marks `.docket/*.jsonl` `merge=union`, so two branches'
