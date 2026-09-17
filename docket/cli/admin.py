@@ -8,7 +8,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from docket import ROOT, env, version
+from docket import ROOT, env, features, version
 from docket.ledger import ID_RE, LedgerError, _Prefix, append, validate_record
 
 
@@ -172,18 +172,30 @@ def cmd_check(args: argparse.Namespace) -> int:
             good.append(checked)
             prefix.add(checked)
 
+    failed = bool(faults)
     if not faults:
         print(f"docket: {path} reads cleanly, {count} record{'s' if count != 1 else ''}")
-        return 0
-    print(f"docket: {path} has {len(faults)} fault{'s' if len(faults) != 1 else ''}")
-    for fault in faults:
-        print(f"  {fault}")
-    print(
-        "\nDuplicate or out-of-order IDs usually mean two branches recorded "
-        "separately. Recover the other branch's ledger and run:"
-    )
-    print("  docket rebase OTHER_LEDGER")
-    return 1
+    else:
+        print(f"docket: {path} has {len(faults)} fault{'s' if len(faults) != 1 else ''}")
+        for fault in faults:
+            print(f"  {fault}")
+        print(
+            "\nDuplicate or out-of-order IDs usually mean two branches recorded "
+            "separately. Recover the other branch's ledger and run:"
+        )
+        print("  docket rebase OTHER_LEDGER")
+
+    store = env.features_path()
+    if store.exists():
+        try:
+            features.project(features.read(store))
+        except features.FeatureError as exc:
+            print(f"{store}: {str(exc).removeprefix('docket: ')}")
+            failed = True
+        else:
+            print(f"{store}: ok")
+
+    return 1 if failed else 0
 
 
 def cmd_init(args: argparse.Namespace) -> int:

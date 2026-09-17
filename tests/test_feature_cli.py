@@ -136,5 +136,32 @@ class FeatureCloseTests(FeatureCliTests):
         self.assertEqual(feature["intentional"], [])
 
 
+class FeatureCheckTests(FeatureCliTests):
+    def test_check_passes_on_a_healthy_store(self):
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "a")
+        code, _ = self.run_cli("check")
+        self.assertEqual(code, 0)
+
+    def test_check_reports_a_corrupt_feature_store(self):
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "a")
+        store = self.root / ".docket" / "features.jsonl"
+        store.write_text(store.read_text(encoding="utf-8") + "{not json}\n", encoding="utf-8")
+        code, out = self.run_cli("check")
+        self.assertEqual(code, 1)
+        self.assertIn("features.jsonl", out)
+
+    def test_check_reports_a_duplicate_open_slug(self):
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "a")
+        store = self.root / ".docket" / "features.jsonl"
+        first = store.read_text(encoding="utf-8").splitlines()[0]
+        store.write_text(
+            store.read_text(encoding="utf-8") + first.replace('"f1"', '"f2"') + "\n",
+            encoding="utf-8",
+        )
+        code, out = self.run_cli("check")
+        self.assertEqual(code, 1)
+        self.assertIn("already open", out)
+
+
 if __name__ == "__main__":
     unittest.main()
