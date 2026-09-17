@@ -140,6 +140,43 @@ def classify(paths: list[str], changed: list[str]) -> tuple[list[str], list[str]
     return intentional, unintentional
 
 
+def verify_claims(
+    entries: list[dict], realized: list[str], held_csv: list[str], failed_csv: list[str]
+) -> tuple[list[str], list[str], list[str], list[str]]:
+    """Sort the claims the realized change set touched into held, failed, unanswered.
+
+    Only the realized set, never the declared paths: a claim about code the
+    work never touched has gained no new evidence.
+    """
+
+    from docket import feature_brief
+
+    touched = feature_brief.attach(entries, realized)
+    claims = [e["id"] for e in touched if e.get("kind") == "claim"]
+    held = [c for c in held_csv if c in claims]
+    failed = [c for c in failed_csv if c in claims]
+    unanswered = [c for c in claims if c not in held and c not in failed]
+    return claims, held, failed, unanswered
+
+
+def verification_report(
+    by_id: dict[str, dict], claims: list[str], held: list[str], failed: list[str], qualified: str
+) -> list[str]:
+    """One line per asked claim, then the supersession command for each failure."""
+
+    lines = []
+    for ident in claims:
+        verdict = "held" if ident in held else "failed" if ident in failed else "not answered"
+        lines.append(f"  claim {ident} [{verdict}]: {by_id[ident]['text']}")
+    for ident in failed:
+        lines.append(
+            f'\ndocket claim "<the corrected proposition>" --state disputed '
+            f"--supersedes {ident} \\\n"
+            f'  --evidence "verified during {qualified}"'
+        )
+    return lines
+
+
 def is_dirty(root: Path) -> bool:
     """Whether the working tree holds uncommitted changes.
 
@@ -152,4 +189,12 @@ def is_dirty(root: Path) -> bool:
     return bool(_git(root, "status", "--porcelain", "--", ".", ":!.docket").stdout.strip())
 
 
-__all__ = ["OutcomeError", "changed_files", "classify", "fork_point", "is_dirty"]
+__all__ = [
+    "OutcomeError",
+    "changed_files",
+    "classify",
+    "fork_point",
+    "is_dirty",
+    "verification_report",
+    "verify_claims",
+]

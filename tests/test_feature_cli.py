@@ -261,5 +261,77 @@ class FeatureBlockedTests(FeatureCliTests):
         self.assertNotIn("blocked", out)
 
 
+class FeatureVerificationTests(FeatureCloseTests):
+    def ledger_bytes(self):
+        return (self.root / ".docket" / "ledger.jsonl").read_bytes()
+
+    def test_done_lists_claims_the_change_set_touched(self):
+        self.run_cli(
+            "claim",
+            "planner writes plugins/",
+            "--state",
+            "accepted",
+            "--scope",
+            "installer/planner.go",
+        )
+        self.run_cli("claim", "graph sorts roots", "--state", "accepted", "--scope", "graph/**")
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        self.commit("installer/planner.go")
+        _, out = self.run_cli("feature", "done", "one")
+        self.assertIn("c1", out)
+        self.assertNotIn("c2", out)
+
+    def test_a_failed_claim_prints_the_command_and_writes_no_ledger_record(self):
+        self.run_cli(
+            "claim",
+            "planner writes plugins/",
+            "--state",
+            "accepted",
+            "--scope",
+            "installer/planner.go",
+        )
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        self.commit("installer/planner.go")
+        before = self.ledger_bytes()
+        _, out = self.run_cli("feature", "done", "one", "--failed", "c1")
+        self.assertIn("docket claim", out)
+        self.assertIn("--supersedes c1", out)
+        self.assertEqual(self.ledger_bytes(), before)
+
+    def test_verdicts_are_recorded_in_the_done_event(self):
+        self.run_cli(
+            "claim",
+            "planner writes plugins/",
+            "--state",
+            "accepted",
+            "--scope",
+            "installer/planner.go",
+        )
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        self.commit("installer/planner.go")
+        self.run_cli("feature", "done", "one", "--held", "c1")
+        _, out = self.run_cli("feature", "show", "f1", "--json")
+        import json
+
+        self.assertEqual(json.loads(out)["held"], ["c1"])
+
+    def test_a_claim_with_no_verdict_is_recorded_as_unanswered(self):
+        self.run_cli(
+            "claim",
+            "planner writes plugins/",
+            "--state",
+            "accepted",
+            "--scope",
+            "installer/planner.go",
+        )
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        self.commit("installer/planner.go")
+        self.run_cli("feature", "done", "one")
+        _, out = self.run_cli("feature", "show", "f1", "--json")
+        import json
+
+        self.assertEqual(json.loads(out)["unanswered"], ["c1"])
+
+
 if __name__ == "__main__":
     unittest.main()

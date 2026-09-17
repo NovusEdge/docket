@@ -77,27 +77,10 @@ def cmd_feature_start(args) -> int:
     return 0
 
 
-def _with_blocked(current: list[dict[str, Any]], root) -> list[dict[str, Any]]:
-    """Overlay the derived blocked state on every open feature."""
-    from docket import feature_brief, ledger
-
-    entries = ledger.project(ledger.read(env.ledger_path()), validated=True)
-    for feature in current:
-        if feature["state"] in features.TERMINAL_STATES:
-            continue
-        files = feature_brief.expand(root, feature["paths"])
-        attached = feature_brief.attach(
-            entries, files, include=feature["include"], exclude=feature["exclude"]
-        )
-        blockers = feature_brief.blocking(attached)
-        if blockers:
-            feature["state"] = "blocked"
-            feature["blocked_by"] = blockers
-    return current
-
-
 def cmd_feature_list(args) -> int:
-    current = _with_blocked(_current(env.features_path()), env.project_root())
+    from docket import feature_brief
+
+    current = feature_brief.with_blocked(_current(env.features_path()), env.project_root())
     if args.state:
         current = [f for f in current if f["state"] == args.state]
     if args.json:
@@ -114,7 +97,9 @@ def cmd_feature_list(args) -> int:
 
 
 def cmd_feature_show(args) -> int:
-    current = _with_blocked(_current(env.features_path()), env.project_root())
+    from docket import feature_brief
+
+    current = feature_brief.with_blocked(_current(env.features_path()), env.project_root())
     feature = feature_project.resolve(current, args.name)
     if args.json:
         print(json.dumps(feature, ensure_ascii=False, indent=2))
@@ -179,6 +164,8 @@ def cmd_feature_done(args) -> int:
         )
         return 1
 
+    from docket import feature_outcome, ledger
+
     changed, renames = changed_files(root, feature["base"])
     intentional, unintentional = classify(feature["paths"], changed)
     renamed_out = [
@@ -186,6 +173,12 @@ def cmd_feature_done(args) -> int:
         for old, new in renames
         if classify(feature["paths"], [old])[0] and not classify(feature["paths"], [new])[0]
     ]
+
+    entries = ledger.project(ledger.read(env.ledger_path()), validated=True)
+    claims, held, failed, unanswered = feature_outcome.verify_claims(
+        entries, intentional + unintentional, _csv(args.held), _csv(args.failed)
+    )
+
     features.append(
         path,
         _record(
@@ -194,11 +187,20 @@ def cmd_feature_done(args) -> int:
             intentional=intentional,
             unintentional=unintentional,
             renamed_out=renamed_out,
+            held=held,
+            failed=failed,
+            unanswered=unanswered,
         ),
     )
     print(f"{feature['id']} done: {len(intentional)} intentional, {len(unintentional)} outside")
     for item in unintentional:
         print(f"  outside declared paths: {item}")
+
+    by_id = {e["id"]: e for e in entries}
+    for line in feature_outcome.verification_report(
+        by_id, claims, held, failed, features.qualified(feature)
+    ):
+        print(line)
     return 0
 
 
@@ -282,6 +284,8 @@ def add_feature_parser(sub) -> None:
 
     dn = verbs.add_parser("done", help="close a feature and record what it changed")
     dn.add_argument("slug")
+    dn.add_argument("--held", default="", metavar="CSV")
+    dn.add_argument("--failed", default="", metavar="CSV")
     dn.set_defaults(func=cmd_feature_done)
 
     ab = verbs.add_parser("abandon", help="close a feature without a change set")

@@ -164,6 +164,23 @@ def budget_share(settings: Mapping[str, Any] | None = None) -> int:
     return max(cfg["budget"]["minimum"], cfg["budget"]["target"] // 4)
 
 
+def with_blocked(current: list[dict[str, Any]], root: Path) -> list[dict[str, Any]]:
+    """Overlay the derived blocked state on every open feature."""
+    from docket import env, features, ledger
+
+    entries = ledger.project(ledger.read(env.ledger_path()), validated=True)
+    for feature in current:
+        if feature["state"] in features.TERMINAL_STATES:
+            continue
+        files = expand(root, feature["paths"])
+        attached = attach(entries, files, include=feature["include"], exclude=feature["exclude"])
+        blockers = blocking(attached)
+        if blockers:
+            feature["state"] = "blocked"
+            feature["blocked_by"] = blockers
+    return current
+
+
 def blocking(attached: list[dict[str, Any]]) -> list[str]:
     """Attached decisions whose prerequisites are unavailable.
 
@@ -182,4 +199,4 @@ def blocking(attached: list[dict[str, Any]]) -> list[str]:
     ]
 
 
-__all__ = ["attach", "blocking", "budget_share", "expand", "render", "specificity"]
+__all__ = ["attach", "blocking", "budget_share", "expand", "render", "specificity", "with_blocked"]

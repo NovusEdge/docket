@@ -45,6 +45,9 @@ DEFAULTS: dict[str, Any] = {
     "intentional": [],
     "unintentional": [],
     "renamed_out": [],
+    "held": [],
+    "failed": [],
+    "unanswered": [],
 }
 ALLOWED_FIELDS = frozenset(DEFAULTS)
 
@@ -68,6 +71,9 @@ _LIST_FIELDS = (
     "intentional",
     "unintentional",
     "renamed_out",
+    "held",
+    "failed",
+    "unanswered",
 )
 
 

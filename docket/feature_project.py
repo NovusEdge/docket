@@ -63,6 +63,9 @@ def project(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "intentional": [],
                 "unintentional": [],
                 "renamed_out": [],
+                "held": [],
+                "failed": [],
+                "unanswered": [],
                 **{field: copy.deepcopy(event[field]) for field in _CARRIED},
             }
             continue
@@ -81,7 +84,14 @@ def project(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             feature["log"].append({"id": event["id"], "ts": event["ts"], "text": event["text"]})
         elif verb == "done":
             feature["state"] = "done"
-            for field in ("intentional", "unintentional", "renamed_out"):
+            for field in (
+                "intentional",
+                "unintentional",
+                "renamed_out",
+                "held",
+                "failed",
+                "unanswered",
+            ):
                 feature[field] = copy.deepcopy(event[field])
             del open_key[slug]
         elif verb == "abandon":
