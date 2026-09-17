@@ -602,5 +602,26 @@ class RebaseCommandTests(unittest.TestCase):
         self.assertIn("Their premise", after)
 
 
+class FeatureSkillTests(unittest.TestCase):
+    def test_the_feature_skill_exists_and_declares_its_trigger(self):
+        path = Path(__file__).parent.parent / "skills" / "docket-feature" / "SKILL.md"
+        self.assertTrue(path.is_file(), "skills/docket-feature/SKILL.md is missing")
+        text = path.read_text(encoding="utf-8")
+        self.assertTrue(text.startswith("---\n"), "skill needs YAML frontmatter")
+        self.assertIn("name: docket-feature", text)
+        self.assertIn("description:", text)
+        self.assertNotIn("—", text, "no em dashes")
+
+    def test_the_recording_skill_stays_about_recording(self):
+        path = Path(__file__).parent.parent / "skills" / "docket" / "SKILL.md"
+        text = path.read_text(encoding="utf-8")
+        self.assertNotIn(
+            "docket feature",
+            text,
+            "feature guidance belongs in docket-feature, or it loads on every "
+            "task that records a claim",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
