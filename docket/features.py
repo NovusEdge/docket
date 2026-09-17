@@ -163,14 +163,18 @@ def validate_event(record: Any) -> dict[str, Any]:
     return record
 
 
-def next_id(events: list[dict[str, Any]]) -> str:
-    """Allocate the next sequence number, local to this file."""
-    numbers = []
+def next_id(events: list[dict[str, Any]], floor: int = 0) -> str:
+    """Allocate the next sequence number, local to this file.
+
+    ``floor`` carries the highest id an archive holds, which the live store no
+    longer shows.
+    """
+    numbers = [floor]
     for event in events:
         match = ID_RE.fullmatch(str(event.get("id", "")))
         if match:
             numbers.append(int(match.group(1)))
-    return "f" + str(max(numbers, default=0) + 1)
+    return "f" + str(max(numbers) + 1)
 
 
 def qualified(event: dict[str, Any]) -> str:
@@ -220,6 +224,7 @@ def append(path: Path | str, record: dict[str, Any]) -> dict[str, Any]:
     # Imported here, not at module scope: feature_project imports this module
     # for FeatureError and TERMINAL_STATES, and a module-level import back
     # makes docket.feature_project unimportable on its own.
+    from docket.feature_archive import highest_archived_id
     from docket.feature_project import project
 
     path = Path(path)
@@ -227,7 +232,10 @@ def append(path: Path | str, record: dict[str, Any]) -> dict[str, Any]:
         events = read(path, lock=False)
         candidate = copy.deepcopy(record)
         if not candidate.get("id"):
-            candidate["id"] = next_id(events)
+            # The archive holds ids the live store no longer carries. Counting
+            # from the live store alone hands f1 out again after a gc, and
+            # every recorded citation to the archived f1 retargets in silence.
+            candidate["id"] = next_id(events, floor=highest_archived_id(path))
         validate_event(candidate)
         project(events + [candidate])
         path.parent.mkdir(parents=True, exist_ok=True)

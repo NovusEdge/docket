@@ -634,8 +634,10 @@ def build_context(
             feature_block += "\n# feature brief truncated to fit the budget"
             used = len(feature_block) + 1
         feature_prefix = feature_block + "\n\n"
-        soft_limit = max(cfg["budget"]["minimum"], soft_limit - used)
-        hard_limit = max(cfg["budget"]["minimum"], hard_limit - used)
+        # The block goes into `prefix` below, and every budget test downstream
+        # measures `prefix`. Subtracting its length from the limits as well
+        # charged it twice, so a briefing lost about two characters of records
+        # for every character of header.
     prefix = (
         feature_prefix
         + "\n".join(

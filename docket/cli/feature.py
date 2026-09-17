@@ -308,14 +308,22 @@ def cmd_feature_gc(args) -> int:
 
 
 def _closed_at(path, feature_id: str) -> str:
-    """The timestamp of the close event for this feature, or the empty string."""
-    started = False
+    """When this feature's own run closed, or the empty string.
+
+    A slug is reusable after a close, so several runs share one slug and the
+    events interleave with other slugs' events. Tracking the open run per slug
+    is the only way to attribute a close event to the run that started it.
+    """
+
+    open_run: dict[str, str] = {}
     for event in features.read(path):
-        if event["id"] == feature_id:
-            started = True
-            continue
-        if started and event["event"] in ("done", "abandon"):
-            return event["ts"]
+        slug, verb = event["slug"], event["event"]
+        if verb == "start":
+            open_run[slug] = event["id"]
+        elif verb in ("done", "abandon"):
+            if open_run.get(slug) == feature_id:
+                return event["ts"]
+            open_run.pop(slug, None)
     return ""
 
 

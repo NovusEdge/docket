@@ -429,6 +429,41 @@ class FeatureRemapTests(FeatureCliTests):
         pass  # covered by tests/test_rebase.py after Step 3
 
 
+class FeatureGcIdentityTests(FeatureCloseTests):
+    def test_an_archived_id_is_never_handed_out_again(self):
+        self.run_cli("feature", "start", "one", "--text", "first", "--path", "installer/**")
+        self.commit("installer/planner.go")
+        self.run_cli("feature", "done", "one")
+        self.run_cli("feature", "gc")
+        subprocess.run(
+            ["git", "-C", str(self.root), "checkout", "-b", "feat/y"],
+            check=True,
+            capture_output=True,
+        )
+        code, out = self.run_cli(
+            "feature", "start", "two", "--text", "second", "--path", "graph/**"
+        )
+        self.assertEqual(code, 0)
+        # An id is a permanent address. Reusing f1 makes every citation to the
+        # archived f1 point at different work.
+        self.assertNotIn("f1 ", out)
+        _, shown = self.run_cli("feature", "show", "f1", "--json")
+        import json
+
+        self.assertEqual(json.loads(shown)["text"], "first")
+
+    def test_expire_reads_this_feature_s_own_close_event(self):
+        # A slug is reusable, so two runs share one slug and their events
+        # interleave. The first close belongs to the first run.
+        self.run_cli("feature", "start", "one", "--text", "first", "--path", "installer/**")
+        self.commit("installer/planner.go")
+        self.run_cli("feature", "done", "one")
+        self.run_cli("feature", "start", "one", "--text", "second", "--path", "graph/**")
+        code, out = self.run_cli("feature", "gc", "--expire", "3650")
+        self.assertEqual(code, 0)
+        self.assertIn("0 feature events archived", out)
+
+
 class FeatureGcTests(FeatureCloseTests):
     def test_gc_moves_a_closed_feature_and_leaves_the_open_one(self):
         self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")

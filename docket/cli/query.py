@@ -313,7 +313,7 @@ def _feature_block(root) -> str:
     feature store, no git, or a store that will not read must still get a
     briefing, so every failure here degrades to no header.
     """
-    from docket import feature_brief, feature_project, features, ledger
+    from docket import config, feature_brief, feature_project, features, ledger
 
     try:
         path = env.features_path()
@@ -332,8 +332,22 @@ def _feature_block(root) -> str:
         attached = feature_brief.attach(
             entries, files, include=feature["include"], exclude=feature["exclude"]
         )
-        return feature_brief.render(feature, attached, limit_chars=feature_brief.budget_share())
-    except (features.FeatureError, LedgerError, OSError):
+        blockers = feature_brief.blocking(attached)
+        if blockers:
+            feature = dict(feature, state="blocked")
+        # The spec caps the header at the feature plus its three highest-ranked
+        # records. The character share alone let a briefing with short records
+        # carry a dozen, which is the record selection's job, not the header's.
+        settings, _ = config.load(path.parent)
+        return feature_brief.render(
+            feature,
+            attached[:3],
+            limit_chars=feature_brief.budget_share(settings),
+        )
+    # SubprocessError covers TimeoutExpired, which git ls-files raises on a
+    # slow or huge tree. It is not an OSError, so it escaped and turned a
+    # session start into a traceback.
+    except (features.FeatureError, LedgerError, OSError, subprocess.SubprocessError):
         return ""
 
 
