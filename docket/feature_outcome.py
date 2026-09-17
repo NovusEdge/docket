@@ -52,7 +52,10 @@ def fork_point(root: Path) -> tuple[str, str]:
 
     head = _git(root, "rev-parse", "HEAD")
     if head.returncode != 0:
-        raise OutcomeError("docket: cannot resolve HEAD; is this a repository with a commit?")
+        return (
+            "",
+            "recording no base: this repository has no commits yet",
+        )
     return (
         head.stdout.strip(),
         "recording HEAD as the base: this is the default branch, so there is no fork point",

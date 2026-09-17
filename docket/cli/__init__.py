@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from docket import version
+from docket import features, version
 from docket.cli.admin import (
     cmd_check,
     cmd_completion,
@@ -14,6 +14,7 @@ from docket.cli.admin import (
     cmd_update_fetch,
 )
 from docket.cli.construct import cmd_construct
+from docket.cli.feature import add_feature_parser
 from docket.cli.graph import cmd_graph
 from docket.cli.query import CONTEXT_ENVELOPES, cmd_context, cmd_list, cmd_show, cmd_where
 from docket.cli.record import cmd_claim, cmd_decision, cmd_question
@@ -58,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
         dest="cmd",
         metavar=(
             "{claim,decision,question,list,show,graph,context,where,check,"
-            "rebase,migrate,init,completion,update}"
+            "rebase,migrate,init,feature,completion,update}"
         ),
     )
 
@@ -210,6 +211,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     cs.set_defaults(func=cmd_construct)
 
+    add_feature_parser(sub)
+
     co = sub.add_parser("completion", help="print a shell completion script")
     co.add_argument("shell", choices=("bash", "zsh", "fish"))
     co.set_defaults(func=cmd_completion)
@@ -232,8 +235,10 @@ def main(argv: list[str] | None = None) -> int:
             p.error("graph --interactive conflicts with --plain")
         if args.style is not None:
             p.error("graph --interactive conflicts with --style")
+    if args.cmd == "feature" and getattr(args, "feature_cmd", None) is None:
+        p.error("feature needs a subcommand")
     try:
         return args.func(args)
-    except (LedgerError, OSError) as exc:
+    except (LedgerError, features.FeatureError, OSError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
