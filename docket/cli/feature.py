@@ -18,6 +18,10 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _csv(value: str) -> list[str]:
+    return [part.strip() for part in value.split(",") if part.strip()]
+
+
 def _record(event: str, slug: str, **fields: Any) -> dict[str, Any]:
     return features.make_event(
         event,
@@ -124,6 +128,8 @@ def cmd_feature_amend(args) -> int:
             ("status", args.status),
             ("paths", args.path),
             ("intends", args.intends),
+            ("include", _csv(args.include)),
+            ("exclude", _csv(args.exclude)),
         )
         if value
     }
@@ -248,6 +254,8 @@ def add_feature_parser(sub) -> None:
     am.add_argument("--status", choices=features.STATUSES)
     am.add_argument("--path", action="append", default=[])
     am.add_argument("--intends", action="append", default=[])
+    am.add_argument("--include", default="", metavar="CSV")
+    am.add_argument("--exclude", default="", metavar="CSV")
     am.set_defaults(func=cmd_feature_amend)
 
     dn = verbs.add_parser("done", help="close a feature and record what it changed")

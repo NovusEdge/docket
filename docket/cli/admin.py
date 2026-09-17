@@ -194,6 +194,13 @@ def cmd_check(args: argparse.Namespace) -> int:
             failed = True
         else:
             print(f"{store}: ok")
+            known = {entry["id"] for entry in env.read(env.ledger_path())}
+            for feature in feature_project.project(features.read(store)):
+                for field in ("include", "exclude"):
+                    unknown = [ident for ident in feature[field] if ident not in known]
+                    if unknown:
+                        print(f"{store}: {feature['id']} {field} names {', '.join(unknown)}")
+                        failed = True
 
     return 1 if failed else 0
 

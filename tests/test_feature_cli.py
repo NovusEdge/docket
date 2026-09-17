@@ -208,5 +208,27 @@ class FeatureBriefTests(FeatureCliTests):
         self.assertEqual(code, 1)
 
 
+class FeatureIncludeExcludeTests(FeatureCliTests):
+    def ledger_record(self, line):
+        path = self.root / ".docket" / "ledger.jsonl"
+        path.write_text(path.read_text(encoding="utf-8") + line + "\n", encoding="utf-8")
+
+    def test_amend_records_include_and_exclude(self):
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        code, _ = self.run_cli("feature", "amend", "one", "--exclude", "d1,d2")
+        self.assertEqual(code, 0)
+        _, out = self.run_cli("feature", "show", "one", "--json")
+        import json
+
+        self.assertEqual(json.loads(out)["exclude"], ["d1", "d2"])
+
+    def test_check_reports_an_include_id_the_ledger_does_not_have(self):
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        self.run_cli("feature", "amend", "one", "--include", "d404")
+        code, out = self.run_cli("check")
+        self.assertEqual(code, 1)
+        self.assertIn("d404", out)
+
+
 if __name__ == "__main__":
     unittest.main()
