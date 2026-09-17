@@ -7,11 +7,11 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from docket import env, feature_project, features
+from docket import env, feature_archive, feature_project, features
 from docket.cli.feature_render import cmd_feature_brief
 
 
@@ -97,11 +97,26 @@ def cmd_feature_list(args) -> int:
     return 0
 
 
+def _archived(path) -> list[dict[str, Any]]:
+    """Every projected feature in every archive file beside the live store."""
+    archive_dir = path.parent / "archive"
+    if not archive_dir.is_dir():
+        return []
+    result = []
+    for name in sorted(archive_dir.glob("features-*.jsonl")):
+        result.extend(feature_project.project(features.read(name)))
+    return result
+
+
 def cmd_feature_show(args) -> int:
     from docket import feature_brief
 
-    current = feature_brief.with_blocked(_current(env.features_path()), env.project_root())
-    feature = feature_project.resolve(current, args.name)
+    path = env.features_path()
+    current = feature_brief.with_blocked(_current(path), env.project_root())
+    try:
+        feature = feature_project.resolve(current, args.name)
+    except features.FeatureError:
+        feature = feature_project.resolve(_archived(path), args.name)
     if args.json:
         print(json.dumps(feature, ensure_ascii=False, indent=2))
         return 0
@@ -270,11 +285,45 @@ def cmd_feature_remap(args) -> int:
     return 0
 
 
+def cmd_feature_gc(args) -> int:
+    path = env.features_path()
+    current = _current(path)
+    keep = set()
+    cutoff = ""
+    if args.expire:
+        moment = datetime.now(timezone.utc) - timedelta(days=args.expire)
+        cutoff = moment.isoformat(timespec="seconds")
+    for feature in current:
+        if feature["state"] not in features.TERMINAL_STATES:
+            keep.add(feature["slug"])
+            continue
+        if cutoff and _closed_at(path, feature["id"]) > cutoff:
+            keep.add(feature["slug"])
+    moved, target = feature_archive.archive(path, path.parent / "archive", keep=keep)
+    if not moved:
+        print("docket: 0 feature events archived")
+        return 0
+    print(f"docket: archived {moved} feature event(s) to {target}")
+    return 0
+
+
+def _closed_at(path, feature_id: str) -> str:
+    """The timestamp of the close event for this feature, or the empty string."""
+    started = False
+    for event in features.read(path):
+        if event["id"] == feature_id:
+            started = True
+            continue
+        if started and event["event"] in ("done", "abandon"):
+            return event["ts"]
+    return ""
+
+
 def add_feature_parser(sub) -> None:
     fe = sub.add_parser("feature", help="track a piece of work in flight")
     verbs = fe.add_subparsers(
         dest="feature_cmd",
-        metavar="{start,list,show,note,amend,done,abandon,brief,remap}",
+        metavar="{start,list,show,note,amend,done,abandon,brief,remap,gc}",
     )
 
     st = verbs.add_parser("start", help="declare a piece of work")
@@ -331,3 +380,13 @@ def add_feature_parser(sub) -> None:
         "mapfile", help="JSON object of old id to new id, from 'docket rebase --emit-map'"
     )
     rm.set_defaults(func=cmd_feature_remap)
+
+    gc = verbs.add_parser("gc", help="archive closed features nothing references")
+    gc.add_argument(
+        "--expire",
+        type=int,
+        default=0,
+        metavar="DAYS",
+        help="only archive features closed more than DAYS ago",
+    )
+    gc.set_defaults(func=cmd_feature_gc)

@@ -309,6 +309,7 @@ _COMPLETION_FEATURE_VERBS = (
     "abandon",
     "brief",
     "remap",
+    "gc",
 )
 
 _BASH_COMPLETION = f"""\

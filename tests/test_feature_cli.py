@@ -429,5 +429,54 @@ class FeatureRemapTests(FeatureCliTests):
         pass  # covered by tests/test_rebase.py after Step 3
 
 
+class FeatureGcTests(FeatureCloseTests):
+    def test_gc_moves_a_closed_feature_and_leaves_the_open_one(self):
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        self.commit("installer/planner.go")
+        self.run_cli("feature", "done", "one")
+        subprocess.run(
+            ["git", "-C", str(self.root), "checkout", "-b", "feat/y"],
+            check=True,
+            capture_output=True,
+        )
+        self.run_cli("feature", "start", "two", "--text", "t", "--path", "graph/**")
+
+        code, out = self.run_cli("feature", "gc")
+        self.assertEqual(code, 0)
+        self.assertIn("archive", out)
+
+        _, live = self.run_cli("feature", "list", "--json")
+        import json
+
+        slugs = [f["slug"] for f in json.loads(live)]
+        self.assertEqual(slugs, ["two"])
+
+    def test_gc_leaves_an_open_feature_alone(self):
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        code, out = self.run_cli("feature", "gc")
+        self.assertEqual(code, 0)
+        self.assertIn("0", out)
+
+    def test_show_reads_the_archive_after_gc(self):
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        self.commit("installer/planner.go")
+        self.run_cli("feature", "done", "one")
+        self.run_cli("feature", "gc")
+        code, out = self.run_cli("feature", "show", "f1", "--json")
+        self.assertEqual(code, 0)
+        import json
+
+        self.assertEqual(json.loads(out)["state"], "done")
+
+    def test_gc_never_runs_on_its_own(self):
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        self.commit("installer/planner.go")
+        self.run_cli("feature", "done", "one")
+        self.run_cli("feature", "list")
+        self.run_cli("feature", "brief", "f1")
+        store = self.root / ".docket" / "features.jsonl"
+        self.assertIn("f1", store.read_text(encoding="utf-8"))
+
+
 if __name__ == "__main__":
     unittest.main()
