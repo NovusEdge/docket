@@ -33,6 +33,8 @@ def cmd_rebase(args: argparse.Namespace) -> int:
         return 0
     for old, new in mapping.items():
         print(f"{old} -> {new}")
+    if args.emit_map:
+        Path(args.emit_map).write_text(json.dumps(mapping), encoding="utf-8")
     if args.dry_run:
         print(f"\ndocket: {len(tail)} record(s) would be appended to {path}")
         return 0

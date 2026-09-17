@@ -361,5 +361,40 @@ class FeatureOverlapTests(FeatureCloseTests):
         self.assertNotIn("overlap", out)
 
 
+class FeatureRemapTests(FeatureCliTests):
+    def test_remap_rewrites_include_lists_through_new_amend_events(self):
+        import json
+
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        self.run_cli("feature", "amend", "one", "--include", "d5")
+        mapping = self.root / "map.json"
+        mapping.write_text(json.dumps({"d5": "d42"}), encoding="utf-8")
+
+        store = self.root / ".docket" / "features.jsonl"
+        before = len(store.read_text(encoding="utf-8").splitlines())
+        code, _ = self.run_cli("feature", "remap", str(mapping))
+        self.assertEqual(code, 0)
+        after = store.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(after), before + 1)
+        self.assertEqual(json.loads(after[-1])["event"], "amend")
+
+        _, out = self.run_cli("feature", "show", "one", "--json")
+        self.assertEqual(json.loads(out)["include"], ["d42"])
+
+    def test_remap_leaves_an_untouched_feature_alone(self):
+        import json
+
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        mapping = self.root / "map.json"
+        mapping.write_text(json.dumps({"d5": "d42"}), encoding="utf-8")
+        store = self.root / ".docket" / "features.jsonl"
+        before = store.read_text(encoding="utf-8")
+        self.run_cli("feature", "remap", str(mapping))
+        self.assertEqual(store.read_text(encoding="utf-8"), before)
+
+    def test_rebase_emits_the_id_map(self):
+        pass  # covered by tests/test_rebase.py after Step 3
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -164,6 +164,7 @@ def main(argv: list[str] | None = None) -> int:
     rb = sub.add_parser("rebase", help="renumber another ledger's tail onto this one")
     rb.add_argument("other", help="path to the other branch's ledger")
     rb.add_argument("--dry-run", action="store_true", help="print the ID map and write nothing")
+    rb.add_argument("--emit-map", metavar="PATH", help="write the old-to-new id map as JSON")
     rb.set_defaults(func=cmd_rebase)
 
     mg = sub.add_parser("migrate", help="convert a legacy ledger to the current schema")

@@ -119,4 +119,23 @@ def resolve(features_list: list[dict[str, Any]], name: str) -> dict[str, Any]:
     raise _error(name, "no such feature")
 
 
-__all__ = ["project", "resolve"]
+def remap_changes(
+    current: list[dict[str, Any]], mapping: dict[str, str]
+) -> list[tuple[str, dict[str, list[str]]]]:
+    """Open features whose include/exclude ids the mapping rewrites, and to what."""
+
+    changes = []
+    for feature in current:
+        if feature["state"] in TERMINAL_STATES:
+            continue
+        fields = {}
+        for field in ("include", "exclude"):
+            remapped = [mapping.get(ident, ident) for ident in feature[field]]
+            if remapped != feature[field]:
+                fields[field] = remapped
+        if fields:
+            changes.append((feature["slug"], fields))
+    return changes
+
+
+__all__ = ["project", "remap_changes", "resolve"]

@@ -1,0 +1,4 @@
+# Both stores are append-only JSONL, so a union merge is the right resolution:
+# it keeps every line from both sides. Duplicate ids that union produces are
+# renumbered afterwards by `docket rebase` and `docket feature remap`.
+.docket/*.jsonl merge=union
