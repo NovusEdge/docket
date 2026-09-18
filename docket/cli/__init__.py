@@ -250,6 +250,8 @@ def main(argv: list[str] | None = None) -> int:
             p.error("graph --interactive conflicts with --plain")
         if args.style is not None:
             p.error("graph --interactive conflicts with --style")
+        if args.format is not None:
+            p.error("graph --interactive conflicts with --format")
     if args.cmd == "feature" and getattr(args, "feature_cmd", None) is None:
         p.error("feature needs a subcommand")
     from docket.feature_outcome import OutcomeError

@@ -145,6 +145,68 @@ class GraphFormatCliTests(unittest.TestCase):
         _, out, _ = self.run_cli("graph", "--format", "dot", "--no-interactive")
         self.assertNotIn("\x1b[", out)
 
+    def test_format_conflicts_with_interactive(self):
+        # Without the guard --format silently won in a terminal, so a caller
+        # who asked for the viewer got text and no word about it.
+        self.seed()
+        with self.assertRaises(SystemExit):
+            self.run_cli("graph", "--format", "mermaid", "--interactive")
+
+    def test_format_works_with_no_interactive_and_with_neither(self):
+        self.seed()
+        for extra in (("--no-interactive",), ()):
+            code, out, _ = self.run_cli("graph", "--format", "dot", *extra)
+            self.assertEqual(code, 0)
+            self.assertTrue(out.startswith("digraph docket {"))
+
+    def test_a_supersede_chain_draws_every_link(self):
+        self.seed()
+        self.run_cli(
+            "decision",
+            "second",
+            "--choice",
+            "b",
+            "--scope",
+            "a/**",
+            "--supersedes",
+            "d3",
+            "--cost",
+            "none",
+        )
+        self.run_cli(
+            "decision",
+            "third",
+            "--choice",
+            "c",
+            "--scope",
+            "a/**",
+            "--supersedes",
+            "d4",
+            "--cost",
+            "none",
+        )
+        _, out, _ = self.run_cli("graph", "--format", "mermaid", "--superseded", "--no-interactive")
+        self.assertIn("d4 -- retires --> d3", out)
+        self.assertIn("d5 -- retires --> d4", out)
+
+    def test_a_kind_filter_drops_the_edges_it_orphans(self):
+        # --kind hands over a subset. An edge whose other end is filtered out
+        # would render as a bare node mermaid invents.
+        self.seed()
+        _, out, _ = self.run_cli(
+            "graph", "--format", "mermaid", "--kind", "decision", "--no-interactive"
+        )
+        self.assertNotIn("c1", out)
+        self.assertNotIn("q2", out)
+
+    def test_a_state_filter_reaches_the_export(self):
+        self.seed()
+        code, out, err = self.run_cli(
+            "graph", "--format", "mermaid", "--state", "rejected", "--no-interactive"
+        )
+        self.assertEqual(code, 0)
+        self.assertIn("nothing recorded", out + err)
+
 
 if __name__ == "__main__":
     unittest.main()

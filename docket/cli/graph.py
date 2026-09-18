@@ -459,6 +459,9 @@ def cmd_graph(args: argparse.Namespace) -> int:
     if interactive and style is not None:
         print("docket: --interactive conflicts with --style", file=sys.stderr)
         return 2
+    if interactive and getattr(args, "format", None):
+        print("docket: --interactive conflicts with --format", file=sys.stderr)
+        return 2
     if interactive and not _graph_is_tty():
         print("docket: --interactive requires terminal stdin and stdout", file=sys.stderr)
         return 1
