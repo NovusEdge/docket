@@ -184,12 +184,15 @@ header at all; a session briefing never fails because of it.
 ## Archival
 
 Nothing shrinks `features.jsonl` on its own. `docket feature gc` moves a
-feature's events into `.docket/archive/features-<revision>.jsonl` when the
-feature is closed (`done` or `abandon`) and nothing currently references its
-ID. Per d96, a record count never triggers this by itself: `gc` only ever
-runs when invoked. `--expire DAYS` narrows the set further to features closed
-more than that many days ago; it filters what `gc` may move, it does not
-trigger a move on its own.
+closed feature's events into `.docket/archive/features-<revision>.jsonl`. Per
+d96, a record count never triggers this by itself: `gc` only ever runs when
+invoked. `--expire DAYS` narrows the set further to features closed more than
+that many days ago; it filters what `gc` may move, it does not trigger a move
+on its own.
+
+Archiving never frees the ID. A new feature's number starts above the highest
+ID any archive holds, so a citation to an archived feature keeps pointing at
+that feature.
 
 ```
 $ docket feature gc

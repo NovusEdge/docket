@@ -7,11 +7,11 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from datetime import datetime, timezone
 from typing import Any
 
-from docket import env, feature_archive, feature_project, features
+from docket import env, feature_project, features
+from docket.cli.feature_admin import archived, cmd_feature_gc, cmd_feature_remap
 from docket.cli.feature_render import cmd_feature_brief
 
 
@@ -23,7 +23,7 @@ def _csv(value: str) -> list[str]:
     return [part.strip() for part in value.split(",") if part.strip()]
 
 
-def _record(event: str, slug: str, **fields: Any) -> dict[str, Any]:
+def record_event(event: str, slug: str, **fields: Any) -> dict[str, Any]:
     return features.make_event(
         event,
         slug,
@@ -64,7 +64,7 @@ def cmd_feature_start(args) -> int:
                 file=sys.stderr,
             )
             return 1
-    event = _record(
+    event = record_event(
         "start",
         args.slug,
         text=args.text,
@@ -97,17 +97,6 @@ def cmd_feature_list(args) -> int:
     return 0
 
 
-def _archived(path) -> list[dict[str, Any]]:
-    """Every projected feature in every archive file beside the live store."""
-    archive_dir = path.parent / "archive"
-    if not archive_dir.is_dir():
-        return []
-    result = []
-    for name in sorted(archive_dir.glob("features-*.jsonl")):
-        result.extend(feature_project.project(features.read(name)))
-    return result
-
-
 def cmd_feature_show(args) -> int:
     from docket import feature_brief
 
@@ -116,7 +105,7 @@ def cmd_feature_show(args) -> int:
     try:
         feature = feature_project.resolve(current, args.name)
     except features.FeatureError:
-        feature = feature_project.resolve(_archived(path), args.name)
+        feature = feature_project.resolve(archived(path), args.name)
     if args.json:
         print(json.dumps(feature, ensure_ascii=False, indent=2))
         return 0
@@ -135,7 +124,7 @@ def cmd_feature_show(args) -> int:
 def cmd_feature_note(args) -> int:
     path = env.features_path()
     feature_project.resolve(_current(path), args.slug)
-    features.append(path, _record("note", args.slug, text=args.text))
+    features.append(path, record_event("note", args.slug, text=args.text))
     return 0
 
 
@@ -159,7 +148,7 @@ def cmd_feature_amend(args) -> int:
     if not fields:
         print("docket: amend needs at least one field to change", file=sys.stderr)
         return 1
-    features.append(path, _record("amend", args.slug, **fields))
+    features.append(path, record_event("amend", args.slug, **fields))
     return 0
 
 
@@ -193,11 +182,11 @@ def cmd_feature_done(args) -> int:
 
     entries = ledger.project(ledger.read(env.ledger_path()), validated=True)
     realized = intentional + unintentional
+    held_in, failed_in = _csv(args.held), _csv(args.failed)
     claims, held, failed, unanswered = feature_outcome.verify_claims(
-        entries, realized, _csv(args.held), _csv(args.failed)
+        entries, realized, held_in, failed_in
     )
-    stray = feature_outcome.unattached_verdicts(claims, _csv(args.held), _csv(args.failed))
-    if stray:
+    if stray := feature_outcome.unattached_verdicts(claims, held_in, failed_in):
         print(
             f"docket: {', '.join(stray)} named a verdict but the change set did not "
             "touch it; no verdict recorded",
@@ -206,7 +195,7 @@ def cmd_feature_done(args) -> int:
 
     features.append(
         path,
-        _record(
+        record_event(
             "done",
             args.slug,
             intentional=intentional,
@@ -236,95 +225,8 @@ def cmd_feature_abandon(args) -> int:
     if feature["state"] in features.TERMINAL_STATES:
         print(f"docket: {args.slug}: feature is already closed", file=sys.stderr)
         return 1
-    features.append(path, _record("abandon", args.slug, text=args.text))
+    features.append(path, record_event("abandon", args.slug, text=args.text))
     return 0
-
-
-def cmd_feature_remap(args) -> int:
-    """Repoint include and exclude lists through a rebase's id map.
-
-    Append-only: every correction is a new amend event. Rewriting the original
-    start or amend line in place is what hooks/guard_ledger.py exists to stop.
-    """
-
-    source = Path(args.mapfile)
-    try:
-        mapping = json.loads(source.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        print(f"docket: {source}: {exc}", file=sys.stderr)
-        return 1
-    if not isinstance(mapping, dict) or not all(
-        isinstance(k, str) and isinstance(v, str) for k, v in mapping.items()
-    ):
-        print(f"docket: {source}: expected a JSON object of old id to new id", file=sys.stderr)
-        return 1
-
-    path = env.features_path()
-    # Read the raw events, never the projection. A union merge is the reason
-    # this command exists, and project() refuses a store holding two events
-    # with one id. Projecting first made remap die with the error that names
-    # remap as the fix.
-    events = features.read(path)
-    duplicates = feature_project.duplicate_ids(events)
-    if duplicates:
-        print(
-            "docket: cannot repoint a store with duplicate ids: "
-            + ", ".join(f"{ident} ({', '.join(slugs)})" for ident, slugs in duplicates),
-            file=sys.stderr,
-        )
-        print(
-            "docket: renumber them by hand first; two branches recorded the same id",
-            file=sys.stderr,
-        )
-        return 1
-
-    changes = feature_project.remap_changes(feature_project.project(events), mapping)
-    for slug, fields in changes:
-        features.append(path, _record("amend", slug, **fields))
-    print(f"docket: remapped {len(changes)} feature(s)")
-    return 0
-
-
-def cmd_feature_gc(args) -> int:
-    path = env.features_path()
-    current = _current(path)
-    keep = set()
-    cutoff = ""
-    if args.expire:
-        moment = datetime.now(timezone.utc) - timedelta(days=args.expire)
-        cutoff = moment.isoformat(timespec="seconds")
-    for feature in current:
-        if feature["state"] not in features.TERMINAL_STATES:
-            keep.add(feature["slug"])
-            continue
-        if cutoff and _closed_at(path, feature["id"]) > cutoff:
-            keep.add(feature["slug"])
-    moved, target = feature_archive.archive(path, path.parent / "archive", keep=keep)
-    if not moved:
-        print("docket: 0 feature events archived")
-        return 0
-    print(f"docket: archived {moved} feature event(s) to {target}")
-    return 0
-
-
-def _closed_at(path, feature_id: str) -> str:
-    """When this feature's own run closed, or the empty string.
-
-    A slug is reusable after a close, so several runs share one slug and the
-    events interleave with other slugs' events. Tracking the open run per slug
-    is the only way to attribute a close event to the run that started it.
-    """
-
-    open_run: dict[str, str] = {}
-    for event in features.read(path):
-        slug, verb = event["slug"], event["event"]
-        if verb == "start":
-            open_run[slug] = event["id"]
-        elif verb in ("done", "abandon"):
-            if open_run.get(slug) == feature_id:
-                return event["ts"]
-            open_run.pop(slug, None)
-    return ""
 
 
 def add_feature_parser(sub) -> None:
@@ -342,8 +244,7 @@ def add_feature_parser(sub) -> None:
     st.set_defaults(func=cmd_feature_start)
 
     ls = verbs.add_parser("list", help="list features")
-    # "blocked" is a projected state, never a declared one, so it is absent
-    # from STATUSES. list must still filter on what list prints.
+    # "blocked" is projected, never declared, so STATUSES omits it.
     ls.add_argument("--state", choices=(*features.STATUSES, "blocked", *features.TERMINAL_STATES))
     ls.add_argument("--oneline", action="store_true", help="id and slug only")
     ls.add_argument("--json", action="store_true")
@@ -389,7 +290,7 @@ def add_feature_parser(sub) -> None:
     )
     rm.set_defaults(func=cmd_feature_remap)
 
-    gc = verbs.add_parser("gc", help="archive closed features nothing references")
+    gc = verbs.add_parser("gc", help="archive closed features")
     gc.add_argument(
         "--expire",
         type=int,

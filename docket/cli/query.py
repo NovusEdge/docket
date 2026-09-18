@@ -391,7 +391,10 @@ def cmd_context(args: argparse.Namespace) -> int:
             settings=settings,
         )
         if delta is not None:
-            return _print_context(delta, args, line)
+            # A delta briefing is the resumed-session case the feature store
+            # exists for, so it carries the header the full briefing carries.
+            block = _feature_block(env.project_root())
+            return _print_context(f"{block}\n\n{delta}" if block else delta, args, line)
         print(
             f"docket: baseline {args.since} is unknown or stale; printing a full briefing",
             file=sys.stderr,
