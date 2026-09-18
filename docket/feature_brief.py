@@ -57,17 +57,26 @@ def expand(root: Path, paths: list[str]) -> list[str]:
 
 
 def _best(entry: dict[str, Any], files: list[str], weights) -> tuple[int, int, int]:
-    strength = scope_strength(entry, tuple(files), weights)
-    if not strength:
-        return 0, 0, 0
-    best_spec, best_count = 0, 0
+    # Score every scope on its own, then read all three numbers off the scopes
+    # that reached the top strength. Taking the strength from one scope and the
+    # specificity from another described two different globs in one line, and
+    # let a record borrow a high specificity from a weak scope to win a tie its
+    # strong scope did not earn.
+    scored: list[tuple[int, int, int]] = []
     for scope in entry.get("scope") or []:
-        covered = [f for f in files if scope_strength({"scope": [scope]}, (f,), weights)]
-        if not covered:
-            continue
-        spec = specificity(scope)
-        if (spec, len(covered)) > (best_spec, best_count):
-            best_spec, best_count = spec, len(covered)
+        covered = sum(1 for f in files if scope_strength({"scope": [scope]}, (f,), weights))
+        if covered:
+            scored.append(
+                (
+                    scope_strength({"scope": [scope]}, tuple(files), weights),
+                    specificity(scope),
+                    covered,
+                )
+            )
+    if not scored:
+        return 0, 0, 0
+    strength = max(item[0] for item in scored)
+    best_spec, best_count = max((s, c) for hit, s, c in scored if hit == strength)
     return strength, best_spec, best_count
 
 

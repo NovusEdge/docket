@@ -66,6 +66,25 @@ class AttachTests(unittest.TestCase):
         ]
         self.assertNotIn("d4", got)
 
+    def test_the_three_numbers_all_come_from_one_scope(self):
+        # scope_strength took the max across every scope while specificity took
+        # its own max, so a record could print a strength from one glob beside
+        # a specificity from another. The printed reason described neither, and
+        # a weak scope's high specificity won ties its strong scope had earned.
+        # x/a.py matches exactly at 1000 with 6 literal characters. docket/cli
+        # matches by prefix at 500 with 10.
+        entries = [record("d1", "decision", ["x/a.py", "docket/cli"])]
+        [got] = brief.attach(entries, ["x/a.py", "docket/cli/feature.py"])
+        self.assertEqual(got["brief_strength"], 1000)
+        self.assertEqual(got["brief_specificity"], len("x/a.py"))
+        self.assertEqual(got["brief_matches"], 1)
+
+    def test_a_tie_on_strength_still_breaks_on_specificity(self):
+        entries = [record("d1", "decision", ["docket/**", "docket/cli/feature.py"])]
+        [got] = brief.attach(entries, ["docket/cli/feature.py"])
+        self.assertEqual(got["brief_strength"], 1000)
+        self.assertEqual(got["brief_specificity"], len("docket/cli/feature.py"))
+
     def test_reasons_are_reported_on_every_attached_record(self):
         [top, *_] = brief.attach(self.entries, ["installer/planner.go"])
         self.assertEqual(top["brief_strength"], 1000)
