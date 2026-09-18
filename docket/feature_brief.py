@@ -146,7 +146,9 @@ def render(feature: dict[str, Any], attached: list[dict[str, Any]], *, limit_cha
     # Reserved so the drop-count footer itself never pushes the render past
     # limit_chars: the footer is appended after this loop decides to stop,
     # so its length has to be budgeted for before that decision, not after.
-    footer_reserve = len("(999 more attached record(s) past the budget; docket feature show)")
+    footer_reserve = len(
+        "(999 more attached record(s) past the budget; raise --detail or narrow the paths)"
+    )
     for entry in attached:
         line = (
             f"{entry['id']} | {entry.get('kind', '')} | {entry.get('text', '')} "
@@ -162,7 +164,9 @@ def render(feature: dict[str, Any], attached: list[dict[str, Any]], *, limit_cha
 
     dropped = len(attached) - shown
     if dropped:
-        body.append(f"({dropped} more attached record(s) past the budget; docket feature show)")
+        body.append(
+            f"({dropped} more attached record(s) past the budget; raise --detail or narrow the paths)"
+        )
     return "\n".join([head, *body])
 
 

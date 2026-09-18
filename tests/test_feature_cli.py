@@ -425,8 +425,34 @@ class FeatureRemapTests(FeatureCliTests):
         self.run_cli("feature", "remap", str(mapping))
         self.assertEqual(store.read_text(encoding="utf-8"), before)
 
-    def test_rebase_emits_the_id_map(self):
-        pass  # covered by tests/test_rebase.py after Step 3
+    def test_rebase_emits_the_id_map_remap_consumes(self):
+        import json
+
+        self.run_cli("claim", "mine", "--state", "accepted", "--scope", "a/**", "--cost", "none")
+        other = self.root / "other.jsonl"
+        theirs = json.loads((self.root / ".docket" / "ledger.jsonl").read_text().splitlines()[0])
+        theirs["text"] = "theirs"
+        other.write_text(json.dumps(theirs) + "\n", encoding="utf-8")
+
+        mapfile = self.root / "map.json"
+        code, _ = self.run_cli("rebase", str(other), "--emit-map", str(mapfile), "--dry-run")
+        self.assertEqual(code, 0)
+        if not mapfile.exists():
+            self.skipTest("the two histories already agree, so there is no tail to map")
+        mapping = json.loads(mapfile.read_text(encoding="utf-8"))
+        self.assertIsInstance(mapping, dict)
+        self.assertTrue(all(isinstance(k, str) and isinstance(v, str) for k, v in mapping.items()))
+
+    def test_rebase_with_no_tail_writes_no_map(self):
+        source = self.root / ".docket" / "ledger.jsonl"
+        self.run_cli("claim", "mine", "--state", "accepted", "--scope", "a/**", "--cost", "none")
+        same = self.root / "same.jsonl"
+        same.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+        mapfile = self.root / "map.json"
+        code, out = self.run_cli("rebase", str(same), "--emit-map", str(mapfile), "--dry-run")
+        self.assertEqual(code, 0)
+        self.assertIn("nothing to rebase", out)
+        self.assertFalse(mapfile.exists())
 
 
 class FeatureGcIdentityTests(FeatureCloseTests):

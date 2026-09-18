@@ -306,14 +306,17 @@ def _print_context(text: str, args: argparse.Namespace, notice: str | None = Non
     return 0
 
 
-def _feature_block(root) -> str:
+def _feature_block(root, entries=None) -> str:
     """The active feature's brief, or an empty string when nothing applies.
 
     This runs on every session start through the hook. A repository with no
     feature store, no git, or a store that will not read must still get a
     briefing, so every failure here degrades to no header.
+
+    ``entries`` takes the projected ledger the caller already holds. Reading
+    and projecting it again here doubled that work on every session start.
     """
-    from docket import config, feature_brief, feature_project, features, ledger
+    from docket import config, feature_brief, feature_project, features
 
     try:
         path = env.features_path()
@@ -327,7 +330,8 @@ def _feature_block(root) -> str:
         if not candidates:
             return ""
         feature = candidates[-1]
-        entries = ledger.project(ledger.read(env.ledger_path()), validated=True)
+        if entries is None:
+            entries = project(read(env.ledger_path()), validated=True)
         files = feature_brief.expand(root, feature["paths"])
         attached = feature_brief.attach(
             entries, files, include=feature["include"], exclude=feature["exclude"]
@@ -382,8 +386,9 @@ def cmd_context(args: argparse.Namespace) -> int:
         ident = args.since.partition("@")[0]
         cutoff = int(ident[1:]) if ID_RE.fullmatch(ident) else -1
         prefix = [item for item in raw if int(item["id"][1:]) <= cutoff]
+        projected = project(raw)
         delta = build_delta(
-            project(raw),
+            projected,
             since=args.since,
             baseline=project(prefix),
             max_chars=args.max_chars,
@@ -393,7 +398,7 @@ def cmd_context(args: argparse.Namespace) -> int:
         if delta is not None:
             # A delta briefing is the resumed-session case the feature store
             # exists for, so it carries the header the full briefing carries.
-            block = _feature_block(env.project_root())
+            block = _feature_block(env.project_root(), projected)
             return _print_context(f"{block}\n\n{delta}" if block else delta, args, line)
         print(
             f"docket: baseline {args.since} is unknown or stale; printing a full briefing",
@@ -406,8 +411,9 @@ def cmd_context(args: argparse.Namespace) -> int:
     if forced or default_on:
         files = tuple(dict.fromkeys(files + auto_scope_files(settings["auto_scope"]["limit"])))
     try:
+        entries = project(read(env.ledger_path()), validated=True)
         text = render_context(
-            project(read(env.ledger_path()), validated=True),
+            entries,
             query=args.query or "",
             files=files,
             max_chars=args.max_chars,
@@ -415,7 +421,7 @@ def cmd_context(args: argparse.Namespace) -> int:
             all_records=args.all_records,
             settings=settings,
             settings_id=settings_id,
-            feature=_feature_block(env.project_root()),
+            feature=_feature_block(env.project_root(), entries),
         )
     except (LedgerError, OSError) as exc:
         print(str(exc), file=sys.stderr)

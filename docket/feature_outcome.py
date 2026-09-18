@@ -93,6 +93,11 @@ def changed_files(root: Path, base: str) -> tuple[list[str], list[tuple[str, str
             "record the outcome before squashing or rebasing the branch"
         )
 
+    # .docket/ is excluded for the same reason is_dirty excludes it: the ledger
+    # and the feature store are docket's own bookkeeping, and a commit that
+    # records a decision is not part of the feature's realized change set. Left
+    # in, every feature reported ledger.jsonl as unintentional, and the claim
+    # prompt then asked about claims scoped to it.
     result = _git(
         root,
         "log",
@@ -102,6 +107,9 @@ def changed_files(root: Path, base: str) -> tuple[list[str], list[tuple[str, str
         "-M",
         "--format=",
         f"{base}..HEAD",
+        "--",
+        ".",
+        ":!.docket",
     )
     if result.returncode != 0:
         raise OutcomeError(f"docket: cannot read {base}..HEAD: {result.stderr.strip()}")
