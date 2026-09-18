@@ -1,6 +1,8 @@
+import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -268,6 +270,109 @@ class DotRendersTests(unittest.TestCase):
         entries = ledger.project(ledger.read(path), validated=True)
         svg = self.render(to_dot(entries, superseded=True))
         self.assertGreater(len(svg), 10_000)
+
+
+@unittest.skipUnless(
+    shutil.which("mmdc") and os.environ.get("DOCKET_TEST_MERMAID"),
+    "set DOCKET_TEST_MERMAID=1 with mermaid-cli installed",
+)
+class MermaidRendersTests(unittest.TestCase):
+    """Parse the mermaid output for real.
+
+    Opt-in: mmdc drives a headless browser and takes seconds, which is too much
+    to pay on every `just test`. CI sets DOCKET_TEST_MERMAID=1.
+    """
+
+    def render(self, text):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "g.mmd"
+            target = Path(tmp) / "g.svg"
+            source.write_text(text, encoding="utf-8")
+            result = subprocess.run(
+                ["mmdc", "-i", str(source), "-o", str(target)],
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(target.is_file(), result.stderr)
+
+    def test_hostile_label_text_parses(self):
+        records = [
+            entry("c1", "claim", 'he said "no" on C:\\temp and [then] {left}'),
+            entry("d2", "decision", "a --> b; end", supports=[["c1"]]),
+        ]
+        self.render(to_mermaid(records))
+
+    def test_this_project_s_own_ledger_parses(self):
+        import docket.ledger as ledger
+
+        path = Path(__file__).parent.parent / ".docket" / "ledger.jsonl"
+        if not path.is_file():
+            self.skipTest("no project ledger")
+        entries = ledger.project(ledger.read(path), validated=True)
+        self.render(to_mermaid(entries, superseded=True))
+
+
+class FormatParityTests(unittest.TestCase):
+    def records(self):
+        return [
+            entry("q1", "question"),
+            entry("c2", "claim"),
+            entry("c3", "claim"),
+            entry("d4", "decision", supports=[["c2"], ["c3"]], answers=["q1"]),
+            entry("d5", "decision", depends_on=["d4"], supersedes=["d4"]),
+            entry("c6", "claim", retired_by="c9"),
+        ]
+
+    def test_both_formats_draw_the_same_edges(self):
+        from docket.graph_export import _selected
+
+        for superseded in (False, True):
+            drawn, edges = _selected(self.records(), superseded=superseded)
+            dot = to_dot(self.records(), superseded=superseded)
+            mermaid = to_mermaid(self.records(), superseded=superseded)
+            for source, target, _ in edges:
+                self.assertIn(f'"{source}" -> "{target}"', dot)
+                self.assertRegex(mermaid, rf"\n  {source} \S+ {target}$|\n  {source} .+ {target}\n")
+            self.assertEqual(
+                len(edges), dot.count(" -> "), f"dot edge count at superseded={superseded}"
+            )
+
+    def test_neither_format_emits_an_edge_to_an_undrawn_node(self):
+        from docket.graph_export import _selected
+
+        for superseded in (False, True):
+            drawn, edges = _selected(self.records(), superseded=superseded)
+            ids = {str(e["id"]) for e in drawn}
+            for source, target, _ in edges:
+                for end in (source, target):
+                    self.assertTrue(end in ids or "_set" in end, f"{end} is not drawn")
+
+
+class DetailBoundaryTests(unittest.TestCase):
+    def pair(self, text):
+        return [entry("c1", "claim", text), entry("d2", "decision", supports=[["c1"]])]
+
+    def test_detail_one_does_not_produce_an_empty_or_broken_label(self):
+        for render in (to_mermaid, to_dot):
+            out = render(self.pair("a long proposition"), detail=1)
+            self.assertIn("c1", out)
+
+    def test_detail_past_the_text_length_leaves_it_whole(self):
+        out = to_mermaid(self.pair("short"), detail=9999)
+        self.assertIn("short", out)
+        self.assertNotIn("…", out)
+
+    def test_non_ascii_text_survives_both_formats(self):
+        for render in (to_mermaid, to_dot):
+            out = render(self.pair("größe and 日本語"), detail=40)
+            self.assertIn("größe", out)
+
+    def test_a_record_with_empty_text_falls_back_to_its_id(self):
+        for render in (to_mermaid, to_dot):
+            out = render(self.pair(""), detail=40)
+            self.assertIn("c1", out)
 
 
 if __name__ == "__main__":
