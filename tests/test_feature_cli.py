@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import subprocess
 import sys
@@ -177,6 +178,16 @@ class FeatureCheckTests(FeatureCliTests):
         self.assertEqual(code, 1)
         self.assertIn("features.jsonl", out)
 
+    def test_check_reports_a_corrupt_archive(self):
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        self.run_cli("feature", "abandon", "one", "--text", "no")
+        self.run_cli("feature", "gc")
+        [archive] = sorted((self.root / ".docket" / "archive").glob("features-*.jsonl"))
+        archive.write_text(archive.read_text(encoding="utf-8") + "{not json}\n", encoding="utf-8")
+        code, out = self.run_cli("check")
+        self.assertEqual(code, 1)
+        self.assertIn(archive.name, out)
+
     def test_check_reports_a_duplicate_open_slug(self):
         self.run_cli("feature", "start", "one", "--text", "t", "--path", "a/**")
         store = self.root / ".docket" / "features.jsonl"
@@ -228,6 +239,66 @@ class FeatureIncludeExcludeTests(FeatureCliTests):
         code, out = self.run_cli("check")
         self.assertEqual(code, 1)
         self.assertIn("d404", out)
+
+    def test_a_corrupt_ledger_does_not_suppress_the_include_check(self):
+        # check exists to report every fault in a broken ledger. It read the
+        # ledger a second time with the strict reader to build the known-id
+        # set, so one bad line aborted the whole function.
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        self.run_cli("feature", "amend", "one", "--include", "d404")
+        path = self.root / ".docket" / "ledger.jsonl"
+        path.write_text(path.read_text(encoding="utf-8") + "{not json}\n", encoding="utf-8")
+        code, out = self.run_cli("check")
+        self.assertEqual(code, 1)
+        self.assertIn("invalid JSON", out)
+        self.assertIn("d404", out)
+
+    def test_an_id_on_an_invalid_record_still_counts_as_known(self):
+        # The id set comes from every line carrying a well-formed unique id,
+        # not from the records that validated. A record with a fault of its own
+        # is still a record the ledger holds, and reporting its id as missing
+        # would send the reader after a second fault that is not there.
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        self.ledger_record(
+            json.dumps(
+                {
+                    "schema": 2,
+                    "id": "d9",
+                    "kind": "decision",
+                    "text": "t",
+                    "state": "adopted",
+                    "depends_on": ["d404"],
+                }
+            )
+        )
+        self.run_cli("feature", "amend", "one", "--include", "d9")
+        code, out = self.run_cli("check")
+        self.assertEqual(code, 1)
+        self.assertNotIn("include names d9", out)
+
+    def test_amend_clears_an_include_list(self):
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        self.run_cli("feature", "amend", "one", "--include", "d404")
+        code, _ = self.run_cli("feature", "amend", "one", "--clear", "include")
+        self.assertEqual(code, 0)
+        _, out = self.run_cli("feature", "show", "one", "--json")
+        self.assertEqual(json.loads(out)["include"], [])
+
+    def test_clearing_include_leaves_exclude_alone(self):
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        self.run_cli("feature", "amend", "one", "--include", "d1", "--exclude", "d2")
+        self.run_cli("feature", "amend", "one", "--clear", "include")
+        _, out = self.run_cli("feature", "show", "one", "--json")
+        feature = json.loads(out)
+        self.assertEqual(feature["include"], [])
+        self.assertEqual(feature["exclude"], ["d2"])
+
+    def test_clear_rejects_a_field_it_does_not_own(self):
+        # start requires at least one path, so a feature with none declares a
+        # blast radius it can never realize.
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
+        with self.assertRaises(SystemExit):
+            self.run_cli("feature", "amend", "one", "--clear", "paths")
 
 
 class FeatureBlockedTests(FeatureCliTests):
@@ -504,7 +575,11 @@ class FeatureGcTests(FeatureCloseTests):
 
         code, out = self.run_cli("feature", "gc")
         self.assertEqual(code, 0)
-        self.assertIn("archive", out)
+        # The count, not the word "archive": the destination path carries that
+        # word too, so the old assertion passed on a report of zero.
+        self.assertIn("archived 2 feature event(s)", out)
+        written = sorted((self.root / ".docket" / "archive").glob("features-*.jsonl"))
+        self.assertEqual(len(written), 1)
 
         _, live = self.run_cli("feature", "list", "--json")
         import json
@@ -516,7 +591,10 @@ class FeatureGcTests(FeatureCloseTests):
         self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
         code, out = self.run_cli("feature", "gc")
         self.assertEqual(code, 0)
-        self.assertIn("0", out)
+        # "0" alone matched any digit anywhere in the line, including the count
+        # in a report that had archived something.
+        self.assertIn("0 feature events archived", out)
+        self.assertFalse((self.root / ".docket" / "archive").exists())
 
     def test_show_reads_the_archive_after_gc(self):
         self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")

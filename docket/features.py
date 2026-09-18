@@ -22,6 +22,9 @@ SCHEMA = 1
 EVENTS = ("start", "amend", "note", "done", "abandon")
 STATUSES = ("active", "paused", "review")
 TERMINAL_STATES = ("done", "abandoned")
+# paths is absent on purpose: start requires at least one, so a feature with
+# none declares a blast radius it can never realize.
+CLEARABLE = ("include", "exclude", "intends")
 
 ID_RE = re.compile(r"f(0|[1-9][0-9]*)$")
 SLUG_RE = re.compile(r"[a-z0-9][a-z0-9-]*$")
@@ -37,6 +40,7 @@ DEFAULTS: dict[str, Any] = {
     "intends": [],
     "include": [],
     "exclude": [],
+    "cleared": [],
     "base": "",
     "branch": "",
     "ts": "",
@@ -68,6 +72,7 @@ _LIST_FIELDS = (
     "intends",
     "include",
     "exclude",
+    "cleared",
     "intentional",
     "unintentional",
     "renamed_out",
@@ -114,6 +119,14 @@ def validate_event(record: Any) -> dict[str, Any]:
     unknown = sorted(set(record) - ALLOWED_FIELDS)
     if unknown:
         raise _error("event", f"unknown field(s): {', '.join(unknown)}")
+    # A field the schema gained after a store was written is absent from every
+    # line already in it, and every field below is required. schema is left out
+    # of the fill so a line that declares no version still fails the next
+    # check. A field that is present but the wrong type still fails.
+    record = {
+        **{key: copy.deepcopy(value) for key, value in DEFAULTS.items() if key != "schema"},
+        **record,
+    }
     if type(record.get("schema")) is not int or record["schema"] != SCHEMA:
         raise _error("schema", f"expected schema {SCHEMA}, got {record.get('schema')!r}")
 
@@ -151,6 +164,15 @@ def validate_event(record: Any) -> dict[str, Any]:
                 "with no directory separator and no glob character. Write a directory "
                 "as 'name/**'",
             )
+
+    if record["cleared"]:
+        if event != "amend":
+            raise _error(slug, f"cleared belongs to amend, not {event}")
+        for field in record["cleared"]:
+            if field not in CLEARABLE:
+                raise _error(
+                    slug, f"cannot clear {field!r}; clearable fields are {', '.join(CLEARABLE)}"
+                )
 
     if event == "start":
         if not record["text"].strip():
@@ -236,7 +258,7 @@ def append(path: Path | str, record: dict[str, Any]) -> dict[str, Any]:
             # from the live store alone hands f1 out again after a gc, and
             # every recorded citation to the archived f1 retargets in silence.
             candidate["id"] = next_id(events, floor=highest_archived_id(path))
-        validate_event(candidate)
+        candidate = validate_event(candidate)
         project(events + [candidate])
         path.parent.mkdir(parents=True, exist_ok=True)
         try:
@@ -253,6 +275,7 @@ def append(path: Path | str, record: dict[str, Any]) -> dict[str, Any]:
 
 __all__ = [
     "ALLOWED_FIELDS",
+    "CLEARABLE",
     "EVENTS",
     "ID_RE",
     "SCHEMA",

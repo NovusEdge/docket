@@ -119,6 +119,20 @@ class ExpandTests(unittest.TestCase):
     def test_a_glob_matching_nothing_expands_to_nothing(self):
         self.assertEqual(brief.expand(self.root, ["nowhere/**"]), [])
 
+    def test_expand_agrees_with_the_matcher_done_uses(self):
+        # expand ran its own case-sensitive fnmatch while scope_strength
+        # casefolds both sides, so a declared path with an uppercase letter put
+        # files in the brief that the intentional set then rejected.
+        from docket.feature_outcome import classify
+
+        for declared in ("Installer/**", "installer/**", "INSTALLER/planner.go"):
+            tracked = ["installer/main.go", "installer/planner.go", "graph/model.go"]
+            self.assertEqual(
+                brief.expand(self.root, [declared]),
+                classify([declared], tracked)[0],
+                declared,
+            )
+
 
 class RenderTests(unittest.TestCase):
     def setUp(self):

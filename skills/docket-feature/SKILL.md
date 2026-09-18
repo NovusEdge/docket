@@ -54,6 +54,13 @@ docket feature amend opencode-discovery --exclude d81
 docket feature amend opencode-discovery --include q75
 ```
 
+Each flag replaces the whole list. To drop an override rather than change it,
+clear the list by name:
+
+```sh
+docket feature amend opencode-discovery --clear exclude
+```
+
 ## Status and blocked
 
 `docket feature list` and `docket feature show` report `blocked` when an

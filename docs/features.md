@@ -55,7 +55,7 @@ docket feature start <slug> --text TEXT --path GLOB [--path GLOB] [--intends TEX
 docket feature list [--state STATE] [--json]
 docket feature show <slug|id> [--json]
 docket feature note <slug> TEXT
-docket feature amend <slug> [--status STATUS] [--path GLOB] [--intends TEXT] [--include CSV] [--exclude CSV]
+docket feature amend <slug> [--status STATUS] [--path GLOB] [--intends TEXT] [--include CSV] [--exclude CSV] [--clear FIELD]
 docket feature done <slug> [--held CSV] [--failed CSV]
 docket feature abandon <slug> --text REASON
 docket feature brief [<slug|id>]
@@ -124,6 +124,11 @@ strength), and `matches` is how many of the feature's files that glob covers.
 A rank you disagree with is visible on the line that produced it, and
 `docket feature amend --exclude ID` drops a record the globs pulled in
 wrongly; `--include ID` attaches one the globs miss.
+
+Both flags replace the whole list. To undo an override rather than change it,
+run `docket feature amend <slug> --clear include` (or `--clear exclude`, or
+`--clear intends`). An empty list cannot say this on its own, because an
+amend names only the fields it changes.
 
 ```
 $ docket feature brief opencode-discovery

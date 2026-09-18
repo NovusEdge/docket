@@ -56,6 +56,26 @@ class EventSchemaTests(unittest.TestCase):
         with self.assertRaisesRegex(features.FeatureError, "id"):
             features.validate_event(event)
 
+    def test_a_field_the_schema_gained_later_is_filled_on_read(self):
+        # Every line already written lacks it, and every field is required.
+        event = features.make_event("note", "slug-one", text="t")
+        del event["cleared"]
+        self.assertEqual(features.validate_event(event)["cleared"], [])
+
+    def test_a_line_that_declares_no_schema_is_still_refused(self):
+        event = features.make_event("note", "slug-one", text="t")
+        del event["schema"]
+        with self.assertRaisesRegex(features.FeatureError, "schema"):
+            features.validate_event(event)
+
+    def test_cleared_names_only_a_clearable_field(self):
+        with self.assertRaisesRegex(features.FeatureError, "cannot clear"):
+            features.make_event("amend", "slug-one", cleared=["paths"])
+
+    def test_cleared_belongs_to_amend(self):
+        with self.assertRaisesRegex(features.FeatureError, "cleared belongs to amend"):
+            features.make_event("note", "slug-one", text="t", cleared=["include"])
+
 
 class StoreTests(unittest.TestCase):
     def setUp(self):

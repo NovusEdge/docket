@@ -89,6 +89,12 @@ def project(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         feature = features_by_key[key]
 
         if verb == "amend":
+            # Clearing runs first, so an amend that both clears and sets one
+            # field ends with the set value. An empty list cannot carry the
+            # intent on its own: the loop below skips a falsy value, because
+            # an amend names only the fields it changes.
+            for field in event["cleared"]:
+                feature[field] = []
             for field in _CARRIED:
                 if event[field]:
                     feature[field] = copy.deepcopy(event[field])

@@ -8,7 +8,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from docket import ROOT, env, feature_project, features, version
+from docket import ROOT, env, feature_archive, feature_project, features, version
 from docket.ledger import ID_RE, LedgerError, _Prefix, append, validate_record
 
 
@@ -190,19 +190,28 @@ def cmd_check(args: argparse.Namespace) -> int:
     store = env.features_path()
     if store.exists():
         try:
-            feature_project.project(features.read(store))
+            projected = feature_project.project(features.read(store))
         except features.FeatureError as exc:
             print(f"{store}: {str(exc).removeprefix('docket: ')}")
             failed = True
         else:
             print(f"{store}: ok")
-            known = {entry["id"] for entry in env.read(env.ledger_path())}
-            for feature in feature_project.project(features.read(store)):
+            # seen, never a second env.read: read() raises on the first bad
+            # line, so any ledger fault aborted the command that exists to
+            # report every fault, and this check never ran. seen holds every id
+            # the file carries, including one whose record failed
+            # validate_record, so a reference to a repairable record is not
+            # reported as dangling as well.
+            for feature in projected:
                 for field in ("include", "exclude"):
-                    unknown = [ident for ident in feature[field] if ident not in known]
+                    unknown = [ident for ident in feature[field] if ident not in seen]
                     if unknown:
                         print(f"{store}: {feature['id']} {field} names {', '.join(unknown)}")
                         failed = True
+
+    for fault in feature_archive.faults(store):
+        print(fault)
+        failed = True
 
     return 1 if failed else 0
 
@@ -311,17 +320,43 @@ _COMPLETION_FEATURE_VERBS = (
     "remap",
     "gc",
 )
+_COMPLETION_FEATURE_FLAGS = (
+    "--text",
+    "--path",
+    "--intends",
+    "--status",
+    "--include",
+    "--exclude",
+    "--clear",
+    "--held",
+    "--failed",
+    "--state",
+    "--expire",
+    "--oneline",
+    "--json",
+)
 
+# COMP_CWORD -gt 1 guards the branch: while the word "feature" is itself being
+# completed, COMP_CWORD is 1 and COMP_WORDS[1] already holds it, so the branch
+# ran and returned nothing, and the top-level command list never appeared.
 _BASH_COMPLETION = f"""\
 _docket() {{
     local cur prev
     cur="${{COMP_WORDS[COMP_CWORD]}}"
     prev="${{COMP_WORDS[COMP_CWORD-1]}}"
-    if [[ "${{COMP_WORDS[1]}}" == "feature" ]]; then
+    if [[ $COMP_CWORD -gt 1 && "${{COMP_WORDS[1]}}" == "feature" ]]; then
+        if [[ "$cur" == -* ]]; then
+            COMPREPLY=($(compgen -W "{" ".join(_COMPLETION_FEATURE_FLAGS)}" -- "$cur")); return
+        fi
         case "$prev" in
-            --state) COMPREPLY=($(compgen -W "active paused review done abandoned" -- "$cur")); return ;;
+            --state) COMPREPLY=($(compgen -W "active paused review done abandoned blocked" -- "$cur")); return ;;
+            --status) COMPREPLY=($(compgen -W "{" ".join(features.STATUSES)}" -- "$cur")); return ;;
+            --clear) COMPREPLY=($(compgen -W "{" ".join(features.CLEARABLE)}" -- "$cur")); return ;;
+            --include|--exclude|--held|--failed)
+                COMPREPLY=($(compgen -W "$(docket list --oneline 2>/dev/null | awk '{{print $1}}')" -- "$cur")); return ;;
             feature) COMPREPLY=($(compgen -W "{" ".join(_COMPLETION_FEATURE_VERBS)}" -- "$cur")); return ;;
         esac
+        COMPREPLY=($(compgen -W "$(docket feature list --oneline 2>/dev/null | awk '{{print $2}}')" -- "$cur"))
         return
     fi
     case "$prev" in
@@ -358,6 +393,13 @@ case $words[1] in
         case $words[2] in
             list) _arguments '--state[state]:state:(active paused review done abandoned)' '--oneline' '--json' ;;
             show) _arguments '--json' ;;
+            amend) _arguments \\
+                '--status[declared status]:status:({" ".join(features.STATUSES)})' \\
+                '--path[declared path]:path:_files' \\
+                '--intends[intended outcome]:text:' \\
+                '--include[force a record in]:ids:' \\
+                '--exclude[force a record out]:ids:' \\
+                '--clear[empty a declared list]:field:({" ".join(features.CLEARABLE)})' ;;
             *) _values 'verb' {" ".join(_COMPLETION_FEATURE_VERBS)} ;;
         esac
         ;;

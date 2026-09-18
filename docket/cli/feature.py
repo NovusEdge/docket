@@ -142,6 +142,7 @@ def cmd_feature_amend(args) -> int:
             ("intends", args.intends),
             ("include", _csv(args.include)),
             ("exclude", _csv(args.exclude)),
+            ("cleared", args.clear),
         )
         if value
     }
@@ -267,6 +268,14 @@ def add_feature_parser(sub) -> None:
     am.add_argument("--intends", action="append", default=[])
     am.add_argument("--include", default="", metavar="CSV")
     am.add_argument("--exclude", default="", metavar="CSV")
+    am.add_argument(
+        "--clear",
+        action="append",
+        default=[],
+        choices=features.CLEARABLE,
+        metavar="FIELD",
+        help=f"empty a declared list: {', '.join(features.CLEARABLE)}",
+    )
     am.set_defaults(func=cmd_feature_amend)
 
     dn = verbs.add_parser("done", help="close a feature and record what it changed")

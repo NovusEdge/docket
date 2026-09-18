@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from docket.features import ID_RE, read
+from docket.features import ID_RE, FeatureError, read
 from docket.ledger import ledger_lock
 
 
@@ -46,6 +46,36 @@ def highest_archived_id(store: Path) -> int:
         if match:
             highest = max(highest, int(match.group(1)))
     return highest
+
+
+def faults(store: Path) -> list[str]:
+    """Every fault in the archive files beside this store, one line each.
+
+    docket check read the live store alone, so a corrupt archive stayed
+    invisible until `feature show` fell through to it and raised. The archive
+    holds the only copy of the events gc moved, so it is the copy a repair
+    cannot be reconstructed from.
+    """
+
+    from docket.feature_project import project
+
+    directory = archive_dir_for(store)
+    if not directory.is_dir():
+        return []
+    problems: list[str] = []
+    events: list[dict[str, Any]] = []
+    for name in sorted(directory.glob("features-*.jsonl")):
+        try:
+            events.extend(read(name))
+        except FeatureError as exc:
+            problems.append(f"{name}: {str(exc).removeprefix('docket: ')}")
+    if problems:
+        return problems
+    try:
+        project(events)
+    except FeatureError as exc:
+        problems.append(f"{directory}: {str(exc).removeprefix('docket: ')}")
+    return problems
 
 
 def _write_lines(target: Path, events: list[dict[str, Any]]) -> None:
@@ -111,4 +141,4 @@ def archive(store: Path, archive_dir: Path, *, keep: set[str]) -> tuple[int, Pat
     return len(moving), target
 
 
-__all__ = ["archive", "archive_dir_for", "archived_events", "highest_archived_id"]
+__all__ = ["archive", "archive_dir_for", "archived_events", "faults", "highest_archived_id"]

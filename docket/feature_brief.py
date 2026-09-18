@@ -7,7 +7,6 @@ those files attaches.
 
 from __future__ import annotations
 
-import fnmatch
 import subprocess
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -38,22 +37,24 @@ def specificity(scope: str) -> int:
 
 
 def expand(root: Path, paths: list[str]) -> list[str]:
-    """Declared globs, resolved against the files git tracks."""
+    """Declared globs, resolved against the files git tracks.
+
+    scope_strength decides the match, the same call classify() makes at done.
+    A second matcher here compared paths case-sensitively while scope_strength
+    casefolds both sides, so a declared path holding an uppercase letter put
+    files in the brief that the intentional set then rejected.
+    """
 
     result = subprocess.run(
         ["git", "-C", str(root), "ls-files"], capture_output=True, text=True, timeout=30
     )
     if result.returncode != 0:
         return []
-    tracked = result.stdout.splitlines()
-    matched = set()
-    for scope in paths:
-        for path in tracked:
-            if path == scope or fnmatch.fnmatchcase(path, scope):
-                matched.add(path)
-            elif "/" in scope and path.startswith(scope.rstrip("/*") + "/"):
-                matched.add(path)
-    return sorted(matched)
+    entry = {"scope": paths}
+    weights = DEFAULTS["weights"]
+    return sorted(
+        path for path in result.stdout.splitlines() if scope_strength(entry, (path,), weights)
+    )
 
 
 def _best(entry: dict[str, Any], files: list[str], weights) -> tuple[int, int, int]:

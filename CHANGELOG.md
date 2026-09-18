@@ -21,6 +21,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   needing every premise at once. DOT wraps a label over several lines, because
   a hexagon or an ellipse grows sideways to hold its text and one long line
   turns a question into a lozenge wider than the rest of the graph.
+- `docket feature amend --clear FIELD` empties a declared list: `include`,
+  `exclude` or `intends`. Each of those flags replaces the whole list, so a
+  wrongly added override could be changed but never removed. `paths` is not
+  clearable, because `start` requires at least one.
+- `docket check` now reads `.docket/archive/` as well. The archive holds the
+  only copy of the events `gc` moved, and a fault in it surfaced from
+  `docket feature show` instead.
+
+### Fixed
+
+- `docket check` built its known-ID set with the strict reader, so one bad
+  ledger line aborted the command that exists to report every bad line, and
+  the `include`/`exclude` validation never ran. It now reads the IDs it
+  already collected.
+- `docket feature brief` matched declared paths against the tracked tree with
+  its own case-sensitive matcher, while `done` classifies with a matcher that
+  casefolds. A declared path holding an uppercase letter put files in the
+  brief that the intentional set then rejected. Both now call one matcher.
+- Bash completion offered nothing for the word `feature` itself, because the
+  feature branch ran while the cursor was still on that word. It also offered
+  no flags inside the group.
 
 ## [0.16.0] - 2026-09-19
 
