@@ -26,6 +26,14 @@ throughout a task.
 A fixed context budget can hold only part of a growing ledger. Preserve the
 complete ledger and make the boundaries of each briefing explicit.
 
+The budget is counted in characters, and it stands in for nothing else (d114).
+It bounds how much text a reader scans at session start. It does not protect a
+context window: 8000 characters is under half a percent of a 1M token window.
+Converting it to tokens would need a network call the session-start hook cannot
+require, and no offline tokenizer matches Claude's. A published
+characters-per-token ratio would drift on its own, because Claude 4.7 and later
+produce about 30 percent more tokens than earlier models for the same text.
+
 - Keep selected propositions, choices, and relationship formulas exact.
 - Preserve the distinction between recorded state, currentness, and applicability.
 - Identify deferred records and fields, with a direct way to retrieve them.

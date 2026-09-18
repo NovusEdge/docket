@@ -18,6 +18,13 @@ CONFIG_NAME = "config.toml"
 
 DEFAULTS: dict[str, dict[str, int]] = {
     "budget": {
+        # Characters, and they stand in for nothing (d114). The budget bounds
+        # how much text a reader scans at session start. It never protected a
+        # context window: 8000 characters is under half a percent of a 1M
+        # token window. No offline tokenizer matches Claude's, exact counting
+        # needs a network call the hook cannot require, and Claude 4.7 and
+        # later produce about 30 percent more tokens than earlier models for
+        # the same text, so any fixed ratio drifts under the tool.
         "target": 8000,
         # A task-matching record may push the briefing past the target, up to
         # this multiple of it. Dropping a record the caller asked for defeats
