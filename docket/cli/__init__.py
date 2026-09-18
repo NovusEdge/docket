@@ -109,8 +109,8 @@ def main(argv: list[str] | None = None) -> int:
     gr.add_argument("--find", help="match question or answer text")
     gr.add_argument(
         "--format",
-        choices=("mermaid",),
-        help="emit the relation graph as mermaid instead of rendering it",
+        choices=("mermaid", "dot"),
+        help="emit the relation graph as mermaid or graphviz DOT instead of rendering it",
     )
     gr.add_argument(
         "--detail", type=int, default=40, help="characters of record text per node, 0 for ids only"

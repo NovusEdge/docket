@@ -9,11 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `docket graph --format mermaid` prints the relation graph as a mermaid
-  flowchart, which GitHub, GitLab and GitBook render with nothing installed.
-  The `--kind`, `--state` and `--find` filters narrow it, `--superseded` adds
-  the retired records and their retire edges, `--detail N` sets the text per
-  node, and `--direction` sets the layout. Each relation takes its own arrow,
+- `docket graph --format mermaid` and `--format dot` print the relation graph
+  as text. Mermaid renders in GitHub, GitLab and GitBook with nothing
+  installed; DOT lays out a large graph better and gives real SVG through
+  `dot -Tsvg`, and the reader needs graphviz for it. The `--kind`, `--state`
+  and `--find` filters narrow either one, `--superseded` adds the retired
+  records and their retire edges, `--detail N` sets the text per node, and
+  `--direction` sets the layout. Each relation reads apart without a legend,
   the record kind picks the node shape, and a record carrying more than one
   support set gets a join node per set, so the diagram never draws it as
   needing every premise at once.

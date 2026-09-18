@@ -86,14 +86,22 @@ Use `--no-interactive` to request text output directly.
 
 ## Export the graph
 
-`docket graph --format mermaid` prints the relation graph as a mermaid
-flowchart. Paste it into a fenced `mermaid` block and GitHub, GitLab and
-GitBook render it with nothing installed. [mermaid.live](https://mermaid.live)
-renders it too and exports SVG or PNG.
+`docket graph --format` prints the relation graph as text, in mermaid or
+graphviz DOT.
+
+| Format | Viewer | Install |
+|---|---|---|
+| `mermaid` | GitHub, GitLab, GitBook, [mermaid.live](https://mermaid.live) | None |
+| `dot` | `dot -Tsvg`, and any graphviz front end | graphviz |
+
+Mermaid pastes into a fenced `mermaid` block and renders where this project's
+docs already live. DOT lays out a large graph better and gives real SVG, PDF
+and PNG, and the reader needs graphviz for any of it.
 
 ```sh
 docket graph --format mermaid --find installer
 docket graph --format mermaid --superseded --detail 0 > graph.mmd
+docket graph --format dot --find installer | dot -Tsvg -o installer.svg
 ```
 
 The `--kind`, `--state` and `--find` filters the viewer takes narrow the
@@ -106,9 +114,11 @@ draws 72 nodes and 57 edges; `--find installer` draws 7 and 5.
 | `--detail N` | Characters of record text per node, default 40. Use `0` for IDs alone. |
 | `--direction` | `LR` by default, or `TD`, `RL`, `BT`. |
 
-Each relation takes its own arrow: `-->` supports, `-.->` depends on, `==>`
-answers, and a labelled arrow for retires. A decision draws as a rectangle, a
-claim as a stadium, a question as a hexagon. Retired records are greyed.
+Each relation reads apart without a legend. In mermaid: `-->` supports, `-.->`
+depends on, `==>` answers, and a labelled arrow for retires. In DOT the same
+four separate on line style and arrowhead, with no colour, so a printed graph
+stays readable. A decision draws as a rectangle, a claim as a stadium or
+ellipse, a question as a hexagon. Retired records are greyed.
 
 A record with no relation is left out, because a node alone on the canvas says
 less than a list line does. A record with more than one support set gets a

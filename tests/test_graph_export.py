@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from docket.graph_export import to_mermaid
+from docket.graph_export import to_dot, to_mermaid
 
 
 def entry(ident, kind, text="t", **fields):
@@ -131,6 +131,92 @@ class MermaidTests(unittest.TestCase):
         # that is not drawn renders as a bare node mermaid invents.
         records = [entry("d2", "decision", supports=[["c99"]], depends_on=["d98"])]
         self.assertEqual(to_mermaid(records), "")
+
+
+class DotTests(unittest.TestCase):
+    def linked(self):
+        return [
+            entry("q1", "question"),
+            entry("c2", "claim"),
+            entry("d3", "decision", supports=[["c2"]], answers=["q1"]),
+            entry("d4", "decision", depends_on=["d3"], supersedes=["d3"]),
+        ]
+
+    def test_it_opens_and_closes_a_digraph(self):
+        out = to_dot(self.linked(), superseded=True)
+        self.assertTrue(out.startswith("digraph docket {"))
+        self.assertTrue(out.rstrip().endswith("}"))
+
+    def test_each_relation_takes_its_own_style(self):
+        out = to_dot(self.linked(), superseded=True)
+        self.assertIn('"c2" -> "d3" [style=solid, arrowhead=normal]', out)
+        self.assertIn('"d3" -> "q1" [style=bold, arrowhead=vee]', out)
+        self.assertIn('"d4" -> "d3" [style=dashed, arrowhead=empty]', out)
+        self.assertIn("retires", out)
+
+    def test_kind_picks_the_node_shape(self):
+        out = to_dot(self.linked(), superseded=True)
+        self.assertIn('"q1" [shape=hexagon', out)
+        self.assertIn('"c2" [shape=ellipse', out)
+        self.assertIn('"d3" [shape=box', out)
+
+    def test_a_quote_is_escaped_rather_than_replaced(self):
+        # DOT takes a backslash escape, where mermaid needs the character gone.
+        records = [
+            entry("c1", "claim", 'he said "no"'),
+            entry("d2", "decision", supports=[["c1"]]),
+        ]
+        out = to_dot(records)
+        self.assertIn('he said \\"no\\"', out)
+
+    def test_a_backslash_is_escaped_before_a_quote_is_added(self):
+        # Escaping the quote first would leave the backslash unescaped and
+        # turn the label into a DOT syntax error.
+        records = [
+            entry("c1", "claim", "a path C:\\temp"),
+            entry("d2", "decision", supports=[["c1"]]),
+        ]
+        out = to_dot(records)
+        self.assertIn("C:\\\\temp", out)
+
+    def test_retired_records_are_filled_grey(self):
+        records = [
+            entry("c1", "claim", retired_by="c9"),
+            entry("d2", "decision", supports=[["c1"]]),
+        ]
+        out = to_dot(records, superseded=True)
+        self.assertIn("style=filled", out)
+        self.assertIn("#f3f3f3", out)
+
+    def test_two_support_sets_get_a_point_join_node_each(self):
+        records = [
+            entry("c1", "claim"),
+            entry("c2", "claim"),
+            entry("d3", "decision", supports=[["c1"], ["c2"]]),
+        ]
+        out = to_dot(records)
+        self.assertIn('"d3_set1" [shape=point', out)
+        self.assertIn('"c1" -> "d3_set1"', out)
+        self.assertIn('"d3_set1" -> "d3"', out)
+
+    def test_direction_is_honoured(self):
+        records = [entry("c1", "claim"), entry("d2", "decision", supports=[["c1"]])]
+        self.assertIn("rankdir=TD;", to_dot(records, direction="TD"))
+
+    def test_an_unrelated_record_is_left_out(self):
+        self.assertEqual(to_dot([entry("d1", "decision")]), "")
+
+    def test_both_formats_draw_the_same_records(self):
+        records = self.linked()
+        for superseded in (False, True):
+            dot = to_dot(records, superseded=superseded)
+            mermaid = to_mermaid(records, superseded=superseded)
+            for ident in ("q1", "c2", "d3", "d4"):
+                self.assertEqual(
+                    f'"{ident}" [' in dot,
+                    f"  {ident}" in mermaid,
+                    f"{ident} differs between formats at superseded={superseded}",
+                )
 
 
 if __name__ == "__main__":

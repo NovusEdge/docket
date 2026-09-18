@@ -1,9 +1,12 @@
-"""Render the ledger's relation graph as a mermaid flowchart.
+"""Render the ledger's relation graph as mermaid or graphviz DOT.
 
-Mermaid because it needs no install anywhere the project already lives:
-GitHub and GitLab render it in a fence, and so does the GitBook site this
-project publishes. Graphviz would lay out a hundred nodes better and produce a
-real SVG, at the cost of making the reader install graphviz to see anything.
+Mermaid renders with nothing installed where this project already lives:
+GitHub and GitLab render it in a fence, and so does the GitBook site. DOT
+needs graphviz, which the reader installs, and pays for it with a layout that
+holds up past a hundred nodes and with real SVG, PDF and PNG output.
+
+Both formats read the same edge model below, so a schema change touches one
+place.
 """
 
 from __future__ import annotations
@@ -71,6 +74,32 @@ def _edges(entries: list[dict[str, Any]]) -> list[tuple[str, str, str]]:
     return result
 
 
+def _join_nodes(edges: list[tuple[str, str, str]]) -> list[str]:
+    ends = {a for a, _, _ in edges} | {b for _, b, _ in edges}
+    return sorted(end for end in ends if "_set" in end)
+
+
+def _selected(
+    entries: list[dict[str, Any]], *, superseded: bool
+) -> tuple[list[dict[str, Any]], list[tuple[str, str, str]]]:
+    """The records to draw and the edges between them.
+
+    Both formats read this, so a schema change touches one place. A record
+    with no relation is left out: a node alone on the canvas carries nothing a
+    list line does not already say.
+    """
+
+    kept = [e for e in entries if superseded or not e.get("retired_by")]
+    known = {str(e["id"]) for e in kept}
+    edges = [
+        (a, b, k)
+        for a, b, k in _edges(kept)
+        if (a in known or "_set" in a) and (b in known or "_set" in b)
+    ]
+    linked = {end for edge in edges for end in edge[:2]}
+    return [e for e in kept if str(e["id"]) in linked], edges
+
+
 def to_mermaid(
     entries: list[dict[str, Any]],
     *,
@@ -78,19 +107,9 @@ def to_mermaid(
     direction: str = "LR",
     superseded: bool = False,
 ) -> str:
-    """A mermaid flowchart of the relations between these records.
+    """A mermaid flowchart of the relations between these records."""
 
-    Records with no relation are left out. A node alone on the canvas carries
-    nothing a list does not already say.
-    """
-
-    kept = [e for e in entries if superseded or not e.get("retired_by")]
-    known = {str(e["id"]) for e in kept}
-    edges = [(a, b, k) for a, b, k in _edges(kept) if a in known or "_set" in a]
-    edges = [(a, b, k) for a, b, k in edges if b in known or "_set" in b]
-
-    linked = {end for edge in edges for end in edge[:2]}
-    drawn = [e for e in kept if str(e["id"]) in linked]
+    drawn, edges = _selected(entries, superseded=superseded)
     if not drawn:
         return ""
 
@@ -98,9 +117,7 @@ def to_mermaid(
     for entry in drawn:
         open_mark, close_mark = SHAPES.get(str(entry.get("kind")), ("[", "]"))
         lines.append(f'  {entry["id"]}{open_mark}"{_label(entry, detail)}"{close_mark}')
-    for join in sorted(
-        {a for a, _, _ in edges if "_set" in a} | {b for _, b, _ in edges if "_set" in b}
-    ):
+    for join in _join_nodes(edges):
         lines.append(f'  {join}(("set"))')
     for source, target, kind in edges:
         lines.append(f"  {source} {ARROWS[kind]} {target}")
@@ -113,4 +130,72 @@ def to_mermaid(
     return "\n".join(lines)
 
 
-__all__ = ["ARROWS", "SHAPES", "to_mermaid"]
+DOT_SHAPES = {
+    "decision": "box",
+    "claim": "ellipse",
+    "question": "hexagon",
+}
+
+# Graphviz has no arrow vocabulary as compact as mermaid's, so the relations
+# separate on style and arrowhead together. Colour is not used: a graph printed
+# in black and white has to stay readable.
+DOT_EDGES = {
+    "supports": "style=solid, arrowhead=normal",
+    "depends_on": "style=dashed, arrowhead=empty",
+    "answers": "style=bold, arrowhead=vee",
+    "supersedes": 'style=solid, arrowhead=box, label="retires", fontsize=9',
+}
+
+
+def _dot_quote(text: str) -> str:
+    """Escape for a DOT quoted string, where a backslash also escapes itself."""
+
+    return text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ").replace("\r", " ")
+
+
+def _dot_label(entry: Mapping[str, Any], detail: int) -> str:
+    text = str(entry.get("text", "")).strip()
+    if detail <= 0 or not text:
+        return _dot_quote(str(entry["id"]))
+    if len(text) > detail:
+        text = text[: detail - 1].rstrip() + "..."
+    # \n in DOT is a line break inside the label, so the id sits above its text
+    # instead of running into it.
+    return _dot_quote(str(entry["id"])) + "\\n" + _dot_quote(text)
+
+
+def to_dot(
+    entries: list[dict[str, Any]],
+    *,
+    detail: int = 40,
+    direction: str = "LR",
+    superseded: bool = False,
+) -> str:
+    """A graphviz digraph of the relations between these records."""
+
+    drawn, edges = _selected(entries, superseded=superseded)
+    if not drawn:
+        return ""
+
+    lines = [
+        "digraph docket {",
+        f"  rankdir={direction};",
+        '  bgcolor="white";',
+        '  node [fontname="Helvetica", fontsize=10, color="#0a0a0a", fontcolor="#0a0a0a"];',
+        '  edge [fontname="Helvetica", color="#0a0a0a", fontcolor="#0a0a0a"];',
+    ]
+    for entry in drawn:
+        shape = DOT_SHAPES.get(str(entry.get("kind")), "box")
+        attrs = f'shape={shape}, label="{_dot_label(entry, detail)}"'
+        if entry.get("retired_by"):
+            attrs += ', style=filled, fillcolor="#f3f3f3", color="#8a8a8a", fontcolor="#6a6a6a"'
+        lines.append(f'  "{entry["id"]}" [{attrs}];')
+    for join in _join_nodes(edges):
+        lines.append(f'  "{join}" [shape=point, width=0.08, xlabel="set", fontsize=8];')
+    for source, target, kind in edges:
+        lines.append(f'  "{source}" -> "{target}" [{DOT_EDGES[kind]}];')
+    lines.append("}")
+    return "\n".join(lines)
+
+
+__all__ = ["ARROWS", "DOT_EDGES", "DOT_SHAPES", "SHAPES", "to_dot", "to_mermaid"]

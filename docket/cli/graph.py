@@ -468,10 +468,11 @@ def cmd_graph(args: argparse.Namespace) -> int:
         print("docket: nothing recorded")
         return 0
 
-    if getattr(args, "format", None) == "mermaid":
-        from docket.graph_export import to_mermaid
+    if getattr(args, "format", None):
+        from docket.graph_export import to_dot, to_mermaid
 
-        text = to_mermaid(
+        render = to_dot if args.format == "dot" else to_mermaid
+        text = render(
             entries,
             detail=args.detail,
             direction=args.direction,
