@@ -104,6 +104,31 @@ docket graph --format mermaid --superseded --detail 0 > graph.mmd
 docket graph --format dot --find installer | dot -Tsvg -o installer.svg
 ```
 
+### A worked example
+
+`docket graph --format mermaid --find installer` on this project's own ledger
+prints seven nodes and five edges:
+
+```mermaid
+flowchart LR
+  d34["d34 Where should the native installer live?"]
+  d41["d41 How is the native installer structured?"]
+  d42["d42 How does the native installer configure Codex?"]
+  q75{{"q75 How should the installer place the plugin?"}}
+  d81["d81 planOpenCode writes plugins/docket.ts"]
+  d88["d88 What is Docket's installation entry point?"]
+  d97["d97 The loader scans plugins/*.ts"]
+  d34 --> d41
+  d34 --> d42
+  d34 --> d88
+  d81 ==> q75
+  d97 ==> q75
+```
+
+Read it as: d34 is the premise d41, d42 and d88 rest on, and two decisions
+answer q75. Pipe the same selection through `dot -Tsvg` for a file you can
+attach to a ticket.
+
 The `--kind`, `--state` and `--find` filters the viewer takes narrow the
 export, and a filtered graph is the readable one. This project's whole ledger
 draws 72 nodes and 57 edges; `--find installer` draws 7 and 5.
@@ -124,6 +149,10 @@ A record with no relation is left out, because a node alone on the canvas says
 less than a list line does. A record with more than one support set gets a
 join node per set, so the diagram does not draw it as needing every premise
 when it needs one complete set.
+
+DOT wraps a label over several lines. A hexagon or an ellipse grows sideways
+to hold its text, and one long line turns a question node into a lozenge wider
+than the rest of the graph.
 
 ## Read the briefing for a task
 

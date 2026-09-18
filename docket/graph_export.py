@@ -11,6 +11,7 @@ place.
 
 from __future__ import annotations
 
+import textwrap
 from collections.abc import Mapping
 from typing import Any
 
@@ -153,15 +154,22 @@ def _dot_quote(text: str) -> str:
     return text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ").replace("\r", " ")
 
 
+# A hexagon or an ellipse grows sideways to hold its label, so one long line
+# turns a question node into a lozenge wider than the rest of the graph.
+# Wrapping keeps every shape near its natural proportions.
+DOT_WRAP = 26
+
+
 def _dot_label(entry: Mapping[str, Any], detail: int) -> str:
     text = str(entry.get("text", "")).strip()
+    ident = _dot_quote(str(entry["id"]))
     if detail <= 0 or not text:
-        return _dot_quote(str(entry["id"]))
+        return ident
     if len(text) > detail:
         text = text[: detail - 1].rstrip() + "..."
-    # \n in DOT is a line break inside the label, so the id sits above its text
-    # instead of running into it.
-    return _dot_quote(str(entry["id"])) + "\\n" + _dot_quote(text)
+    # \n inside a DOT label is a line break, so the id sits above its text.
+    wrapped = textwrap.wrap(text, DOT_WRAP) or [text]
+    return "\\n".join([ident, *(_dot_quote(line) for line in wrapped)])
 
 
 def to_dot(

@@ -1,3 +1,5 @@
+import shutil
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -217,6 +219,55 @@ class DotTests(unittest.TestCase):
                     f"  {ident}" in mermaid,
                     f"{ident} differs between formats at superseded={superseded}",
                 )
+
+
+@unittest.skipUnless(shutil.which("dot"), "graphviz is not installed")
+class DotRendersTests(unittest.TestCase):
+    """Hand the output to graphviz. Only a real parse catches a bad label."""
+
+    def render(self, text):
+        result = subprocess.run(
+            ["dot", "-Tsvg"], input=text, capture_output=True, text=True, timeout=30
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("<svg", result.stdout)
+        return result.stdout
+
+    def test_a_plain_graph_renders(self):
+        records = [
+            entry("q1", "question", "does the plugin load?"),
+            entry("c2", "claim", "the loader scans plugins/"),
+            entry("d3", "decision", "write plugins/docket.ts", supports=[["c2"]], answers=["q1"]),
+            entry("d4", "decision", "keep the nested path", depends_on=["d3"], supersedes=["d3"]),
+        ]
+        self.render(to_dot(records, superseded=True))
+
+    def test_hostile_label_text_renders(self):
+        # A quote, a backslash, a newline and a brace each end the DOT label or
+        # the statement when they reach graphviz unescaped.
+        records = [
+            entry("c1", "claim", 'he said "no" on C:\\temp\nand {then} left'),
+            entry("d2", "decision", "a -> b [x]", supports=[["c1"]]),
+        ]
+        self.render(to_dot(records))
+
+    def test_a_join_node_renders(self):
+        records = [
+            entry("c1", "claim"),
+            entry("c2", "claim"),
+            entry("d3", "decision", supports=[["c1"], ["c2"]]),
+        ]
+        self.render(to_dot(records))
+
+    def test_this_project_s_own_ledger_renders(self):
+        import docket.ledger as ledger
+
+        path = Path(__file__).parent.parent / ".docket" / "ledger.jsonl"
+        if not path.is_file():
+            self.skipTest("no project ledger")
+        entries = ledger.project(ledger.read(path), validated=True)
+        svg = self.render(to_dot(entries, superseded=True))
+        self.assertGreater(len(svg), 10_000)
 
 
 if __name__ == "__main__":

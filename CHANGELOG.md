@@ -18,7 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--direction` sets the layout. Each relation reads apart without a legend,
   the record kind picks the node shape, and a record carrying more than one
   support set gets a join node per set, so the diagram never draws it as
-  needing every premise at once.
+  needing every premise at once. DOT wraps a label over several lines, because
+  a hexagon or an ellipse grows sideways to hold its text and one long line
+  turns a question into a lozenge wider than the rest of the graph.
 
 ## [0.16.0] - 2026-09-19
 
