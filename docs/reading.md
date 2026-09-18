@@ -84,6 +84,37 @@ docket graph | less -R
 
 Use `--no-interactive` to request text output directly.
 
+## Export the graph
+
+`docket graph --format mermaid` prints the relation graph as a mermaid
+flowchart. Paste it into a fenced `mermaid` block and GitHub, GitLab and
+GitBook render it with nothing installed. [mermaid.live](https://mermaid.live)
+renders it too and exports SVG or PNG.
+
+```sh
+docket graph --format mermaid --find installer
+docket graph --format mermaid --superseded --detail 0 > graph.mmd
+```
+
+The `--kind`, `--state` and `--find` filters the viewer takes narrow the
+export, and a filtered graph is the readable one. This project's whole ledger
+draws 72 nodes and 57 edges; `--find installer` draws 7 and 5.
+
+| Option | Effect |
+|---|---|
+| `--superseded` | Include retired records and the retire edges. Roughly doubles the edges. |
+| `--detail N` | Characters of record text per node, default 40. Use `0` for IDs alone. |
+| `--direction` | `LR` by default, or `TD`, `RL`, `BT`. |
+
+Each relation takes its own arrow: `-->` supports, `-.->` depends on, `==>`
+answers, and a labelled arrow for retires. A decision draws as a rectangle, a
+claim as a stadium, a question as a hexagon. Retired records are greyed.
+
+A record with no relation is left out, because a node alone on the canvas says
+less than a list line does. A record with more than one support set gets a
+join node per set, so the diagram does not draw it as needing every premise
+when it needs one complete set.
+
 ## Read the briefing for a task
 
 ```sh

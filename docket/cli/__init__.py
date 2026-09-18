@@ -107,6 +107,20 @@ def main(argv: list[str] | None = None) -> int:
         "--state", choices=tuple(sorted({state for values in STATES.values() for state in values}))
     )
     gr.add_argument("--find", help="match question or answer text")
+    gr.add_argument(
+        "--format",
+        choices=("mermaid",),
+        help="emit the relation graph as mermaid instead of rendering it",
+    )
+    gr.add_argument(
+        "--detail", type=int, default=40, help="characters of record text per node, 0 for ids only"
+    )
+    gr.add_argument(
+        "--direction", choices=("LR", "TD", "RL", "BT"), default="LR", help="mermaid layout"
+    )
+    gr.add_argument(
+        "--superseded", action="store_true", help="include retired records and the retire edges"
+    )
     gr.add_argument("--plain", action="store_true", help="force colour off")
     gr.add_argument("--pretty", action="store_true", help="force colour on, e.g. piping to less -R")
     mode = gr.add_mutually_exclusive_group()

@@ -81,6 +81,10 @@ remains recorded as adopted but reports that it is blocked. See the
 | `--kind`, `--state`, `--find` | Filter, as in `list` |
 | `--interactive`, `--no-interactive` | Require or refuse the native viewer |
 | `--plain`, `--pretty` | Force colour off or on |
+| `--format mermaid` | Print the graph as a mermaid flowchart |
+| `--superseded` | With `--format`, include retired records and the retire edges |
+| `--detail N` | With `--format`, characters of text per node. Default 40, `0` for IDs alone. |
+| `--direction LR\|TD\|RL\|BT` | With `--format`, the layout direction. Default `LR`. |
 
 `docket context`
 

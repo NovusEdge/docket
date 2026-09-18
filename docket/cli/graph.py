@@ -468,6 +468,21 @@ def cmd_graph(args: argparse.Namespace) -> int:
         print("docket: nothing recorded")
         return 0
 
+    if getattr(args, "format", None) == "mermaid":
+        from docket.graph_export import to_mermaid
+
+        text = to_mermaid(
+            entries,
+            detail=args.detail,
+            direction=args.direction,
+            superseded=bool(getattr(args, "superseded", False)),
+        )
+        if not text:
+            print("docket: no record in this selection carries a relation", file=sys.stderr)
+            return 0
+        print(text)
+        return 0
+
     viewer = _graph_viewer_path()
     auto = _graph_is_tty() and not no_interactive and not plain and style is None
     if interactive or auto:

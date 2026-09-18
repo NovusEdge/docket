@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `docket graph --format mermaid` prints the relation graph as a mermaid
+  flowchart, which GitHub, GitLab and GitBook render with nothing installed.
+  The `--kind`, `--state` and `--find` filters narrow it, `--superseded` adds
+  the retired records and their retire edges, `--detail N` sets the text per
+  node, and `--direction` sets the layout. Each relation takes its own arrow,
+  the record kind picks the node shape, and a record carrying more than one
+  support set gets a join node per set, so the diagram never draws it as
+  needing every premise at once.
+
 ## [0.16.0] - 2026-09-19
 
 ### Added
