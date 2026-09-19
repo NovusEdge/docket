@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- 0.17.1 shipped `docket graph --format csv` under a patch number, which
+  understates it. This release carries the same feature under a minor version,
+  so a reader comparing version numbers is not misled about what changed.
+
+### Fixed
+
+- A rolled changelog heading got two blank lines under it, because the captured
+  section already opens with the blank line that followed `## [Unreleased]`.
+
+### Documentation
+
+- The `docket` skill now names the feature store and points at the
+  `docket-feature` skill for it. An agent reading the main skill had no way to
+  learn that work tracking exists. It also covers `graph --format`, including
+  the Gephi tables.
+
 ## [0.17.1] - 2026-09-19
 
 ### Added

@@ -212,9 +212,39 @@ original record with derived fields such as `recorded_state`, effective `state`,
 `retired_by`, `resolved_by`, `applicable`, and `blocked_by`. `graph` preserves
 the full support sets as well as the renderer's deduplicated support union.
 
+`graph --format` exports the relation graph instead of drawing it.
+
+| Format | Output | For |
+|---|---|---|
+| `mermaid` | stdout | pasting into a fenced block a reader already renders |
+| `dot` | stdout | `dot -Tsvg`, and a layout that holds up past a hundred nodes |
+| `csv` | `nodes.csv` and `edges.csv` in `--out DIR` | Gephi, or anything measuring the graph rather than drawing it |
+
+`--kind`, `--state`, `--find`, `--superseded` and `--detail` narrow all three.
+Narrow before exporting: the whole ledger is a hairball in any of them.
+
 Evidence references are provenance supplied by the recorder. Docket does not
 claim that evidence was freshly checked. Re-run `docket context` through the
 harness's existing hook after compaction or resume.
+
+## Work in flight
+
+The ledger records what was settled. A separate store records what is underway:
+a named piece of work, the paths it declares, the outcomes it intends, and the
+change set it realized. Neither store writes to the other.
+
+```sh
+docket feature list
+docket feature brief
+```
+
+`feature brief` derives which ledger records govern the active feature from its
+declared paths, strongest first. Read it before changing code inside a declared
+path; it is the scoped subset of what `docket context` would hand over.
+
+Start, amend and close a feature through the
+[docket-feature skill](../docket-feature/SKILL.md), which covers when a piece of
+work is worth declaring and what `done` records about it.
 
 ## Ledger location
 
