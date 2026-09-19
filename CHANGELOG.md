@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-09-19
+
 ### Added
 
 - `docket graph --format mermaid` and `--format dot` print the relation graph
@@ -42,6 +44,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bash completion offered nothing for the word `feature` itself, because the
   feature branch ran while the cursor was still on that word. It also offered
   no flags inside the group.
+- A session start read and projected the ledger twice, once for the records
+  and once for the feature brief. It now reads it once.
+- `.docket/` counted as realized work. A commit that recorded a decision
+  landed in a feature's unintentional set, and the claim prompt then asked
+  about claims scoped to `ledger.jsonl`. The change set excludes it, matching
+  what the dirty-tree check already did.
+- The feature brief's budget footer told the reader to run
+  `docket feature show`, which prints a feature and never its attached
+  records. It now names `--detail` and the declared paths.
+
+### Changed
+
+- Every module in `docket/` and `docket/cli/` that carried two jobs is split
+  so each file holds one, and none of the four named in review exceeds 300
+  lines. `docket/context.py` becomes `context_model`, `context_select`,
+  `context_render`, `context_budget`, `context_degrade` and `context_delta`.
+  `docket context` moves out of `docket/cli/query.py`, the completion scripts
+  and `docket update` out of `docket/cli/admin.py`. Every public name still
+  imports from the module it did before, so no caller changes.
 
 ## [0.16.0] - 2026-09-19
 
@@ -496,7 +517,8 @@ the breaking-change notes before upgrading.
 
 Versions before 0.6.1 carry no git tag. Their history is in the commit log.
 
-[Unreleased]: https://github.com/NovusEdge/docket/compare/v0.16.0...HEAD
+[Unreleased]: https://github.com/NovusEdge/docket/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/NovusEdge/docket/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/NovusEdge/docket/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/NovusEdge/docket/compare/v0.14.0...v0.15.0
 [0.14.0]: https://github.com/NovusEdge/docket/compare/v0.13.0...v0.14.0
