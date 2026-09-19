@@ -164,6 +164,12 @@ release new:
     # Before anything is written. 0.13.0 shipped with its entry still under
     # Unreleased, so the refusal comes first and costs nothing when it passes.
     python3 scripts/roll_changelog.py "{{new}}" --date "$(date -u +%F)" --check
+    # The bump has to precede the test, because a test compares the running
+    # --version against VERSION. So a failing test would otherwise leave a
+    # half-applied bump behind with nothing saying how to undo it. Cleared on
+    # the commit below, which is the point of no return.
+    bumped="VERSION CHANGELOG.md .claude-plugin/plugin.json .codex-plugin/plugin.json"
+    trap 'echo "release aborted; restoring $bumped" >&2; git checkout -- $bumped' ERR INT TERM
     echo "{{new}}" > VERSION
     python3 scripts/roll_changelog.py "{{new}}" --date "$(date -u +%F)"
     # Rewritten as JSON, not by sed: a manifest that stops parsing takes the
@@ -173,6 +179,7 @@ release new:
     done
     just test
     git add VERSION CHANGELOG.md .claude-plugin/plugin.json .codex-plugin/plugin.json .docket
+    trap - ERR INT TERM
     git commit -s -m "release: {{new}}"
     git tag -a "v{{new}}" -m "docket {{new}}"
     just publish "{{new}}"

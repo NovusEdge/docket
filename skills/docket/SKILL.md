@@ -227,25 +227,6 @@ Evidence references are provenance supplied by the recorder. Docket does not
 claim that evidence was freshly checked. Re-run `docket context` through the
 harness's existing hook after compaction or resume.
 
-## Work in flight
-
-The ledger records what was settled. A separate store records what is underway:
-a named piece of work, the paths it declares, the outcomes it intends, and the
-change set it realized. Neither store writes to the other.
-
-```sh
-docket feature list
-docket feature brief
-```
-
-`feature brief` derives which ledger records govern the active feature from its
-declared paths, strongest first. Read it before changing code inside a declared
-path; it is the scoped subset of what `docket context` would hand over.
-
-Start, amend and close a feature through the
-[docket-feature skill](../docket-feature/SKILL.md), which covers when a piece of
-work is worth declaring and what `done` records about it.
-
 ## Ledger location
 
 Run `docket where` to inspect the active ledger. `docket init` copies entries to
