@@ -12,7 +12,7 @@ def prop(
     anchor,
     kind="decision",
     choice="yes",
-    text="Question?",
+    text="The cache evicts on write.",
     date="2026-06-18",
     path="a.md",
     scope=None,
@@ -49,7 +49,7 @@ class AcceptTests(unittest.TestCase):
         accept.run(self.staged, self.ledger)
         entries = read(self.ledger)
         self.assertEqual(len(entries), 1)
-        self.assertEqual(entries[0]["text"], "Question?")
+        self.assertEqual(entries[0]["text"], "The cache evicts on write.")
 
     def test_allocates_a_real_ledger_id(self):
         stage.write(self.staged, self.accepted(prop("one")))
@@ -146,7 +146,7 @@ class AcceptTests(unittest.TestCase):
     def test_accepts_only_the_named_source_when_asked(self):
         stage.write(self.staged, self.accepted(prop("a", path="x.md"), prop("b", path="y.md")))
         accept.run(self.staged, self.ledger, source="x.md")
-        self.assertEqual([e["text"] for e in read(self.ledger)], ["Question?"])
+        self.assertEqual([e["text"] for e in read(self.ledger)], ["The cache evicts on write."])
         states = {p["source"]["path"]: p["state"] for p in stage.read(self.staged)}
         self.assertEqual(states, {"x.md": "written", "y.md": "accepted"})
 

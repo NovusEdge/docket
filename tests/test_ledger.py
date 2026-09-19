@@ -244,10 +244,10 @@ class ValidationScalingTests(unittest.TestCase):
 
 
 class ReasoningTests(unittest.TestCase):
-    def decision(self, **kwargs):
+    def decision(self, text="Pick a database.", **kwargs):
         fields = {"state": "adopted", "choice": "Postgres", "author": "test"}
         fields.update(kwargs)
-        return ledger.make_record("decision", "Which database?", **fields)
+        return ledger.make_record("decision", text, **fields)
 
     def test_alternatives_that_only_echo_the_choice_are_refused(self):
         for alternatives in (["Postgres"], ["postgres"], ["  Postgres  ", "Postgres"]):
@@ -266,9 +266,9 @@ class ReasoningTests(unittest.TestCase):
         with self.assertRaisesRegex(ledger.LedgerError, "why the choice won"):
             self.decision(rationale="Postgres")
 
-    def test_a_rationale_that_restates_the_question_is_refused(self):
+    def test_a_rationale_that_restates_the_text_is_refused(self):
         with self.assertRaisesRegex(ledger.LedgerError, "why the choice won"):
-            self.decision(rationale="which database?")
+            self.decision(rationale="pick a database.")
 
     def test_a_real_rationale_passes(self):
         record = self.decision(rationale="The team already runs it in production.")
@@ -281,6 +281,32 @@ class ReasoningTests(unittest.TestCase):
         record["id"] = "d1"
         record["alternatives"] = ["Postgres", "SQLite"]
         record["rationale"] = "Postgres"
+        ledger.validate_record(record)
+
+    def test_a_decision_written_as_a_question_is_refused(self):
+        with self.assertRaisesRegex(ledger.LedgerError, "state the commitment"):
+            self.decision(text="Which database should we use?")
+
+    def test_a_claim_written_as_a_question_is_refused(self):
+        with self.assertRaisesRegex(ledger.LedgerError, "state the commitment"):
+            ledger.make_record("claim", "Does the cache evict on write?")
+
+    def test_a_question_may_end_in_a_question_mark(self):
+        record = ledger.make_record("question", "Which cache should we use?")
+        self.assertEqual(record["text"], "Which cache should we use?")
+
+    def test_trailing_whitespace_does_not_hide_a_question(self):
+        with self.assertRaisesRegex(ledger.LedgerError, "state the commitment"):
+            ledger.make_record("claim", "Does the cache evict on write?   \n")
+
+    def test_a_question_mark_inside_the_text_is_allowed(self):
+        record = ledger.make_record("claim", "The 'why?' column is unused.")
+        self.assertEqual(record["text"], "The 'why?' column is unused.")
+
+    def test_an_old_question_shaped_record_still_reads(self):
+        record = self.decision()
+        record["id"] = "d1"
+        record["text"] = "Which database should we use?"
         ledger.validate_record(record)
 
     def test_hints_name_the_empty_fields_with_scope_first(self):

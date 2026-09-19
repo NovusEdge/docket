@@ -663,7 +663,7 @@ class LargeLedgerTests(unittest.TestCase):
                 entry(
                     f"d{number}",
                     "decision",
-                    f"Question {number} about caching?",
+                    f"Cache layer {number} caches reads.",
                     choice="Cache it",
                     scope=("lib/**",),
                 )

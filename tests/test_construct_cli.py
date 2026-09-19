@@ -14,7 +14,9 @@ from docket.construct import schema, stage
 from docket.ledger import read
 
 
-def prop(anchor, path="context/a.md", confidence="low", scope=None, text="Question?"):
+def prop(
+    anchor, path="context/a.md", confidence="low", scope=None, text="The cache evicts on write."
+):
     return schema.proposal(
         kind="decision",
         text=text,
@@ -72,8 +74,8 @@ class ReviewTests(unittest.TestCase):
         self.assertIn("**Decision:** keep it", out)
 
     def test_prints_the_record_text(self):
-        rc, out = self.review([prop("one", text="Where does it live?")])
-        self.assertIn("Where does it live?", out)
+        rc, out = self.review([prop("one", text="The cache lives in Redis.")])
+        self.assertIn("The cache lives in Redis.", out)
 
     def test_marks_a_record_whose_scope_resolves_to_nothing(self):
         rc, out = self.review([prop("one", scope=["gone/x.py"])])

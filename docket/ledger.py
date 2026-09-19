@@ -103,6 +103,27 @@ def _reject_empty_reasoning(record: dict[str, Any]) -> None:
         )
 
 
+def _reject_question_text(record: dict[str, Any]) -> None:
+    """Refuse a claim or decision whose text asks rather than states.
+
+    81 of the first 82 decisions were recorded as the question they settled,
+    with the answer in choice. A reader scanning kinds then sees a commitment
+    that reads as an open inquiry, and graph_payload labels the node with the
+    question. The question belongs in a question record, linked by --answers.
+
+    This runs when a record is written, never when one is read. A ledger
+    recorded under the old rule stays readable.
+    """
+    if record["kind"] == "question":
+        return
+    if record["text"].rstrip().endswith("?"):
+        raise _error(
+            "record",
+            f"a {record['kind']} must state the commitment, not ask it; record the "
+            "question with 'docket question' and link it with --answers",
+        )
+
+
 def reasoning_hints(record: dict[str, Any]) -> list[str]:
     """Fields left empty that usually carry something, worst first.
 
@@ -175,6 +196,7 @@ def make_record(
         "cost_if_wrong": cost_if_wrong,
         "pinned": pinned,
     }
+    _reject_question_text(record)
     if kind == "decision":
         if alternatives is not None and not isinstance(alternatives, list):
             raise _error("record", "alternatives must be a list")
