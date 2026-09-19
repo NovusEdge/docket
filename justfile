@@ -150,7 +150,7 @@ where:
     fi
     ./bin/docket where
 
-# bump VERSION and both plugin manifests, test, commit and tag
+# bump VERSION and both plugin manifests, roll the changelog, test, commit and tag
 [group('release')]
 release new:
     #!/usr/bin/env bash
@@ -161,14 +161,18 @@ release new:
     dirty="$(git status --porcelain -- . ':(exclude).docket')"
     test -z "$dirty" || { echo "working tree is dirty outside .docket:"; echo "$dirty"; exit 1; }
     ./bin/docket check
+    # Before anything is written. 0.13.0 shipped with its entry still under
+    # Unreleased, so the refusal comes first and costs nothing when it passes.
+    python3 scripts/roll_changelog.py "{{new}}" --date "$(date -u +%F)" --check
     echo "{{new}}" > VERSION
+    python3 scripts/roll_changelog.py "{{new}}" --date "$(date -u +%F)"
     # Rewritten as JSON, not by sed: a manifest that stops parsing takes the
     # plugin down in every harness at once.
     for f in .claude-plugin/plugin.json .codex-plugin/plugin.json; do
       python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d["version"]=sys.argv[2]; open(p,"w").write(json.dumps(d, indent=2)+"\n")' "$f" "{{new}}"
     done
     just test
-    git add VERSION .claude-plugin/plugin.json .codex-plugin/plugin.json .docket
+    git add VERSION CHANGELOG.md .claude-plugin/plugin.json .codex-plugin/plugin.json .docket
     git commit -s -m "release: {{new}}"
     git tag -a "v{{new}}" -m "docket {{new}}"
     echo "tagged v{{new}}; push with: git push && git push --tags"

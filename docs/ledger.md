@@ -24,6 +24,15 @@ Every record has these required fields:
 | `decision` | A commitment to a choice | `adopted`, `revoked` | `choice`, `alternatives`, optional `decided_by` |
 | `question` | An unanswered inquiry | `open` | none |
 
+`alternatives` holds the options the choice beat, and it is empty when nothing
+contended. Recording refuses a list that only repeats the choice, and it
+refuses a `rationale` that restates the choice or the question. Four other
+reasoning fields print a hint and record anyway: `scope`, `alternatives`,
+`rationale` and `cost_if_wrong`. [Recording](recording.md) covers both tiers.
+
+Those checks run at write time. Reading a ledger checks structure alone, so a
+ledger written before 0.14.0 still reads.
+
 IDs use the type prefix and a positive global sequence number: `c1`, `d2`, and
 `q3`. The sequence is shared across kinds, and gaps are allowed.
 

@@ -18,6 +18,11 @@ selects records by query and file scope, includes bounded direct neighbors, and
 fits whole record blocks into a character budget. It reports omissions and
 provides a command to retrieve individual records.
 
+Support alternatives and decision prerequisites are thinner in practice than
+that sentence suggests. One record carries more than one support set, nine
+declare a prerequisite, and no decision has ever derived as blocked.
+[The north star](north-star.md) gives the field-by-field counts.
+
 The next improvements should help agents select, understand, and use that data
 throughout a task.
 

@@ -286,6 +286,11 @@ applicable. Otherwise a derived view exposes the unavailable prerequisite IDs
 in `blocked_by`. This is a derived usability result. It does not revoke the
 recorded choice or propagate truth.
 
+No decision on this repository's ledger has yet derived as blocked, across 119
+records and nine that declare a prerequisite. Treat the rule as specified and
+unexercised. `docket feature list` reads the same relation, so the first real
+blocker will surface there as well.
+
 ## Record fields and relationships
 
 ### Required fields

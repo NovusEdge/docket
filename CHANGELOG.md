@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `just release` now rolls the changelog, and refuses to release while
+  `## [Unreleased]` is empty. 0.13.0 shipped with its entry still under that
+  heading and nothing reported it. `scripts/roll_changelog.py` moves the
+  section under a dated version heading and moves the compare links with it.
+  (#20)
+
+### Documentation
+
+- `docs/recording.md` and `docs/ledger.md` now state the two tiers 0.14.0
+  introduced: a repeated `--alternative` or a restated `--rationale` is
+  refused, four reasoning fields hint and record anyway, and both checks run
+  at write time so an older ledger still reads. (#18)
+- `docs/north-star.md`, `docs/agent-context-goals.md` and `docs/definitions.md`
+  now separate the exercised parts of the schema from the provisional ones,
+  with the counts from this ledger. No decision has ever derived as blocked,
+  one record carries more than one support set, and nine declare a
+  prerequisite. (#19)
+- `docs/installation.md` covers running setup again on a machine that already
+  has Docket, which is how a second harness or a construct provider gets
+  added. It names what carries forward, what must be repeated, and what
+  `--dry-run` shows. (#21)
+
 ## [0.17.0] - 2026-09-19
 
 ### Added

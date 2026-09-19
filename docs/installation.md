@@ -315,6 +315,41 @@ Uninstall keeps your ledgers.
 Use the downloaded launcher for these operations. Running `installer/install.py`
 inside the permanent checkout selects the source-build path and requires Go.
 
+## Add a harness to an install you already have
+
+Run setup again. This is the path for adding a second harness, or for adding a
+construct provider after the first install.
+
+```sh
+python3 "$docket_setup_dir/install.py" --dry-run
+python3 "$docket_setup_dir/install.py"
+```
+
+Pass `--harness NAME` to configure one harness and leave the others as they
+are; the flag repeats. Pass `--construct PROVIDER` to add the construct SDK.
+On Windows, use `py -3 $docketSetupScript` in place of
+`python3 "$docket_setup_dir/install.py"`.
+
+Repeat `--dir` and `--prefix` if your first install used custom locations. A
+bare rerun takes the defaults, so it would install a second copy beside the
+first. The construct provider is the one choice the installer carries forward
+on its own: it reads the recorded value from `.docket-managed` in the existing
+checkout, because `--update` takes no provider argument and a stale SDK would
+otherwise survive every release.
+
+`--dry-run` on a machine that already has Docket prints the same plan as a
+first install, with the resolved paths filled in: the checkout it will refresh,
+the command it will write at the prefix, and one line per harness
+configuration file. Nothing outside those lines changes.
+
+Your ledgers survive. The installer replaces code and writes no ledger line,
+and the plan says so. A project ledger at `.docket/ledger.jsonl` inside the
+managed checkout is left alone, and this repository's own records never merge
+into it.
+
+Before 0.14.0 this path failed. The installer planned a fresh checkout, then
+refused the swap because both trees carried `.docket`. The refusal is fixed.
+
 ## Manual installation
 
 If you want to manage the source with Git, clone it into a directory you will

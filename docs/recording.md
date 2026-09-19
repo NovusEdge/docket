@@ -55,6 +55,26 @@ For a choice that deserves more explanation, add `--alternative` for another
 option you considered or `--cost` for what would happen if the choice were wrong.
 Use `--decided-by` when you are recording a choice that someone else made.
 
+### What recording refuses, and what it only hints about
+
+Two forms are refused, and the record is not written:
+
+- `--alternative` that only repeats the choice.
+- `--rationale` that restates the choice or the question.
+
+Both are the shapes a recorder reaches for to fill a field it has nothing for.
+A field that looks filled while saying nothing is worse than an empty one.
+Leave the option off. A decision that had no contender is a real decision, and
+an empty `alternatives` list is legal.
+
+Four fields print a hint on stderr and record anyway, because each is
+legitimately empty for some records: `--scope`, `--alternative`, `--rationale`
+and `--cost`. [Working with Docket](../skills/docket/SKILL.md) gives the table
+of when to fill each one.
+
+Both checks run when a record is written. Reading a ledger checks structure
+alone, so a ledger written before 0.14.0 still reads.
+
 ## Leave a question, then answer it
 
 First, record the open question:

@@ -50,6 +50,21 @@ Each schema 2 record contains:
 - `ts`, `session`, `author`, `branch`, and `pinned`: provenance and retrieval
   fields.
 
+Some of that machinery is exercised and some is provisional. The distinction
+matters to a reader deciding what to reach for. Counts below are from this
+repository's own ledger at 119 records.
+
+| Field | State on this ledger |
+|---|---|
+| `supports`, `answers`, `supersedes`, `scope` | in constant use |
+| `depends_on` | 9 decisions declare one |
+| `supports` with more than one set | one record, d95 |
+| `applicable`, `blocked_by` | derived on every read, never yet true |
+| `cost_if_wrong` | empty on 15 of 111 claims and decisions, and free text that nothing scores (c60) |
+
+A field with no records behind it is a shape the schema reserves, not a
+workflow the project has proven. d93 settled that they stay in the schema.
+
 Type, recorded state, and currentness are separate. A claim can be `accepted`
 without being true. A decision can be `adopted` without being correct.
 Supersession retires a line from current views while preserving its recorded
