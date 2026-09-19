@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from docket.graph_export import to_dot, to_mermaid
+from docket.graph_export import to_csv, to_dot, to_mermaid
 
 
 def entry(ident, kind, text="t", **fields):
@@ -373,6 +373,86 @@ class DetailBoundaryTests(unittest.TestCase):
         for render in (to_mermaid, to_dot):
             out = render(self.pair(""), detail=40)
             self.assertIn("c1", out)
+
+
+class CsvTests(unittest.TestCase):
+    """The Gephi tables. Parsed with csv.reader, never by splitting on commas."""
+
+    def rows(self, text):
+        import csv
+        import io
+
+        return list(csv.reader(io.StringIO(text)))
+
+    def graph(self):
+        return [
+            entry("c1", "claim", "a premise", state="accepted", scope=["a/**"]),
+            entry("q2", "question", "which one?", state="open"),
+            entry("d3", "decision", "pick it", state="adopted", supports=[["c1"]], answers=["q2"]),
+        ]
+
+    def test_the_node_table_carries_the_columns_gephi_recognises(self):
+        nodes, _ = to_csv(self.graph())
+        header, *body = self.rows(nodes)
+        self.assertEqual(header[:2], ["Id", "Label"])
+        self.assertEqual(sorted(row[0] for row in body), ["c1", "d3", "q2"])
+
+    def test_the_edge_table_names_source_target_and_the_relation(self):
+        _, edges = to_csv(self.graph())
+        header, *body = self.rows(edges)
+        self.assertEqual(header, ["Source", "Target", "Type", "Label", "Weight"])
+        self.assertIn(["c1", "d3", "Directed", "supports", "1"], body)
+        self.assertIn(["d3", "q2", "Directed", "answers", "1"], body)
+
+    def test_every_edge_endpoint_appears_in_the_node_table(self):
+        # Gephi creates a bare node for an unknown endpoint, which lands in the
+        # layout with no kind and no label and looks like a real record.
+        nodes, edges = to_csv(self.graph())
+        known = {row[0] for row in self.rows(nodes)[1:]}
+        for source, target, *_ in self.rows(edges)[1:]:
+            self.assertIn(source, known)
+            self.assertIn(target, known)
+
+    def test_a_comma_in_the_text_does_not_split_a_column(self):
+        nodes, _ = to_csv(
+            [
+                entry("c1", "claim", 'a premise, with a comma and a "quote"', state="accepted"),
+                entry("d2", "decision", "x", supports=[["c1"]]),
+            ],
+            detail=0,
+        )
+        rows = self.rows(nodes)
+        self.assertTrue(all(len(row) == len(rows[0]) for row in rows))
+        self.assertIn('a premise, with a comma and a "quote"', [row[-1] for row in rows])
+
+    def test_a_join_node_is_labelled_as_a_set(self):
+        nodes, edges = to_csv(
+            [
+                entry("c1", "claim", "one", state="accepted"),
+                entry("c2", "claim", "two", state="accepted"),
+                entry("d3", "decision", "either", supports=[["c1"], ["c2"]]),
+            ]
+        )
+        kinds = {row[0]: row[2] for row in self.rows(nodes)[1:]}
+        joins = [ident for ident, kind in kinds.items() if kind == "set"]
+        self.assertEqual(len(joins), 2)
+        endpoints = {end for row in self.rows(edges)[1:] for end in row[:2]}
+        self.assertTrue(set(joins) <= endpoints)
+
+    def test_a_retired_record_is_flagged_and_only_appears_when_asked(self):
+        records = [
+            entry("c1", "claim", "old", state="accepted", retired_by="c9"),
+            entry("d2", "decision", "x", supports=[["c1"]]),
+        ]
+        nodes, _ = to_csv(records)
+        self.assertNotIn("c1", [row[0] for row in self.rows(nodes)[1:]])
+        nodes, _ = to_csv(records, superseded=True)
+        flags = {row[0]: row[4] for row in self.rows(nodes)[1:]}
+        self.assertEqual(flags["c1"], "true")
+        self.assertEqual(flags["d2"], "false")
+
+    def test_a_selection_with_no_relation_returns_two_empty_documents(self):
+        self.assertEqual(to_csv([entry("c1", "claim", "alone")]), ("", ""))
 
 
 if __name__ == "__main__":

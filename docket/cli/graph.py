@@ -444,11 +444,43 @@ def _render_graph(
     return 0
 
 
+def _write_csv(entries: list[dict], args: argparse.Namespace) -> int:
+    """Write nodes.csv and edges.csv for Gephi into args.out."""
+
+    from pathlib import Path
+
+    from docket.graph_export import to_csv
+
+    nodes, edges = to_csv(
+        entries,
+        detail=args.detail,
+        superseded=bool(getattr(args, "superseded", False)),
+    )
+    if not nodes:
+        print("docket: no record in this selection carries a relation", file=sys.stderr)
+        return 0
+    out = Path(args.out)
+    try:
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "nodes.csv").write_text(nodes, encoding="utf-8")
+        (out / "edges.csv").write_text(edges, encoding="utf-8")
+    except OSError as exc:
+        print(f"docket: cannot write to {out}: {exc}", file=sys.stderr)
+        return 1
+    print(f"docket: wrote {out / 'nodes.csv'} and {out / 'edges.csv'}")
+    print(
+        "Gephi: File > Import spreadsheet, nodes.csv as a node table, then edges.csv as an edge table"
+    )
+    return 0
+
+
 def cmd_graph(args: argparse.Namespace) -> int:
     style = getattr(args, "style", None)
     interactive = bool(getattr(args, "interactive", False))
     no_interactive = bool(getattr(args, "no_interactive", False))
     plain = bool(getattr(args, "plain", False))
+    # getattr, not args.format: the dispatch tests build a bare namespace.
+    fmt = getattr(args, "format", None)
 
     if interactive and no_interactive:
         print("docket: --interactive conflicts with --no-interactive", file=sys.stderr)
@@ -459,8 +491,16 @@ def cmd_graph(args: argparse.Namespace) -> int:
     if interactive and style is not None:
         print("docket: --interactive conflicts with --style", file=sys.stderr)
         return 2
-    if interactive and getattr(args, "format", None):
+    if interactive and fmt:
         print("docket: --interactive conflicts with --format", file=sys.stderr)
+        return 2
+    if getattr(args, "out", None) and fmt != "csv":
+        print("docket: --out belongs to --format csv", file=sys.stderr)
+        return 2
+    if fmt == "csv" and not getattr(args, "out", None):
+        # Gephi imports a node table and an edge table separately, so csv is
+        # two documents and stdout cannot carry both.
+        print("docket: --format csv writes two files; name a directory with --out", file=sys.stderr)
         return 2
     if interactive and not _graph_is_tty():
         print("docket: --interactive requires terminal stdin and stdout", file=sys.stderr)
@@ -471,7 +511,10 @@ def cmd_graph(args: argparse.Namespace) -> int:
         print("docket: nothing recorded")
         return 0
 
-    if getattr(args, "format", None):
+    if fmt == "csv":
+        return _write_csv(entries, args)
+
+    if fmt:
         from docket.graph_export import to_dot, to_mermaid
 
         render = to_dot if args.format == "dot" else to_mermaid
@@ -489,6 +532,7 @@ def cmd_graph(args: argparse.Namespace) -> int:
 
     viewer = _graph_viewer_path()
     auto = _graph_is_tty() and not no_interactive and not plain and style is None
+
     if interactive or auto:
         if not viewer.is_file():
             _graph_viewer_error(viewer)

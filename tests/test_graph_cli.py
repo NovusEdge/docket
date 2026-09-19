@@ -207,6 +207,49 @@ class GraphFormatCliTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("nothing recorded", out + err)
 
+    def test_csv_writes_both_tables_into_the_named_directory(self):
+        self.seed()
+        target = self.root / "gephi"
+        code, out, _ = self.run_cli(
+            "graph", "--format", "csv", "--out", str(target), "--no-interactive"
+        )
+        self.assertEqual(code, 0)
+        self.assertTrue((target / "nodes.csv").is_file())
+        self.assertTrue((target / "edges.csv").is_file())
+        self.assertIn("Gephi", out)
+
+    def test_csv_without_out_is_refused(self):
+        # Gephi imports node and edge tables separately, so stdout cannot carry
+        # both and a silent choice of one would be the wrong one half the time.
+        self.seed()
+        code, _, err = self.run_cli("graph", "--format", "csv", "--no-interactive")
+        self.assertEqual(code, 2)
+        self.assertIn("--out", err)
+
+    def test_out_without_csv_is_refused(self):
+        self.seed()
+        code, _, err = self.run_cli(
+            "graph", "--format", "dot", "--out", str(self.root / "x"), "--no-interactive"
+        )
+        self.assertEqual(code, 2)
+        self.assertIn("--out belongs to --format csv", err)
+
+    def test_a_filter_reaches_the_csv_tables(self):
+        self.seed()
+        target = self.root / "gephi"
+        self.run_cli(
+            "graph",
+            "--format",
+            "csv",
+            "--out",
+            str(target),
+            "--kind",
+            "decision",
+            "--no-interactive",
+        )
+        if (target / "nodes.csv").is_file():
+            self.assertNotIn("q2", (target / "nodes.csv").read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()

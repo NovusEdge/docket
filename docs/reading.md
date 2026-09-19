@@ -86,23 +86,55 @@ Use `--no-interactive` to request text output directly.
 
 ## Export the graph
 
-`docket graph --format` prints the relation graph as text, in mermaid or
-graphviz DOT.
+`docket graph --format` exports the relation graph in three shapes.
 
-| Format | Viewer | Install |
-|---|---|---|
-| `mermaid` | GitHub, GitLab, GitBook, [mermaid.live](https://mermaid.live) | None |
-| `dot` | `dot -Tsvg`, and any graphviz front end | graphviz |
+| Format | Viewer | Install | Output |
+|---|---|---|---|
+| `mermaid` | GitHub, GitLab, GitBook, [mermaid.live](https://mermaid.live) | None | stdout |
+| `dot` | `dot -Tsvg`, and any graphviz front end | graphviz | stdout |
+| `csv` | Gephi, or anything reading a node and edge table | Gephi | two files |
 
 Mermaid pastes into a fenced `mermaid` block and renders where this project's
 docs already live. DOT lays out a large graph better and gives real SVG, PDF
-and PNG, and the reader needs graphviz for any of it.
+and PNG, and the reader needs graphviz for any of it. CSV is for a tool that
+measures the graph rather than drawing it: centrality, clustering, a filter
+over node attributes.
 
 ```sh
 docket graph --format mermaid --find installer
 docket graph --format mermaid --superseded --detail 0 > graph.mmd
 docket graph --format dot --find installer | dot -Tsvg -o installer.svg
+docket graph --format csv --out gephi/ --superseded
 ```
+
+`--kind`, `--state`, `--find`, `--superseded` and `--detail` narrow all three.
+`--direction` applies to mermaid and DOT.
+
+### Gephi
+
+`--format csv` writes two files, because Gephi imports a node table and an
+edge table separately. Name the directory with `--out`.
+
+```sh
+docket graph --format csv --out gephi/
+```
+
+In Gephi, use **File > Import spreadsheet**, take `nodes.csv` as a node table,
+then `edges.csv` as an edge table into the same workspace.
+
+`nodes.csv` carries `Id` and `Label` for Gephi itself, then `kind`, `state`,
+`retired`, `scope` and the full `text` as node attributes. Partition by `kind`
+to colour claims, decisions and questions apart, or filter on `retired` to
+drop the retired records after importing them.
+
+`edges.csv` carries `Source`, `Target`, `Type` and a `Label` naming the
+relation: `supports`, `depends_on`, `answers` or `supersedes`. Every edge is
+directed. Filter on `Label` to see one relation at a time.
+
+A record with more than one support set gets a `set` join node, the same way
+the drawn formats do, so the graph never reads as needing every premise at
+once. Those nodes carry `kind` `set`, which a partition separates from the
+records.
 
 ### A worked example
 

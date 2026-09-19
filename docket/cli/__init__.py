@@ -104,8 +104,13 @@ def main(argv: list[str] | None = None) -> int:
     gr.add_argument("--find", help="match question or answer text")
     gr.add_argument(
         "--format",
-        choices=("mermaid", "dot"),
-        help="emit the relation graph as mermaid or graphviz DOT instead of rendering it",
+        choices=("mermaid", "dot", "csv"),
+        help="emit the relation graph as mermaid, graphviz DOT or Gephi CSV instead of rendering it",
+    )
+    gr.add_argument(
+        "--out",
+        metavar="DIR",
+        help="directory for --format csv, which writes nodes.csv and edges.csv",
     )
     gr.add_argument(
         "--detail", type=int, default=40, help="characters of record text per node, 0 for ids only"

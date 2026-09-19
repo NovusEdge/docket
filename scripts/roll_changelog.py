@@ -34,6 +34,25 @@ def _section(text: str) -> tuple[int, int, str]:
     return body_at, end, text[body_at:end]
 
 
+def notes(text: str, version: str) -> str:
+    """One released version's section, as the GitHub release body.
+
+    The release page and the changelog then say the same thing, and neither is
+    written twice.
+    """
+
+    heading = f"## [{version}]"
+    start = text.find(heading)
+    if start == -1:
+        raise ChangelogError(f"no {heading} section to publish")
+    body_at = text.index("\n", start)
+    following = HEADING.search(text, body_at)
+    body = text[body_at : following.start() if following else len(text)].strip()
+    if not body:
+        raise ChangelogError(f"{heading} is empty")
+    return body + "\n"
+
+
 def roll(text: str, version: str, today: str) -> str:
     """Retitle the Unreleased body as ``version``, and leave a fresh Unreleased.
 
@@ -64,14 +83,30 @@ def roll(text: str, version: str, today: str) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("version", help="the release being cut, without a leading v")
-    parser.add_argument("--date", required=True, metavar="YYYY-MM-DD")
+    # Not required: --notes reads a section that already carries its date.
+    parser.add_argument("--date", metavar="YYYY-MM-DD")
     parser.add_argument("--path", type=Path, default=Path("CHANGELOG.md"))
     parser.add_argument(
         "--check", action="store_true", help="refuse an empty section, write nothing"
     )
+    parser.add_argument(
+        "--notes",
+        action="store_true",
+        help="print this version's released section for a release body, and write nothing",
+    )
     args = parser.parse_args(argv)
 
+    if not args.notes and not args.date:
+        parser.error("--date is required unless --notes is given")
+
     text = args.path.read_text(encoding="utf-8")
+    if args.notes:
+        try:
+            print(notes(text, args.version), end="")
+        except ChangelogError as exc:
+            print(f"{args.path}: {exc}", file=sys.stderr)
+            return 1
+        return 0
     try:
         rolled = roll(text, args.version, args.date)
     except ChangelogError as exc:

@@ -150,7 +150,7 @@ where:
     fi
     ./bin/docket where
 
-# bump VERSION and both plugin manifests, roll the changelog, test, commit and tag
+# bump, roll the changelog, test, commit, tag, push and publish the GitHub release
 [group('release')]
 release new:
     #!/usr/bin/env bash
@@ -175,4 +175,32 @@ release new:
     git add VERSION CHANGELOG.md .claude-plugin/plugin.json .codex-plugin/plugin.json .docket
     git commit -s -m "release: {{new}}"
     git tag -a "v{{new}}" -m "docket {{new}}"
-    echo "tagged v{{new}}; push with: git push && git push --tags"
+    just publish "{{new}}"
+
+# push a tag from `just release`, build its assets, create the GitHub release
+[group('release')]
+publish new:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Separate from release so a failed publish is one command to retry, and so
+    # a tag cut on a machine without gh can be published from another. docket
+    # update reads releases/latest, so a tag alone reaches nobody: v0.16.0 was
+    # tagged and pushed while every installed copy was still offered 0.15.0.
+    command -v gh >/dev/null || { echo "gh is not installed; cannot publish v{{new}}"; exit 1; }
+    git rev-parse -q --verify "refs/tags/v{{new}}" >/dev/null \
+      || { echo "no tag v{{new}}; run just release {{new}} first"; exit 1; }
+    test "$(cat VERSION)" = "{{new}}" \
+      || { echo "VERSION says $(cat VERSION), not {{new}}"; exit 1; }
+    git push origin HEAD --follow-tags
+    # Built here, not reused from a previous run: an asset must come from the
+    # tree the tag names, and dist/ survives a checkout.
+    rm -rf dist
+    python3 installer/release.py
+    python3 graph/release.py
+    notes="$(mktemp)"
+    trap 'rm -f "$notes"' EXIT
+    python3 scripts/roll_changelog.py "{{new}}" --notes > "$notes"
+    gh release create "v{{new}}" --title "docket {{new}}" --notes-file "$notes" --latest \
+      dist/installer/* dist/graph/*
+    rm -rf dist
+    echo "published v{{new}}; docket update now offers it"

@@ -206,4 +206,68 @@ def to_dot(
     return "\n".join(lines)
 
 
-__all__ = ["ARROWS", "DOT_EDGES", "DOT_SHAPES", "SHAPES", "to_dot", "to_mermaid"]
+NODE_COLUMNS = ("Id", "Label", "kind", "state", "retired", "scope", "text")
+EDGE_COLUMNS = ("Source", "Target", "Type", "Label", "Weight")
+
+
+def to_csv(
+    entries: list[dict[str, Any]],
+    *,
+    detail: int = 40,
+    superseded: bool = False,
+) -> tuple[str, str]:
+    """A Gephi node table and edge table, as two CSV documents.
+
+    Gephi imports one spreadsheet at a time as either nodes or edges, so this
+    returns two rather than one. The capitalised column names are the ones its
+    importer recognises without a manual mapping; the lowercase ones arrive as
+    node attributes a filter or a partition can use.
+
+    A join node carries kind "set" so a partition by kind separates the
+    synthetic nodes from the records.
+    """
+
+    import csv
+    import io
+
+    drawn, edges = _selected(entries, superseded=superseded)
+    if not drawn:
+        return "", ""
+
+    nodes = io.StringIO()
+    writer = csv.writer(nodes, lineterminator="\n")
+    writer.writerow(NODE_COLUMNS)
+    for entry in drawn:
+        writer.writerow(
+            [
+                entry["id"],
+                _label(entry, detail),
+                entry.get("kind", ""),
+                entry.get("state", ""),
+                "true" if entry.get("retired_by") else "false",
+                " ".join(str(s) for s in entry.get("scope") or []),
+                str(entry.get("text", "")),
+            ]
+        )
+    for join in _join_nodes(edges):
+        writer.writerow([join, "set", "set", "", "false", "", ""])
+
+    links = io.StringIO()
+    writer = csv.writer(links, lineterminator="\n")
+    writer.writerow(EDGE_COLUMNS)
+    for source, target, kind in edges:
+        writer.writerow([source, target, "Directed", kind, 1])
+    return nodes.getvalue(), links.getvalue()
+
+
+__all__ = [
+    "ARROWS",
+    "DOT_EDGES",
+    "DOT_SHAPES",
+    "EDGE_COLUMNS",
+    "NODE_COLUMNS",
+    "SHAPES",
+    "to_csv",
+    "to_dot",
+    "to_mermaid",
+]

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `docket graph --format csv --out DIR` writes `nodes.csv` and `edges.csv` for
+  Gephi, or for anything else that reads a node table and an edge table. Two
+  files, because Gephi imports each separately. Nodes carry `kind`, `state`,
+  `retired`, `scope` and the full text as attributes, so a partition or a
+  filter works on the imported graph. Edges name the relation in `Label`. The
+  `set` join node for a record with more than one support set appears here
+  too, carrying `kind` `set`.
+
 ### Fixed
 
 - `just release` now rolls the changelog, and refuses to release while
@@ -14,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   heading and nothing reported it. `scripts/roll_changelog.py` moves the
   section under a dated version heading and moves the compare links with it.
   (#20)
+- `just release` now publishes the GitHub release as well, through a new
+  `just publish` it calls at the end. A tag alone reaches nobody: `docket
+  update` reads `releases/latest`, and v0.16.0 was tagged and pushed while
+  every installed copy was still offered 0.15.0. The release body comes from
+  the changelog section, so the page and the file never disagree.
 
 ### Documentation
 
