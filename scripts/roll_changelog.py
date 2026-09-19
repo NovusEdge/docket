@@ -65,7 +65,10 @@ def roll(text: str, version: str, today: str) -> str:
     body_at, end, body = _section(text)
     if not body.strip():
         raise ChangelogError(f"{UNRELEASED} is empty; write the entry before releasing {version}")
-    rolled = f"\n\n## [{version}] - {today}\n{body.rstrip()}\n\n"
+    # body.strip(), because the captured section opens with the blank line that
+    # followed the Unreleased heading. Keeping it left two blank lines under the
+    # new heading, which every other section in the file does not have.
+    rolled = f"\n\n## [{version}] - {today}\n\n{body.strip()}\n\n"
     text = text[:body_at] + rolled + text[end:]
 
     match = LINK.search(text)

@@ -53,6 +53,13 @@ class RollTests(unittest.TestCase):
         self.assertTrue(head.strip().endswith("# Changelog"))
         self.assertTrue(rest.lstrip().startswith("## [0.17.0]"))
 
+    def test_the_new_heading_is_spaced_like_every_other_one(self):
+        # The captured section opens with the blank line that followed the
+        # Unreleased heading, so 0.17.1 rolled with two blank lines under it.
+        out = roll(FULL, "0.17.0", "2026-09-20")
+        self.assertIn("## [0.17.0] - 2026-09-20\n\n### Added\n", out)
+        self.assertNotIn("\n\n\n", out)
+
     def test_the_compare_links_move_with_it(self):
         out = roll(FULL, "0.17.0", "2026-09-20")
         self.assertIn(f"[Unreleased]: {BASE}v0.17.0...HEAD", out)
