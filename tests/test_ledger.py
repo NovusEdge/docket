@@ -309,6 +309,18 @@ class ReasoningTests(unittest.TestCase):
         record["text"] = "Which database should we use?"
         ledger.validate_record(record)
 
+    def test_a_decision_text_that_restates_the_choice_is_refused(self):
+        with self.assertRaisesRegex(ledger.LedgerError, "carry more than the choice"):
+            self.decision(text="Postgres")
+
+    def test_case_and_spacing_do_not_hide_the_echo(self):
+        with self.assertRaisesRegex(ledger.LedgerError, "carry more than the choice"):
+            self.decision(text="  postgres  ")
+
+    def test_a_text_that_extends_the_choice_passes(self):
+        record = self.decision(text="The primary store is Postgres.")
+        self.assertEqual(record["text"], "The primary store is Postgres.")
+
     def test_hints_name_the_empty_fields_with_scope_first(self):
         hints = ledger.reasoning_hints(self.decision())
         self.assertEqual(

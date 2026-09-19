@@ -75,7 +75,7 @@ def _normalized(value: str) -> str:
 
 
 def _reject_empty_reasoning(record: dict[str, Any]) -> None:
-    """Refuse a decision whose reasoning fields only echo the choice.
+    """Refuse a decision whose text or reasoning fields only echo the choice.
 
     Requiring the choice to appear in ``alternatives`` made a one-element list
     the shortest valid answer, and 38 of the first 56 decisions took it. The
@@ -94,8 +94,15 @@ def _reject_empty_reasoning(record: dict[str, Any]) -> None:
             "decision alternatives must name an option the choice beat; leave "
             "--alternative off when the decision had no contender",
         )
+    text = _normalized(record.get("text", ""))
+    if choice and text == choice:
+        raise _error(
+            "record",
+            "decision text must carry more than the choice; name what the "
+            "decision commits to and leave the option detail in --choice",
+        )
     rationale = _normalized(record.get("rationale", ""))
-    if rationale and rationale in (choice, _normalized(record.get("text", ""))):
+    if rationale and rationale in (choice, text):
         raise _error(
             "record",
             "decision rationale must say why the choice won; leave --rationale off "
