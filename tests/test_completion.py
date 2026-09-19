@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from docket.cli.admin import _BASH_COMPLETION
+from docket.cli.completion import _BASH_COMPLETION
 
 
 @unittest.skipUnless(shutil.which("bash"), "bash is not installed")

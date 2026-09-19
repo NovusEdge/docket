@@ -4,20 +4,15 @@ import argparse
 import sys
 
 from docket import features, version
-from docket.cli.admin import (
-    cmd_check,
-    cmd_completion,
-    cmd_init,
-    cmd_migrate,
-    cmd_rebase,
-    cmd_update,
-    cmd_update_fetch,
-)
+from docket.cli.admin import cmd_check, cmd_init, cmd_migrate, cmd_rebase
+from docket.cli.completion import cmd_completion
 from docket.cli.construct import cmd_construct
-from docket.cli.feature import add_feature_parser
+from docket.cli.context_cmd import CONTEXT_ENVELOPES, cmd_context
+from docket.cli.feature_parser import add_feature_parser
 from docket.cli.graph import cmd_graph
-from docket.cli.query import CONTEXT_ENVELOPES, cmd_context, cmd_list, cmd_show, cmd_where
+from docket.cli.query import cmd_list, cmd_show, cmd_where
 from docket.cli.record import cmd_claim, cmd_decision, cmd_question
+from docket.cli.selfupdate import cmd_update, cmd_update_fetch
 from docket.ledger import KINDS, STATES, LedgerError
 
 

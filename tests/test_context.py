@@ -1,7 +1,8 @@
 import re
 import unittest
 
-from docket.context import _blocking_paths, _term_weights, build_context, build_delta
+from docket.context import build_context, build_delta
+from docket.context_select import _blocking_paths, _term_weights
 from docket.ledger import make_record, project
 
 

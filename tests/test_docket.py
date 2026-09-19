@@ -12,8 +12,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from docket import env as docket_env  # noqa: E402
+from docket.cli import autoscope as cli_autoscope  # noqa: E402
 from docket.cli import graph as cli_graph  # noqa: E402
-from docket.cli import query as cli_query
 from docket.ledger import make_record  # noqa: E402
 
 DOCKET = str(Path(__file__).resolve().parent.parent / "bin" / "docket")
@@ -27,7 +27,7 @@ docket_cli = types.SimpleNamespace(
     read=docket_env.read,
     retired_by=docket_env.retired_by,
     _graph_payload=cli_graph._graph_payload,
-    auto_scope_files=cli_query.auto_scope_files,
+    auto_scope_files=cli_autoscope.auto_scope_files,
 )
 
 

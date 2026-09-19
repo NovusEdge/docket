@@ -282,9 +282,9 @@ class UpdateLine(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         os.environ["XDG_STATE_HOME"] = self.tmp.name
         self.addCleanup(os.environ.pop, "XDG_STATE_HOME", None)
-        from docket.cli import query
+        from docket.cli import context_cmd
 
-        self.docket_cli = query
+        self.docket_cli = context_cmd
 
     def test_due_check_forks_instead_of_fetching_inline(self):
         def boom(url=up.RELEASES_URL):
@@ -420,9 +420,9 @@ class UpdateCommandBranches(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         os.environ["XDG_STATE_HOME"] = self.tmp.name
         self.addCleanup(os.environ.pop, "XDG_STATE_HOME", None)
-        from docket.cli import admin
+        from docket.cli import selfupdate
 
-        self.docket_cli = admin
+        self.docket_cli = selfupdate
         original_call = self.docket_cli.subprocess.call
         self.addCleanup(setattr, self.docket_cli.subprocess, "call", original_call)
 
