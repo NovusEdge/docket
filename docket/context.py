@@ -22,7 +22,15 @@ from docket.config import DEFAULTS as _SETTINGS_DEFAULTS
 from docket.context_budget import Admission
 from docket.context_degrade import degrade
 from docket.context_delta import build_delta
-from docket.context_model import _clip_metadata, _id, _is_retired, _revision, _text, scope_strength
+from docket.context_model import (
+    _clip_metadata,
+    _id,
+    _is_retired,
+    _revision,
+    _text,
+    positions,
+    scope_strength,
+)
 from docket.context_render import _header
 from docket.context_select import _blocking_paths, _relation_ids, rank_records
 
@@ -103,7 +111,8 @@ def build_context(
     current = [item for item in history if not _is_retired(item)]
     task_mode = not all_records and bool(query.strip() or file_list)
 
-    order_by_id = sorted(by_id, key=lambda ident: int(ident[1:]))
+    at = positions(history)
+    order_by_id = sorted(by_id, key=lambda ident: at[ident])
     rank_of = {ident: index for index, ident in enumerate(order_by_id)}
     # One relation map serves scoring, adjacency, and the footer's related set,
     # so _relation_ids runs once per record for the whole briefing.
@@ -122,7 +131,7 @@ def build_context(
         in_degrees=in_degrees,
     )
     matched = [
-        ((-scores[_id(item)], -int(_id(item)[1:])), item)
+        ((-scores[_id(item)], -at[_id(item)]), item)
         for item in current
         if not task_mode or _id(item) in task_matched
     ]
@@ -145,7 +154,7 @@ def build_context(
             adjacency[ident].add(target)
             adjacency[target].add(ident)
     revision = _revision(history)
-    latest = max(by_id, key=lambda ident: int(ident[1:]), default="")
+    latest = max(by_id, key=lambda ident: at[ident], default="")
     if latest:
         # The digest covers the history up to and including that record, which
         # here is the whole history. A rebase renumbers the tail, so an agent
@@ -162,7 +171,7 @@ def build_context(
     short = f"# docket: {_clip_metadata(ledger or 'ledger', 60)} | revision: {revision}\n\n"
     # Score order, so the tail trim below drops the least relevant records.
     current_ids = sorted(
-        (_id(item) for item in current), key=lambda ident: (-scores.get(ident, 0), -int(ident[1:]))
+        (_id(item) for item in current), key=lambda ident: (-scores.get(ident, 0), -at[ident])
     )
     # Fixed for the whole build, so the budget trial that renders a record many
     # times pays for its blocking paths once.

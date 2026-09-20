@@ -45,6 +45,17 @@ def _id(entry: Mapping[str, Any]) -> str:
     return _text(entry.get("id"))
 
 
+def positions(entries: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    """Each record's index in the ledger, keyed by ID.
+
+    Ordering keys off this rather than the ID's number because a per-kind
+    counter makes d1 follow c7 in the file. Callers pass the sequence read
+    from disk, which is append order; a sorted copy would reintroduce the
+    numeric assumption this replaces.
+    """
+    return {_id(entry): index for index, entry in enumerate(entries)}
+
+
 def _is_retired(entry: Mapping[str, Any]) -> bool:
     return bool(_text(entry.get("retired_by")).strip())
 

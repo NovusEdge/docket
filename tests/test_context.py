@@ -2,6 +2,7 @@ import re
 import unittest
 
 from docket.context import build_context, build_delta
+from docket.context_model import positions
 from docket.context_select import _blocking_paths, _term_weights
 from docket.ledger import make_record, project
 
@@ -923,6 +924,17 @@ class FeatureHeaderTests(unittest.TestCase):
         block = "### f1 | one [active] " + ("x" * 3000)
         out = build_context(self.entries(), feature=block, max_chars=2000)
         self.assertLessEqual(len(out), 2000)
+
+
+class PositionsTests(unittest.TestCase):
+    def test_positions_number_records_in_file_order(self):
+        entries = [{"id": "c1"}, {"id": "d2"}, {"id": "q3"}]
+        self.assertEqual(positions(entries), {"c1": 0, "d2": 1, "q3": 2})
+
+    def test_positions_follow_the_sequence_not_the_id_number(self):
+        # Part C makes IDs per-kind, so d1 can follow c7 in the file.
+        entries = [{"id": "c7"}, {"id": "d1"}, {"id": "c8"}]
+        self.assertEqual(positions(entries), {"c7": 0, "d1": 1, "c8": 2})
 
 
 if __name__ == "__main__":
