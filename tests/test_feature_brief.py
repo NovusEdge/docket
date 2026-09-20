@@ -85,6 +85,15 @@ class AttachTests(unittest.TestCase):
         self.assertEqual(got["brief_strength"], 1000)
         self.assertEqual(got["brief_specificity"], len("docket/cli/feature.py"))
 
+    def test_a_tie_on_all_three_numbers_breaks_by_file_order(self):
+        # d1's id number sorts before c7's, but c7 comes first in the file.
+        entries = [
+            record("c7", "claim", ["installer/planner.go"]),
+            record("d1", "decision", ["installer/planner.go"]),
+        ]
+        got = [e["id"] for e in brief.attach(entries, ["installer/planner.go"])]
+        self.assertEqual(got, ["c7", "d1"])
+
     def test_reasons_are_reported_on_every_attached_record(self):
         [top, *_] = brief.attach(self.entries, ["installer/planner.go"])
         self.assertEqual(top["brief_strength"], 1000)
