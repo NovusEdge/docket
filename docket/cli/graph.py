@@ -252,7 +252,7 @@ def _forest_lines(
         for extra_line in wrapped_lines[1:]:
             lines.append(cont_prefix + " " * label_width + " " + extra_line)
 
-        kids = sorted(children.get(eid, []), key=lambda eid: at[eid])
+        kids = sorted(children.get(eid, []), key=lambda kid: at[kid])
         for i, kid in enumerate(kids):
             walk(kid, ancestor_last + [i == len(kids) - 1])
 
@@ -286,7 +286,7 @@ def _compact_lines(
         )
         blocked = f"  {_blocked_text(info)}" if _blocked_text(info) else ""
         lines.append(f"{prefix}{label} {info['question']}{retired}{blocked}")
-        kids = sorted(children.get(eid, []), key=lambda eid: at[eid])
+        kids = sorted(children.get(eid, []), key=lambda kid: at[kid])
         for i, kid in enumerate(kids):
             walk(kid, ancestor_last + [i == len(kids) - 1])
 
