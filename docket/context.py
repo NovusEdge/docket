@@ -112,8 +112,7 @@ def build_context(
     task_mode = not all_records and bool(query.strip() or file_list)
 
     at = positions(history)
-    rank_of = dict(at)
-    order_by_id = list(at)
+    rank_of = at
     # One relation map serves scoring, adjacency, and the footer's related set,
     # so _relation_ids runs once per record for the whole briefing.
     relations = {_id(item): _relation_ids(item) for item in history}
@@ -127,7 +126,7 @@ def build_context(
         files=file_list,
         weights=cfg["weights"],
         rank_of=rank_of,
-        total_ranks=len(order_by_id),
+        total_ranks=len(at),
         in_degrees=in_degrees,
     )
     matched = [
