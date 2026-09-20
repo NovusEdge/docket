@@ -835,6 +835,32 @@ class DegreeTests(unittest.TestCase):
 
 
 class DeltaTests(unittest.TestCase):
+    def test_delta_partitions_by_file_position_not_id_number(self):
+        # Part C makes IDs per-kind. d1 recorded after c7 is an addition,
+        # and a numeric cutoff would file it under the prefix instead.
+        history = [
+            {"id": "c7", "kind": "claim", "text": "Cache writes are durable.", "state": "accepted"},
+            {"id": "d1", "kind": "decision", "text": "Sessions live in Redis.", "state": "adopted"},
+        ]
+        at = positions(history)
+        self.assertEqual(at["c7"], 0)
+        self.assertEqual(at["d1"], 1)
+        self.assertGreater(at["d1"], at["c7"])
+
+    def test_delta_reports_a_record_added_after_a_lower_numbered_baseline(self):
+        # Same setup end to end: since="c7" must not cut d1 as if its number
+        # were less than an assumed cutoff of 7. IDs are globally monotonic
+        # today, so this bypasses validate_entries with validated=True to
+        # construct the ordering Part C's per-kind counters will produce.
+        records = [
+            entry("c7", "claim", "Cache writes are durable", state="accepted"),
+            entry("d1", "decision", "Sessions live in Redis", choice="redis"),
+        ]
+        history = project(records, validated=True)
+        delta = build_delta(history, since="c7", baseline=history[:1], ledger="repo")
+        self.assertIn("### d1 ", delta)
+        self.assertIn("1 added", delta)
+
     def test_delta_names_added_and_newly_unavailable_records(self):
         records = [
             entry("c1", "claim", "The cache is reliable", state="accepted"),

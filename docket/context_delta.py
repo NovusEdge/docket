@@ -11,7 +11,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from docket.config import DEFAULTS as _SETTINGS_DEFAULTS
-from docket.context_model import _clip_metadata, _id, _revision
+from docket.context_model import _clip_metadata, _id, _revision, positions
 from docket.context_render import _index_line, _render_record
 from docket.context_select import _available
 
@@ -27,10 +27,10 @@ def build_delta(
 ) -> str | None:
     """What changed after a baseline record, or None when it is unknown.
 
-    The ID sequence is monotonic, so a record ID fixes a point in history
-    without a stored snapshot. The revision digest cannot serve here: it hashes
-    the whole history, so recovery of a baseline would mean a hash of every
-    prefix of the file until one matched.
+    A record ID fixes a point in history because the ledger is append-only, so
+    the record's position in the file is its position in time. The revision
+    digest cannot serve here: it hashes the whole history, so recovery of a
+    baseline would mean a hash of every prefix of the file until one matched.
 
     ``baseline`` is the projection as it stood at ``since``. Availability now is
     not enough to report a change: a claim recorded as disputed long before the
@@ -39,24 +39,25 @@ def build_delta(
 
     history = list(entries)
     by_id = {_id(item): item for item in history}
+    at = positions(history)
     since, _, expected = since.partition("@")
     if since not in by_id:
         return None
-    cutoff = int(since[1:])
-    prefix = [item for item in history if int(_id(item)[1:]) <= cutoff]
+    cutoff = at[since]
+    prefix = [item for item in history if at[_id(item)] <= cutoff]
     if expected and _revision(prefix) != expected:
         # A rebase renumbers the tail, so this ID now covers different history.
         return None
     was_available = {_id(item) for item in baseline if _available(item)}
     cfg = settings if settings is not None else _SETTINGS_DEFAULTS
     limit = max_chars if max_chars is not None else cfg["budget"]["target"]
-    added = [item for item in history if int(_id(item)[1:]) > cutoff]
+    added = [item for item in history if at[_id(item)] > cutoff]
     changed = [
         item
         for item in history
-        if int(_id(item)[1:]) <= cutoff and _id(item) in was_available and not _available(item)
+        if at[_id(item)] <= cutoff and _id(item) in was_available and not _available(item)
     ]
-    latest = max(by_id, key=lambda ident: int(ident[1:]), default="")
+    latest = max(by_id, key=lambda ident: at[ident], default="")
     revision = _revision(history)
     head = (
         "\n".join(
