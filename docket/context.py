@@ -112,8 +112,8 @@ def build_context(
     task_mode = not all_records and bool(query.strip() or file_list)
 
     at = positions(history)
-    order_by_id = sorted(by_id, key=lambda ident: at[ident])
-    rank_of = {ident: index for index, ident in enumerate(order_by_id)}
+    rank_of = dict(at)
+    order_by_id = list(at)
     # One relation map serves scoring, adjacency, and the footer's related set,
     # so _relation_ids runs once per record for the whole briefing.
     relations = {_id(item): _relation_ids(item) for item in history}
@@ -212,9 +212,7 @@ def build_context(
         # Adjacency order is an artefact of insertion, so a flat cap on it
         # discarded neighbours by accident. Walk by inherited score instead.
         frontier = [
-            (-scores.get(i, 0), -int(i[1:]), i, scores.get(i, 0))
-            for i in seeds
-            if i in budget.included
+            (-scores.get(i, 0), -at[i], i, scores.get(i, 0)) for i in seeds if i in budget.included
         ]
         heapq.heapify(frontier)
         seen = set(budget.included)
@@ -227,7 +225,7 @@ def build_context(
                 (t for t in adjacency[ident] if t not in seen),
                 key=lambda t: (
                     -(decayed if t not in scores else min(scores[t], decayed)),
-                    -int(t[1:]),
+                    -at[t],
                 ),
             )
             for target in ranked:
@@ -240,7 +238,7 @@ def build_context(
                 if effective < expansion["floor"]:
                     continue
                 if budget.admit(target, "related record"):
-                    heapq.heappush(frontier, (-effective, -int(target[1:]), target, effective))
+                    heapq.heappush(frontier, (-effective, -at[target], target, effective))
 
     expand(root_ids)
     for item in pins:

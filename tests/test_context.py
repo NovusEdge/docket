@@ -1,5 +1,6 @@
 import re
 import unittest
+from pathlib import Path
 
 from docket.context import build_context, build_delta
 from docket.context_model import positions
@@ -961,6 +962,22 @@ class PositionsTests(unittest.TestCase):
         # Part C makes IDs per-kind, so d1 can follow c7 in the file.
         entries = [{"id": "c7"}, {"id": "d1"}, {"id": "c8"}]
         self.assertEqual(positions(entries), {"c7": 0, "d1": 1, "c8": 2})
+
+    def test_no_module_orders_by_the_id_number(self):
+        # Part C makes IDs per-kind, so int(id[1:]) stops carrying order.
+        # _Prefix and validate_record parse the number as identity, not order.
+        # migrate.py sorts schema-1 source ids, a legacy format positions()
+        # never sees.
+        root = Path(__file__).resolve().parent.parent
+        allowed = {"ledger.py", "migrate.py"}
+        offenders = []
+        for path in sorted((root / "docket").rglob("*.py")):
+            if path.name in allowed:
+                continue
+            for number, line in enumerate(path.read_text().splitlines(), start=1):
+                if "[1:])" in line and "int(" in line:
+                    offenders.append(f"{path.relative_to(root)}:{number}")
+        self.assertEqual(offenders, [])
 
 
 if __name__ == "__main__":

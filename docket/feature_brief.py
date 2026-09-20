@@ -14,6 +14,7 @@ from typing import Any
 
 from docket.config import DEFAULTS
 from docket.context import scope_strength
+from docket.context_model import positions
 
 _WILDCARDS = "*?["
 
@@ -109,9 +110,11 @@ def attach(
         marked["brief_forced"] = ident in forced
         attached.append(marked)
 
+    at = positions(entries)
+
     def order(entry):
         ident = str(entry.get("id", ""))
-        sequence = int(ident[1:]) if ident[1:].isdigit() else 0
+        sequence = at.get(ident, 0)
         # A forced record sorts first. Its strength is often 0, because the
         # globs missed it, which is the reason somebody named it by id. Ranking
         # it by that 0 puts it last and the budget drops it first.
