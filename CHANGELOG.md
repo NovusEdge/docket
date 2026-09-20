@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docket construct` refuses a question-shaped proposal when it stages one,
   rather than at append time. `construct accept` writes each record as it goes,
   so a refusal raised mid-loop left the run half-applied.
+- Record ordering keys off a record's position in the ledger file instead of
+  its ID number. No output changes: the two orders are identical while IDs
+  allocate from a shared counter. This is what lets per-kind IDs land without
+  re-ranking every briefing.
 
 Reading is unaffected. Every check runs at write time, so a ledger recorded
 under the old rules still reads and `docket rebase` still merges a branch that
