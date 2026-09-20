@@ -31,7 +31,7 @@ option the choice beat. Use `--decided-by` for self-reported attribution when
 the recorder and decision owner differ.
 
 ```sh
-docket decision "Which database should the service use?" \
+docket decision "The service uses Postgres." \
   --choice "Postgres" \
   --alternative "SQLite" \
   --rationale "The service already runs Postgres in production" \
@@ -92,7 +92,8 @@ question.
 Use `--answers` on a claim or decision to link it to an earlier question:
 
 ```sh
-docket decision "Which cache should we use?" --choice "Redis" --answers q1
+docket question "Which cache should we use?"
+docket decision "Sessions live in Redis." --choice "Redis, one instance per environment" --answers q1
 ```
 
 Only a current accepted claim or applicable adopted decision resolves the
@@ -107,11 +108,19 @@ The common options are `--scope` (repeatable), `--rationale`, `--supports`,
 
 ## What recording refuses, and what it only warns about
 
-Two forms are refused outright. `--alternative` may not repeat the choice, and
-`--rationale` may not restate the choice or the question. Both are the shapes a
-recorder reaches for to fill a field it has nothing for, and a field that looks
-filled while saying nothing is worse than an empty one. Leave the option off
-instead. A decision that had no contender is a real decision.
+Four forms are refused outright:
+
+- `--alternative` may not repeat the choice.
+- `--rationale` may not restate the choice or the text.
+- a claim's or decision's text may not end in `?`; record the question with
+  `docket question` and link it with `--answers` instead.
+- a decision's text may not restate the choice; name what the decision
+  commits to and leave the option detail in `--choice`.
+
+These are the shapes a recorder reaches for to fill a field it has nothing
+for, and a field that looks filled while saying nothing is worse than an
+empty one. Leave the option off instead. A decision that had no contender is
+a real decision.
 
 Everything else prints a hint on stderr and records anyway, because each of
 these fields is legitimately empty for some records:

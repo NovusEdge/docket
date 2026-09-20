@@ -34,7 +34,7 @@ it with your team, include `.docket/` in a Git commit.
 For this example, imagine you are adding billing to an existing service:
 
 ```sh
-docket decision "Which database should billing use?" \
+docket decision "Billing uses Postgres." \
   --choice "Postgres" \
   --rationale "We already run Postgres for the rest of the service" \
   --scope "billing/**"
@@ -43,7 +43,7 @@ docket decision "Which database should billing use?" \
 In an empty ledger, Docket replies:
 
 ```text
-d1  adopted  Which database should billing use?
+d1  adopted  Billing uses Postgres.
 ```
 
 `d1` is the record's ID. Your ID may be different if the ledger already has

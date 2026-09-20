@@ -116,7 +116,7 @@ docket claim "The service already runs Postgres in production"
 Make a decision:
 
 ```sh
-docket decision "Which database should we use?" \
+docket decision "The service uses Postgres." \
   --choice "Postgres" \
   --rationale "Use the database we already operate"
 ```

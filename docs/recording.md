@@ -40,7 +40,7 @@ the evidence for you.
 ## Record the choice and its reason
 
 ```sh
-docket decision "Which database should billing use?" \
+docket decision "Billing uses Postgres." \
   --choice "Postgres" \
   --rationale "Use the database we already operate" \
   --supports c1 \
@@ -57,12 +57,15 @@ Use `--decided-by` when you are recording a choice that someone else made.
 
 ### What recording refuses, and what it only hints about
 
-Two forms are refused, and the record is not written:
+Four forms are refused, and the record is not written:
 
 - `--alternative` that only repeats the choice.
-- `--rationale` that restates the choice or the question.
+- `--rationale` that restates the choice or the text.
+- a claim's or decision's text that ends in `?`; record the question with
+  `docket question` and link it with `--answers` instead.
+- a decision's text that restates the choice.
 
-Both are the shapes a recorder reaches for to fill a field it has nothing for.
+These are the shapes a recorder reaches for to fill a field it has nothing for.
 A field that looks filled while saying nothing is worse than an empty one.
 Leave the option off. A decision that had no contender is a real decision, and
 an empty `alternatives` list is legal.
@@ -87,7 +90,7 @@ docket question "Which database driver should billing use?" \
 This creates `q3`. Later, link your choice to it:
 
 ```sh
-docket decision "Which database driver should billing use?" \
+docket decision "Billing uses psycopg." \
   --choice "psycopg" \
   --rationale "Use the driver already configured in the service" \
   --answers q3 \
@@ -107,7 +110,7 @@ be adopted and have any required prerequisites available. The
 Add a new decision that names the one it replaces:
 
 ```sh
-docket decision "Which database driver should billing use?" \
+docket decision "Billing uses asyncpg." \
   --choice "asyncpg" \
   --rationale "The billing worker now uses an async database interface" \
   --supersedes d4 \
@@ -123,7 +126,7 @@ If you drop a commitment without choosing a replacement, record a revoked
 decision that supersedes it:
 
 ```sh
-docket decision "Which database driver should billing use?" \
+docket decision "Billing no longer uses a database driver in this service." \
   --choice "asyncpg" \
   --state revoked \
   --supersedes d5 \
