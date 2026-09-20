@@ -22,6 +22,7 @@ from docket.cli.term import (
     _use_color,
     _use_glyphs,
 )
+from docket.context_model import positions
 from docket.env import justification_sets, read, retired_by
 from docket.ledger import graph_payload, project
 
@@ -153,13 +154,6 @@ def _run_graph_viewer(entries: list[dict], retired: dict[str, str], pretty: bool
                 pass
 
 
-def _id_num(eid: str) -> int:
-    try:
-        return int(eid[1:])
-    except (ValueError, IndexError):
-        return 0
-
-
 def _state_glyph(state: str, glyphs: dict, use_color: bool) -> str:
     g = glyphs["open"] if state == "open" else glyphs["bullet"]
     return _c(_STATE_COLOR.get(state, _DIM), g, use_color)
@@ -182,7 +176,7 @@ def _id_state(info: dict) -> str:
     return f"{info['id']:<4}{info['state']:<11}"
 
 
-def _forest_roots(entries: list[dict], nodes: dict[str, dict]) -> list[str]:
+def _forest_roots(entries: list[dict], nodes: dict[str, dict], at: dict[str, int]) -> list[str]:
     """Entries nothing supports. A support the graph filtered out (--state,
     --find) also makes its dependent a root: there is nothing to hang it under."""
     visible = set(nodes)
@@ -191,17 +185,17 @@ def _forest_roots(entries: list[dict], nodes: dict[str, dict]) -> list[str]:
         for e in entries
         if not nodes[e["id"]]["supports"] or not (set(nodes[e["id"]]["supports"]) & visible)
     ]
-    return sorted(roots, key=_id_num, reverse=True)
+    return sorted(roots, key=lambda eid: at[eid], reverse=True)
 
 
 def _forest_children(
-    entries: list[dict], nodes: dict[str, dict], roots: list[str]
+    entries: list[dict], nodes: dict[str, dict], roots: list[str], at: dict[str, int]
 ) -> dict[str, list[str]]:
     """Map each support id to the children hung under it (its primary support
     only; extras are named in text, never drawn, so each node has one parent)."""
     children: dict[str, list[str]] = {}
     roots_set = set(roots)
-    for e in sorted(entries, key=lambda e: _id_num(e["id"])):
+    for e in sorted(entries, key=lambda e: at[e["id"]]):
         eid = e["id"]
         if eid in roots_set:
             continue
@@ -219,6 +213,7 @@ def _forest_lines(
     glyphs: dict,
     use_color: bool,
     width: int,
+    at: dict[str, int],
 ) -> list[str]:
     lines: list[str] = []
 
@@ -257,7 +252,7 @@ def _forest_lines(
         for extra_line in wrapped_lines[1:]:
             lines.append(cont_prefix + " " * label_width + " " + extra_line)
 
-        kids = sorted(children.get(eid, []), key=_id_num)
+        kids = sorted(children.get(eid, []), key=lambda eid: at[eid])
         for i, kid in enumerate(kids):
             walk(kid, ancestor_last + [i == len(kids) - 1])
 
@@ -274,6 +269,7 @@ def _compact_lines(
     children: dict[str, list[str]],
     glyphs: dict,
     use_color: bool,
+    at: dict[str, int],
 ) -> list[str]:
     lines: list[str] = []
 
@@ -290,7 +286,7 @@ def _compact_lines(
         )
         blocked = f"  {_blocked_text(info)}" if _blocked_text(info) else ""
         lines.append(f"{prefix}{label} {info['question']}{retired}{blocked}")
-        kids = sorted(children.get(eid, []), key=_id_num)
+        kids = sorted(children.get(eid, []), key=lambda eid: at[eid])
         for i, kid in enumerate(kids):
             walk(kid, ancestor_last + [i == len(kids) - 1])
 
@@ -428,17 +424,18 @@ def _render_graph(
     glyphs = _GRAPH_GLYPHS if _use_glyphs() else _GRAPH_GLYPHS_ASCII
     width = shutil.get_terminal_size().columns
     nodes = {e["id"]: _node_info(e, retired) for e in entries}
-    entries_desc = sorted(entries, key=lambda e: _id_num(e["id"]), reverse=True)
+    at = positions(entries)
+    entries_desc = sorted(entries, key=lambda e: at[e["id"]], reverse=True)
 
     if style == "rail":
         lines = _rail_lines(entries_desc, nodes, glyphs, use_color, width)
     else:
-        roots = _forest_roots(entries, nodes)
-        children = _forest_children(entries, nodes, roots)
+        roots = _forest_roots(entries, nodes, at)
+        children = _forest_children(entries, nodes, roots, at)
         if style == "compact":
-            lines = _compact_lines(nodes, roots, children, glyphs, use_color)
+            lines = _compact_lines(nodes, roots, children, glyphs, use_color, at)
         else:
-            lines = _forest_lines(nodes, roots, children, glyphs, use_color, width)
+            lines = _forest_lines(nodes, roots, children, glyphs, use_color, width, at)
 
     print("\n".join(lines))
     return 0

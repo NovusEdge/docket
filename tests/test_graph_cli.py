@@ -1,3 +1,4 @@
+import argparse
 import io
 import os
 import subprocess
@@ -233,6 +234,44 @@ class GraphFormatCliTests(unittest.TestCase):
         )
         self.assertEqual(code, 2)
         self.assertIn("--out belongs to --format csv", err)
+
+    def test_forest_orders_children_by_file_position_not_id_number(self):
+        # Part C makes IDs per-kind, so d1 can be written after c7. Global
+        # monotonic-ID validation forbids that ledger today, so this drives
+        # the static renderer directly rather than through the CLI's
+        # validated read. A numeric child sort would put d1 first; file
+        # order puts c7 first.
+        from docket.cli.graph import _render_graph
+
+        root = {
+            "id": "q9",
+            "kind": "question",
+            "text": "where does the plugin go?",
+            "state": "open",
+            "supports": [],
+        }
+        c7 = {
+            "id": "c7",
+            "kind": "claim",
+            "text": "c7 supports q9",
+            "state": "accepted",
+            "supports": [["q9"]],
+        }
+        d1 = {
+            "id": "d1",
+            "kind": "claim",
+            "text": "d1 supports q9",
+            "state": "accepted",
+            "supports": [["q9"]],
+        }
+        entries = [root, c7, d1]
+        args = argparse.Namespace(plain=True, pretty=False)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = _render_graph(entries, {}, args, "forest")
+        self.assertEqual(code, 0)
+        text = out.getvalue()
+        self.assertLess(text.index("c7"), text.index("d1"))
 
     def test_a_filter_reaches_the_csv_tables(self):
         self.seed()
