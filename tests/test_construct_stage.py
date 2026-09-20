@@ -14,7 +14,7 @@ def prop(
     choice="yes",
     scope=None,
     confidence="low",
-    text="Question?",
+    text="Decision made.",
 ):
     return schema.proposal(
         kind=kind,

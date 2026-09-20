@@ -127,7 +127,7 @@ class ProposalTests(unittest.TestCase):
     def make(self, **over):
         fields = {
             "kind": "decision",
-            "text": "Where does the ledger live?",
+            "text": "The ledger lives in the project.",
             "choice": "In the project",
             "anchor": "**Decision:** in the project",
             "source": {"path": "context/decisions/ledger.md", "date": "2026-06-18"},
@@ -173,6 +173,18 @@ class ProposalTests(unittest.TestCase):
         # Pass 1 cannot always resolve one, and pass 2 proposes no supersession
         # edge for a record without it.
         self.assertIsNone(self.make(source={"path": "a.md", "date": None})["source"]["date"])
+
+    def test_a_question_shaped_decision_proposal_is_refused(self):
+        with self.assertRaisesRegex(schema.SchemaError, "state the commitment"):
+            self.make(text="Which database should we use?")
+
+    def test_a_question_proposal_may_end_in_a_question_mark(self):
+        p = self.make(kind="question", choice="", text="Which cache should we use?")
+        self.assertEqual(p["text"], "Which cache should we use?")
+
+    def test_a_question_shaped_claim_proposal_is_refused(self):
+        with self.assertRaisesRegex(schema.SchemaError, "state the commitment"):
+            self.make(kind="claim", choice="", text="Does the cache evict on write?")
 
 
 if __name__ == "__main__":

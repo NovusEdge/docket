@@ -9,7 +9,7 @@ def prop(
     anchor,
     kind="decision",
     choice="yes",
-    text="Question?",
+    text="Decision made.",
     date="2026-06-18",
     path="a.md",
     rationale="because",

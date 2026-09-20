@@ -10,9 +10,21 @@ from __future__ import annotations
 from pathlib import Path
 
 from docket.construct import stage
-from docket.ledger import append, make_record
+from docket.ledger import LedgerError, append, make_record
 
 AUTHOR = "docket-construct"
+
+
+def _question_shaped(proposals: list[dict]) -> list[str]:
+    """Accepted proposals whose text asks rather than states, by key.
+
+    A stage file written before schema.proposal carried this check can still
+    hold one. Finding every offender before the append loop starts means the
+    run refuses whole, not partway through with some records already written.
+    """
+    return [
+        p["key"] for p in proposals if p["kind"] != "question" and p["text"].rstrip().endswith("?")
+    ]
 
 
 def _chronological(proposals: list[dict]) -> list[dict]:
@@ -92,6 +104,13 @@ def run(staged: Path, ledger: Path, source: str | None = None) -> tuple[int, int
         for p in proposals
         if p.get("state") == "accepted" and (source is None or p["source"]["path"] == source)
     ]
+
+    bad = _question_shaped(wanted)
+    if bad:
+        raise LedgerError(
+            f"{len(bad)} accepted proposal{'' if len(bad) == 1 else 's'} must "
+            f"state the commitment, not ask it: {', '.join(key[:12] for key in bad)}"
+        )
 
     ids: dict[str, str] = {}
     written = skipped = 0

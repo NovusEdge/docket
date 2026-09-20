@@ -364,7 +364,7 @@ class ExtractPassTests(unittest.TestCase):
     def reply(self, **over):
         record = {
             "kind": "decision",
-            "text": "Where does the ledger live?",
+            "text": "The ledger lives locally.",
             "choice": "Local",
             "anchor": "Decision: keep the ledger local",
             "rationale": "because",
@@ -382,7 +382,7 @@ class ExtractPassTests(unittest.TestCase):
             caller = FakeCaller(self.reply())
             got, _ = run.two_pass([tmp], caller=caller)
             self.assertEqual(len(got), 1)
-            self.assertEqual(got[0]["text"], "Where does the ledger live?")
+            self.assertEqual(got[0]["text"], "The ledger lives locally.")
 
     def test_carries_the_confidence_the_model_reported(self):
         # Review order ranks by confidence. A run that never asks for it stages
@@ -455,6 +455,21 @@ class ExtractPassTests(unittest.TestCase):
             run.two_pass([tmp], caller=caller)
             self.assertIn("keep the ledger local", caller.prompts[0])
 
+    def test_asks_the_model_for_declarative_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.one_doc(tmp)
+            caller = FakeCaller(self.reply())
+            run.two_pass([tmp], caller=caller)
+            self.assertIn("never ends in a\nquestion mark", caller.prompts[0])
+
+    def test_drops_a_question_shaped_decision_with_the_expected_note(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.one_doc(tmp)
+            caller = FakeCaller(self.reply(text="Should the ledger live locally?"))
+            got, report = run.two_pass([tmp], caller=caller)
+            self.assertEqual(got, [])
+            self.assertTrue(any("state the commitment" in line for line in report))
+
 
 class LinkPassTests(unittest.TestCase):
     SOURCE_A = "# A\n\nDate: 2026-01-01\n\nClaim: state must be sanitized\n"
@@ -487,7 +502,7 @@ class LinkPassTests(unittest.TestCase):
                 "records": [
                     {
                         "kind": "decision",
-                        "text": "How is audit checked?",
+                        "text": "The audit is tiered by layer.",
                         "choice": "Tiered",
                         "anchor": "Decision: tier the audit by layer",
                         "rationale": "",

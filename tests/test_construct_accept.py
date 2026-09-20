@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from docket.construct import accept, schema, stage
-from docket.ledger import project, read
+from docket.ledger import LedgerError, project, read
 
 
 def prop(
@@ -154,6 +154,17 @@ class AcceptTests(unittest.TestCase):
         stage.write(self.staged, self.accepted(prop("one", scope=["src/**"])))
         accept.run(self.staged, self.ledger)
         self.assertEqual(read(self.ledger)[0]["scope"], ["src/**"])
+
+    def test_refuses_a_question_shaped_proposal_before_writing_any(self):
+        # Simulates a stage file written before schema.proposal carried this
+        # check, so the offending record cannot be built through prop().
+        good = prop("one")
+        bad = dict(prop("two"))
+        bad["text"] = "Does the cache evict on write?"
+        stage.write(self.staged, self.accepted(good, bad))
+        with self.assertRaisesRegex(LedgerError, "state the commitment"):
+            accept.run(self.staged, self.ledger)
+        self.assertEqual(read(self.ledger), [])
 
 
 class RelationTests(unittest.TestCase):

@@ -82,6 +82,11 @@ states. Record only what the document says; infer nothing it does not.
 A claim is a premise the document asserts. A decision is a commitment it makes,
 and needs the choice. A question is something it leaves open.
 
+A claim's or a decision's `text` states the commitment and never ends in a
+question mark, even when the document phrases it as a question. Put the
+question the document asks in its own question record, and put the answer the
+document gives in the claim's or decision's `text`.
+
 For every record, `anchor` must be one line copied verbatim from the document,
 the line that carries the record. Do not paraphrase the anchor.
 

@@ -108,6 +108,11 @@ def proposal(
         )
     if kind == "decision" and not choice.strip():
         raise SchemaError("a decision needs a choice")
+    if kind != "question" and text.rstrip().endswith("?"):
+        raise SchemaError(
+            f"a {kind} must state the commitment, not ask it; propose the "
+            "question as a question record"
+        )
     if confidence not in CONFIDENCE:
         raise SchemaError(f"unknown confidence {confidence!r}")
     if not source.get("path"):
