@@ -1,5 +1,8 @@
 """CLI checks. Run directly with ``python3 tests/test_docket.py``."""
 
+import argparse
+import contextlib
+import io
 import json
 import os
 import subprocess
@@ -8,12 +11,16 @@ import tempfile
 import types
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from docket import env as docket_env  # noqa: E402
+from docket import ledger  # noqa: E402
 from docket.cli import autoscope as cli_autoscope  # noqa: E402
+from docket.cli import context_cmd as cli_context_cmd  # noqa: E402
 from docket.cli import graph as cli_graph  # noqa: E402
+from docket.cli import query as cli_query  # noqa: E402
 from docket.ledger import make_record  # noqa: E402
 
 DOCKET = str(Path(__file__).resolve().parent.parent / "bin" / "docket")
@@ -503,6 +510,30 @@ class ShowAtTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("unknown record", result.stderr)
 
+    def test_show_at_cuts_by_file_position_not_id_number(self):
+        # d1's number (1) is lower than c7's (7) even though c7 comes first in
+        # the file, and c8 supersedes c7 two records later. Global IDs are
+        # monotonic today, so a real ledger cannot exercise this; go around
+        # ledger.read()'s validation the way test_context.py's build_delta
+        # tests do, to construct the ordering Part C's per-kind IDs will
+        # produce.
+        records = [
+            make_record("claim", "Cache writes are durable", state="accepted", record_id="c7"),
+            make_record(
+                "decision", "Serve from a secondary region", choice="secondary", record_id="d1"
+            ),
+            make_record(
+                "claim", "Replace the premise", state="accepted", supersedes=["c7"], record_id="c8"
+            ),
+        ]
+        args = argparse.Namespace(id="c7", at="d1", json=True)
+        out = io.StringIO()
+        with mock.patch("docket.cli.query.read", return_value=records):
+            with contextlib.redirect_stdout(out):
+                rc = cli_query.cmd_show(args)
+        self.assertEqual(rc, 0)
+        self.assertIn('"retired_by": ""', out.getvalue())
+
 
 class ContextDeltaTests(unittest.TestCase):
     def test_since_prints_only_what_followed_the_baseline(self):
@@ -522,6 +553,51 @@ class ContextDeltaTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("unknown or stale", result.stderr)
         self.assertIn("### c1 ", result.stdout)
+
+    def test_since_builds_the_baseline_from_file_position_not_id_number(self):
+        # d1's number (1) is lower than c7's (7) though d1 follows c7 in the
+        # file, and c8 supersedes c7 two records later. A numeric cutoff of 1
+        # (from "d1") would drop c7 out of the baseline entirely, so its
+        # retirement by c8 would never show as a change. Bypass
+        # ledger.read()'s validation as in the --at test above: global IDs
+        # are monotonic today, so a real ledger cannot disagree with its file
+        # order.
+        records = [
+            make_record("claim", "Cache writes are durable", state="accepted", record_id="c7"),
+            make_record(
+                "decision", "Serve from a secondary region", choice="secondary", record_id="d1"
+            ),
+            make_record(
+                "claim", "Replace the premise", state="accepted", supersedes=["c7"], record_id="c8"
+            ),
+        ]
+        args = argparse.Namespace(
+            for_harness=None,
+            query="",
+            file=[],
+            max_chars=None,
+            all_records=False,
+            auto_scope=None,
+            since="d1",
+        )
+        out = io.StringIO()
+        # project() validates a monotonic global sequence, which this fixture
+        # deliberately violates to model what Part C's per-kind IDs produce;
+        # skip that check the way Task 2's build_delta tests do.
+        with (
+            mock.patch("docket.cli.context_cmd.read", return_value=records),
+            mock.patch(
+                "docket.cli.context_cmd.project",
+                side_effect=lambda entries, **kw: ledger.project(entries, validated=True),
+            ),
+        ):
+            with contextlib.redirect_stdout(out):
+                rc = cli_context_cmd.cmd_context(args)
+        self.assertEqual(rc, 0)
+        stdout = out.getvalue()
+        self.assertIn("since: d1", stdout)
+        self.assertIn("### c8 ", stdout)
+        self.assertIn("1 added, 1 no longer available", stdout)
 
 
 class InitTests(unittest.TestCase):

@@ -15,8 +15,9 @@ import time
 
 from docket import ROOT, env, version
 from docket.cli.autoscope import auto_scope_files
+from docket.context_model import positions
 from docket.env import read
-from docket.ledger import ID_RE, LedgerError, project
+from docket.ledger import LedgerError, project
 
 # Harnesses that want context as their own hook envelope instead of plain
 # text, keyed by the --for value. docs/installation.md is the source for
@@ -138,8 +139,10 @@ def cmd_context(args: argparse.Namespace) -> int:
         # Project twice. The second projection is the history as it stood at the
         # baseline, and the renderer needs it to tell a new loss from an old one.
         ident = args.since.partition("@")[0]
-        cutoff = int(ident[1:]) if ID_RE.fullmatch(ident) else -1
-        prefix = [item for item in raw if int(item["id"][1:]) <= cutoff]
+        at = positions(raw)
+        # An unknown baseline yields an empty prefix, and build_delta then
+        # returns None on the same id. Do not raise here.
+        prefix = raw[: at[ident] + 1] if ident in at else []
         projected = project(raw)
         delta = build_delta(
             projected,

@@ -14,6 +14,7 @@ import textwrap
 
 from docket import env
 from docket.cli.term import _DIM, _STATE_COLOR, _c, _match, _use_color
+from docket.context_model import positions
 from docket.env import LEDGER, justification_sets, read, retired_by
 from docket.ledger import project
 
@@ -106,8 +107,9 @@ def cmd_show(args: argparse.Namespace) -> int:
         if not any(item.get("id") == args.at for item in raw):
             print(f"docket: unknown record {args.at}", file=sys.stderr)
             return 1
-        cutoff = int(args.at[1:])
-        raw = [item for item in raw if int(item["id"][1:]) <= cutoff]
+        at = positions(raw)
+        cutoff = at[args.at]
+        raw = [item for item in raw if at[item["id"]] <= cutoff]
     entries = project(raw, validated=True)
     by_id = {e.get("id"): e for e in entries}
     e = by_id.get(args.id)
