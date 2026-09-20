@@ -24,14 +24,22 @@ Every record has these required fields:
 | `decision` | A commitment to a choice | `adopted`, `revoked` | `choice`, `alternatives`, optional `decided_by` |
 | `question` | An unanswered inquiry | `open` | none |
 
-`alternatives` holds the options the choice beat, and it is empty when nothing
-contended. Recording refuses a list that only repeats the choice, and it
-refuses a `rationale` that restates the choice or the question. Four other
-reasoning fields print a hint and record anyway: `scope`, `alternatives`,
-`rationale` and `cost_if_wrong`. [Recording](recording.md) covers both tiers.
+A claim's or a decision's `text` states what the record commits to and never
+asks it. Recording refuses a text that ends in `?` and names the question
+record to write instead. The question belongs in a `question`, linked from the
+decision with `--answers`.
 
-Those checks run at write time. Reading a ledger checks structure alone, so a
-ledger written before 0.14.0 still reads.
+`alternatives` holds the options the choice beat, and it is empty when nothing
+contended. Recording refuses a list that only repeats the choice, a `rationale`
+that restates the choice or the text, and a decision `text` that restates the
+choice. Four other reasoning fields print a hint and record anyway: `scope`,
+`alternatives`, `rationale` and `cost_if_wrong`.
+[Recording](recording.md) covers both tiers.
+
+Every one of those checks runs at write time. Reading a ledger checks structure
+alone, so a ledger recorded under an earlier rule still reads. The 81
+question-shaped decisions this project recorded before the rule are the reason
+the boundary exists.
 
 IDs use the type prefix and a positive global sequence number: `c1`, `d2`, and
 `q3`. The sequence is shared across kinds, and gaps are allowed.

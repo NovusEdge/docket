@@ -7,7 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.18.0] - 2026-09-19
+### Changed
+
+- `docket claim` and `docket decision` refuse a text that ends in `?`. A
+  decision states the commitment; the question it settled goes in `docket
+  question` and links back with `--answers`. 81 of this project's first 82
+  decisions were recorded as the question, which left the graph viewer
+  labelling every commitment as an open inquiry.
+- `docket decision` refuses a text that only restates `--choice`.
+- `docket construct` refuses a question-shaped proposal when it stages one,
+  rather than at append time. `construct accept` writes each record as it goes,
+  so a refusal raised mid-loop left the run half-applied.
+
+Reading is unaffected. Every check runs at write time, so a ledger recorded
+under the old rules still reads and `docket rebase` still merges a branch that
+predates them.
 
 ### Changed
 
