@@ -75,3 +75,29 @@ def validate(record: dict[str, Any], prefix: Any) -> dict[str, Any]:
     # The record's own type rules check each replacement value.
     validate_record({**target, **copy.deepcopy(fields)})
     return copy.deepcopy(record)
+
+
+def fold(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Records with their corrections applied, the correction lines removed.
+
+    ``original`` holds each corrected field's value before its first
+    correction. A record with no corrections is passed through untouched, so
+    its revision digest does not change.
+    """
+    result: list[dict[str, Any]] = []
+    index: dict[str, int] = {}
+    for entry in entries:
+        if entry.get("kind") != KIND:
+            index[entry["id"]] = len(result)
+            result.append(entry)
+            continue
+        position = index[entry["corrects"]]
+        current = dict(result[position])
+        original = dict(current.get("original", {}))
+        for field, value in entry["fields"].items():
+            original.setdefault(field, copy.deepcopy(current.get(field)))
+            current[field] = copy.deepcopy(value)
+        current["original"] = original
+        current["corrections"] = [*current.get("corrections", []), entry["id"]]
+        result[position] = current
+    return result

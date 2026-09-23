@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import docket.ledger as ledger
 from docket import corrections
+from docket.context_model import _revision
 
 
 def line(ident, target, fields, **extra):
@@ -136,6 +137,56 @@ class ReadTests(unittest.TestCase):
                 + "\n"
             )
             self.assertEqual([item["id"] for item in ledger.read(path)], ["d1", "d1.1"])
+
+
+class ProjectionTests(unittest.TestCase):
+    def test_corrections_apply_in_file_order_and_the_lines_disappear(self):
+        projected = ledger.project(
+            [
+                decision("d1", scope=["lib/a.py"]),
+                line("d1.1", "d1", {"scope": ["docket/a.py"], "rationale": "First."}),
+                line("d1.2", "d1", {"rationale": "Second."}),
+            ]
+        )
+        self.assertEqual([item["id"] for item in projected], ["d1"])
+        record = projected[0]
+        self.assertEqual(record["scope"], ["docket/a.py"])
+        self.assertEqual(record["rationale"], "Second.")
+        self.assertEqual(record["corrections"], ["d1.1", "d1.2"])
+        self.assertEqual(record["original"], {"scope": ["lib/a.py"], "rationale": ""})
+
+    def test_an_empty_list_clears_a_field(self):
+        projected = ledger.project([decision("d1", scope=["a.py"]), line("d1.1", "d1", {"scope": []})])
+        self.assertEqual(projected[0]["scope"], [])
+
+    def test_an_uncorrected_record_gains_no_keys(self):
+        records = [decision("d1"), claim("c2")]
+        before = ledger.project(records)
+        after = ledger.project(records + [line("c2.1", "c2", {"revisit": "Later."})])
+        self.assertNotIn("corrections", after[0])
+        self.assertNotIn("original", after[0])
+        self.assertEqual(_revision(before[:1]), _revision(after[:1]))
+
+    def test_a_correction_of_a_retired_record_keeps_it_retired(self):
+        projected = ledger.project(
+            [
+                decision("d1"),
+                decision("d2", supersedes=["d1"]),
+                line("d1.1", "d1", {"rationale": "Latency."}),
+            ]
+        )
+        self.assertEqual(projected[0]["retired_by"], "d2")
+        self.assertEqual(projected[0]["rationale"], "Latency.")
+
+    def test_a_pin_correction_changes_the_pin(self):
+        projected = ledger.project([claim("c1"), line("c1.1", "c1", {"pinned": True})])
+        self.assertTrue(projected[0]["pinned"])
+
+    def test_graph_payload_carries_the_corrected_text(self):
+        payload = ledger.graph_payload(
+            [decision("d1"), line("d1.1", "d1", {"text": "The cache lives in Valkey."})]
+        )
+        self.assertEqual(payload["entries"][0]["question"], "The cache lives in Valkey.")
 
 
 if __name__ == "__main__":

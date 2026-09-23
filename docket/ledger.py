@@ -599,6 +599,7 @@ def project(entries: list[dict[str, Any]], *, validated: bool = False) -> list[d
     """
     if not validated:
         entries = validate_entries(entries)
+    entries = corrections.fold(entries)
     retired = retired_by(entries)
     answers = resolved_by(entries)
     applicability, blocked = _decision_applicability(entries, retired)
