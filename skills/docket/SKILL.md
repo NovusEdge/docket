@@ -159,6 +159,7 @@ docket context --query "cache" --file src/cache.py --max-chars 4000
 docket context --all --max-chars 12000
 docket list
 docket list --kind decision --state adopted --json
+docket list --where 'kind:decision is:pinned scope:docket/ledger.py'
 docket show d2 --json
 docket show d2 --at d40
 docket context --since d40
@@ -228,7 +229,13 @@ Work with the briefing as follows:
 A delegated agent runs step 3 for its own scope and reports the revision it
 used, so the delegating agent knows which briefing the work rests on.
 
-`list` and `graph` accept `--kind` and `--state`. `show --json` exposes the
+`list` and `graph` accept `--kind`, `--state`, and `--where QUERY`. A query
+combines plain words with `kind:`, `state:`, `scope:PATH`, `is:pinned`,
+`is:retired`, `author:`, and `after:YYYY-MM-DD` terms; see
+[the query language](../../docs/commands.md#query-language). `scope:PATH` asks
+which records govern that file, and `scope:DIR/` covers a directory.
+
+`show --json` exposes the
 original record with derived fields such as `recorded_state`, effective `state`,
 `retired_by`, `resolved_by`, `applicable`, and `blocked_by`. `graph` preserves
 the full support sets as well as the renderer's deduplicated support union.
@@ -241,7 +248,7 @@ the full support sets as well as the renderer's deduplicated support union.
 | `dot` | stdout | `dot -Tsvg`, and a layout that holds up past a hundred nodes |
 | `csv` | `nodes.csv` and `edges.csv` in `--out DIR` | Gephi, or anything measuring the graph rather than drawing it |
 
-`--kind`, `--state`, `--find`, `--superseded` and `--detail` narrow all three.
+`--kind`, `--state`, `--find`, `--where`, `--superseded` and `--detail` narrow all three.
 Narrow before exporting: the whole ledger is a hairball in any of them.
 
 Evidence references are provenance supplied by the recorder. Docket does not

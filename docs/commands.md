@@ -81,6 +81,7 @@ show ID.N` prints one correction with the values it replaced.
 | `--kind K` | Only `claim`, `decision`, or `question` |
 | `--state S` | Only records in that state |
 | `--find TEXT` | Match record text or a decision's choice, ignoring case |
+| `--where QUERY` | Filter with the [query language](#query-language); ANDs with the other flags |
 | `--superseded` | Include records a later one retired |
 | `--oneline` | One line per record |
 | `--json` | Print records as JSON |
@@ -99,6 +100,7 @@ show ID.N` prints one correction with the values it replaced.
 |---|---|
 | `--style forest\|rail\|compact` | Static layout |
 | `--kind`, `--state`, `--find` | Filter, as in `list` |
+| `--where QUERY` | Filter with the [query language](#query-language). In the viewer it is the initial filter, and clearing it shows every record. |
 | `--interactive`, `--no-interactive` | Require or refuse the native viewer |
 | `--plain`, `--pretty` | Force colour off or on |
 | `--format mermaid\|dot\|csv` | Export the graph as a mermaid flowchart, a graphviz digraph, or Gephi tables |
@@ -106,6 +108,42 @@ show ID.N` prints one correction with the values it replaced.
 | `--superseded` | With `--format`, include retired records and the retire edges |
 | `--detail N` | With `--format`, characters of text per node. Default 40, `0` for IDs alone. |
 | `--direction LR\|TD\|RL\|BT` | With `--format mermaid` or `dot`, the layout direction. Default `LR`. |
+
+### Query language
+
+`--where` takes one query. The graph viewer's `/` input takes the same one.
+
+    docket list --where 'kind:decision -is:retired scope:docket/ledger.py cache'
+
+| Term | Matches when |
+|---|---|
+| `word` | the id, text, choice, or rationale contains it |
+| `kind:K` | the kind is `claim`, `decision`, or `question` |
+| `state:S` | the effective state is S; `state:resolved` finds answered questions |
+| `scope:PATH` | a scope entry governs the file PATH, as `docket context --file` scores it |
+| `scope:DIR/` | a scope entry starts with `DIR/`, or governs the directory |
+| `is:pinned`, `is:corrected`, `is:retired`, `is:blocked` | the record is pinned, corrected, or retired, or is a blocked decision |
+| `author:A`, `branch:B` | the author or the branch contains the value |
+| `after:D`, `before:D` | the record's UTC date is on or after D, or before D; D is `YYYY-MM-DD` |
+
+- Spaces separate terms. Double quotes hold spaces: `author:"a teammate"`.
+- A quoted term is always text: `"d12:"` searches for the characters `d12:`.
+- A leading `-` negates one term.
+- Text terms AND each other, and `is:` terms AND each other. Repeats of any
+  other field OR each other: `kind:claim kind:decision`. The groups AND.
+- Case is ignored. An empty query matches everything.
+- `scope:` takes a path, not a pattern. `scope:graph/**` asks which records
+  govern a file named `graph/**`. Use `scope:graph/` for a directory.
+- A retired record keeps its state, so `state:adopted` includes superseded
+  decisions. `list` hides retired records unless you give `--superseded` or
+  the query holds `is:retired`.
+- A query that starts with `-` needs `=`: `--where=-kind:question`. argparse
+  reads a separate `-kind:question` as an option.
+- An export draws only records linked to another record in the selection. A
+  narrow query can leave none, and the command then prints `no record in this
+  selection carries a relation`.
+- An unknown field or value, or a malformed date, exits 1 with a message that
+  lists the valid values.
 
 `docket context`
 
