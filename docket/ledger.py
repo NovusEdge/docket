@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
+from docket import corrections
+
 SCHEMA = 2
 KINDS = ("claim", "decision", "question")
 STATES = {
@@ -231,23 +233,30 @@ def make_record(
 
 
 class _Prefix:
-    """The id map, sequence maximum, and retirement map of the records so far.
+    """The id map, sequence maximum, retirement map, and correction counters
+    of the records so far.
 
     Validating a whole ledger walks the prefix once per record. Deriving these
-    three from the prefix list each time made a read cost O(n squared), so a
-    caller that validates in order updates one of these instead.
+    from the prefix list each time made a read cost O(n squared), so a caller
+    that validates in order updates one of these instead.
     """
 
-    __slots__ = ("by_id", "max_number", "retired")
+    __slots__ = ("by_id", "max_number", "retired", "corrections")
 
     def __init__(self, entries: list[dict[str, Any]]) -> None:
         self.by_id: dict[str, dict[str, Any]] = {}
         self.max_number = 0
         self.retired: dict[str, str] = {}
+        self.corrections: dict[str, int] = {}
         for entry in entries:
             self.add(entry)
 
     def add(self, entry: dict[str, Any]) -> None:
+        # A correction is no relation target and carries no supersedes.
+        if entry.get("kind") == corrections.KIND:
+            target, number = corrections.split_id(entry["id"])
+            self.corrections[target] = max(self.corrections.get(target, 0), number)
+            return
         ident = entry["id"]
         self.by_id[ident] = entry
         self.max_number = max(self.max_number, int(ident[1:]))
@@ -268,6 +277,12 @@ def validate_record(
         raise _error("record", "each JSONL line must be an object")
     if any(not isinstance(key, str) for key in record):
         raise _error("record", "field names must be strings")
+    if record.get("kind") == corrections.KIND:
+        if prefix is not None and previous is not None:
+            raise _error("record", "pass previous or prefix, not both")
+        if prefix is None and previous is not None:
+            prefix = _Prefix(previous)
+        return corrections.validate(record, prefix)
     if record.get("schema") in (None, 1):
         raise _error(
             "schema", "legacy format is unsupported; run 'docket migrate' to convert it to schema 2"
