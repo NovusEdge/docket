@@ -496,6 +496,139 @@ func TestSelectionFollowsTheRecordAcrossASort(t *testing.T) {
 	}
 }
 
+func TestFilterTokenizerMatchesPython(t *testing.T) {
+	// tests/test_where.py SHARED_CASES holds the same table.
+	cases := []struct {
+		input string
+		want  []filterTerm
+	}{
+		{"kind:decision -is:retired scope:docket/ledger.py cache", []filterTerm{{"kind", "decision", false}, {"is", "retired", true}, {"scope", "docket/ledger.py", false}, {"", "cache", false}}},
+		{`author:"a teammate"`, []filterTerm{{"author", "a teammate", false}}},
+		{`"d12:"`, []filterTerm{{"", "d12:", false}}},
+		{`"https://x.test"`, []filterTerm{{"", "https://x.test", false}}},
+		{`-"two words" Tail`, []filterTerm{{"", "two words", true}, {"", "tail", false}}},
+		{`a"b c"d`, []filterTerm{{"", "ab cd", false}}},
+		{"x1:y", []filterTerm{{"", "x1:y", false}}},
+		{`"open`, []filterTerm{{"", "open", false}}},
+		{"- lone", []filterTerm{{"", "-", false}, {"", "lone", false}}},
+		{":x", []filterTerm{{"", ":x", false}}},
+		{"", nil},
+	}
+	for _, c := range cases {
+		if got := parseFilter(c.input).terms; fmt.Sprint(got) != fmt.Sprint(c.want) {
+			t.Errorf("parseFilter(%q) = %v, want %v", c.input, got, c.want)
+		}
+	}
+}
+
+func TestTextTermsSearchIDTextChoiceAndRationale(t *testing.T) {
+	e := Entry{ID: "d9", Kind: "decision", Question: "The cache lives in Redis.", Choice: "Redis", Rationale: "Latency.", Author: "alice"}
+	for query, want := range map[string]bool{
+		"d9": true, "cache": true, "REDIS": true, "latency": true, "alice": false, "decision": false,
+		"cache redis": true, "cache postgres": false, "-postgres": true, "-redis": false,
+		`"in redis"`: true, `"redis in"`: false,
+	} {
+		if got := parseFilter(query).textMatches(e); got != want {
+			t.Errorf("textMatches(%q) = %v, want %v", query, got, want)
+		}
+	}
+	if !parseFilter("kind:decision").hasFields() || parseFilter(`"kind:decision"`).hasFields() {
+		t.Fatal("hasFields misread a field term or a quoted term")
+	}
+}
+
+func TestLivePreviewAndsWordsAndHonoursNegation(t *testing.T) {
+	m := NewModel(testData())
+	m, _ = updateModel(m, keyMsg('/'))
+	m = typeText(m, "o -root")
+	if !m.searching {
+		t.Fatal("typing closed the filter input")
+	}
+	if got := visibleIDs(m); got != "d3,d4" {
+		t.Fatalf("live preview rows = %q, want d3,d4", got)
+	}
+}
+
+func TestEnterAppliesTextAndEmptyEnterClears(t *testing.T) {
+	m := applyFilter(NewModel(testData()), "other")
+	if m.searching || m.query != "other" || visibleIDs(m) != "d4" {
+		t.Fatalf("text filter: searching=%v query=%q rows=%q", m.searching, m.query, visibleIDs(m))
+	}
+	m = applyFilter(m, "")
+	if m.query != "" || visibleIDs(m) != "d1,d2,d3,d4" {
+		t.Fatalf("empty enter did not clear: query=%q rows=%q", m.query, visibleIDs(m))
+	}
+}
+
+func TestEscRestoresTheRowsBeforeTheEdit(t *testing.T) {
+	m := applyFilter(NewModel(testData()), "other")
+	m, _ = updateModel(m, keyMsg('/'))
+	m = typeText(m, "zzz")
+	if got := visibleIDs(m); got != "" {
+		t.Fatalf("preview rows = %q, want none", got)
+	}
+	m, _ = updateModel(m, keyMsg(0x1b))
+	if m.searching || m.query != "other" || visibleIDs(m) != "d4" {
+		t.Fatalf("esc: searching=%v query=%q rows=%q", m.searching, m.query, visibleIDs(m))
+	}
+}
+
+func TestTabIsIgnoredWhileEditing(t *testing.T) {
+	m := NewModel(testData())
+	m, _ = updateModel(m, keyMsg('/'))
+	m, _ = updateModel(m, keyMsg('\t'))
+	if !m.searching || m.detailFocus {
+		t.Fatalf("tab while editing: searching=%v detailFocus=%v", m.searching, m.detailFocus)
+	}
+}
+
+func TestSelectionStaysOnTheRecordAcrossAFilterChange(t *testing.T) {
+	m := NewModel(testData())
+	for m.selectedID() != "d4" {
+		m, _ = updateModel(m, keyMsg('j'))
+	}
+	m = applyFilter(m, "o")
+	if m.selectedID() != "d4" || m.detailID != "d4" {
+		t.Fatalf("selection = %q after a filter that keeps d4", m.selectedID())
+	}
+	m = applyFilter(m, "child")
+	if m.selectedID() != "d2" || m.selected != 0 {
+		t.Fatalf("selection = %q at %d, want the first row d2", m.selectedID(), m.selected)
+	}
+}
+
+func TestFieldTermsWithoutAFilterCommandApplyOnlyTheText(t *testing.T) {
+	m := applyFilter(NewModel(testData()), "kind:decision other")
+	if got := visibleIDs(m); got != "d4" {
+		t.Fatalf("rows = %q, want the text term's d4", got)
+	}
+	if m.status != "field filters need docket" || !m.statusErr || m.query != "kind:decision other" {
+		t.Fatalf("status=%q err=%v query=%q", m.status, m.statusErr, m.query)
+	}
+}
+
+func typeText(m model, text string) model {
+	for _, r := range text {
+		m, _ = updateModel(m, tea.KeyPressMsg(tea.Key{Code: r, Text: string(r)}))
+	}
+	return m
+}
+
+func applyFilter(m model, query string) model {
+	m, _ = updateModel(m, keyMsg('/'))
+	m.searchInput.SetValue(query)
+	m, _ = updateModel(m, keyMsg('\r'))
+	return m
+}
+
+func visibleIDs(m model) string {
+	ids := make([]string, 0, len(m.rows))
+	for _, row := range m.visibleRows() {
+		ids = append(ids, row.id)
+	}
+	return strings.Join(ids, ",")
+}
+
 func keyMsg(k rune) tea.KeyPressMsg { return tea.KeyPressMsg(tea.Key{Code: k}) }
 
 func updateModel(m model, msg tea.Msg) (model, tea.Cmd) {

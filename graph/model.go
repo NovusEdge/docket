@@ -82,6 +82,11 @@ type model struct {
 	searchInput   textinput.Model
 	searching     bool
 	query         string
+	shown         map[string]bool
+	prevShown     map[string]bool
+	prevQuery     string
+	status        string
+	statusErr     bool
 	detail        viewport.Model
 	detailFocus   bool
 	detailID      string
@@ -105,6 +110,8 @@ var (
 	keyBottom      = key.NewBinding(key.WithKeys("G"), key.WithHelp("G", "last row"))
 	keySort        = key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sort field"))
 	keyReverse     = key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reverse sort"))
+	keyApply       = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "apply"))
+	keyCancel      = key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel"))
 	footerUp       = key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "move"))
 	footerDown     = key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "move"))
 	footerCollapse = key.NewBinding(key.WithKeys("space", "enter"), key.WithHelp("space", "fold"))
@@ -319,7 +326,7 @@ func (m model) visibleRows() []graphRow {
 			}
 			hiddenDepth = -1
 		}
-		if m.query != "" && !m.matches(row.id) {
+		if m.shown != nil && !m.shown[row.id] {
 			continue
 		}
 		rows = append(rows, row)
@@ -328,32 +335,6 @@ func (m model) visibleRows() []graphRow {
 		}
 	}
 	return rows
-}
-
-func (m model) matches(id string) bool {
-	e := m.entries[id]
-	needle := strings.ToLower(m.query)
-	values := []string{e.ID, e.Kind, e.State, e.RecordedState, e.Question, e.Answer, e.Choice, e.Cost, e.Rationale, e.Revisit, e.Author, e.DecidedBy, e.TS, e.Branch, e.Session, e.RetiredBy}
-	values = append(values, e.Scope...)
-	values = append(values, e.Alternatives...)
-	values = append(values, e.Supports...)
-	values = append(values, e.DependsOn...)
-	values = append(values, e.Answers...)
-	values = append(values, e.Supersedes...)
-	values = append(values, e.ResolvedBy...)
-	values = append(values, e.BlockedBy...)
-	for _, set := range e.Sets {
-		values = append(values, set...)
-	}
-	for _, evidence := range e.Evidence {
-		values = append(values, evidence.Ref, evidence.CheckedAt, evidence.Commit)
-	}
-	for _, value := range values {
-		if strings.Contains(strings.ToLower(sanitize(value)), needle) {
-			return true
-		}
-	}
-	return false
 }
 
 func (m *model) refreshDetail() {
@@ -606,26 +587,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 		if m.searching {
-			if key.Matches(msg, keyTab) {
-				m.searching = false
-				m.searchInput.Blur()
+			switch {
+			case key.Matches(msg, keyTab):
 				return m, nil
-			}
-			if key.Matches(msg, key.NewBinding(key.WithKeys("enter"))) {
-				m.query = strings.TrimSpace(sanitize(m.searchInput.Value()))
+			case key.Matches(msg, keyApply):
+				next, cmd := m.submitFilter()
+				return next, cmd
+			case key.Matches(msg, keyCancel):
+				id := m.selectedID()
 				m.searching = false
 				m.searchInput.Blur()
-				m.selected = 0
-				m.refreshDetail()
-				return m, nil
-			}
-			if key.Matches(msg, key.NewBinding(key.WithKeys("esc"))) {
-				m.searching = false
-				m.searchInput.Blur()
+				m.shown = m.prevShown
+				m.reselect(id)
 				return m, nil
 			}
 			var cmd tea.Cmd
 			m.searchInput, cmd = m.searchInput.Update(msg)
+			m.previewFilter()
 			return m, cmd
 		}
 		if m.pendingG {
@@ -640,6 +618,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if key.Matches(msg, keySearch) {
 			m.searching = true
+			m.prevShown, m.prevQuery = m.shown, m.query
 			m.searchInput.SetValue(m.query)
 			return m, m.searchInput.Focus()
 		}
