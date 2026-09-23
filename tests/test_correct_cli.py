@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from docket import ledger  # noqa: E402
+from docket import ledger  # noqa: E402,F401
 
 DOCKET = str(Path(__file__).resolve().parent.parent / "bin" / "docket")
 
