@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-09-23
+
 ### Added
 
 - `docket correct` fixes a record's wording or metadata while it keeps its id. Corrections are ledger lines, `docket show` lists them, and briefings tag corrected records. A ledger that holds a correction needs this release or later to read.
@@ -602,7 +604,8 @@ the breaking-change notes before upgrading.
 
 Versions before 0.6.1 carry no git tag. Their history is in the commit log.
 
-[Unreleased]: https://github.com/NovusEdge/docket/compare/v0.18.0...HEAD
+[Unreleased]: https://github.com/NovusEdge/docket/compare/v0.19.0...HEAD
+[0.19.0]: https://github.com/NovusEdge/docket/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/NovusEdge/docket/compare/v0.17.1...v0.18.0
 [0.17.1]: https://github.com/NovusEdge/docket/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/NovusEdge/docket/compare/v0.16.0...v0.17.0
