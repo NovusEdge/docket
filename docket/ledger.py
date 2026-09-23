@@ -714,8 +714,11 @@ def append(path: Path | str, record: dict[str, Any]) -> dict[str, Any]:
 
     The caller may supply an empty id; the record id, or a correction's
     `<target>.<n>`, is then allocated while holding the lock, preventing
-    duplicate IDs between writers. A correction's write-time refusals run on
-    the projection read under the same lock.
+    duplicate IDs between writers. A correction's write-time refusals, and its
+    no-op field drop, run on the projection read under the same lock, but only
+    for a correction that arrived with no id: that is the CLI path. A
+    pre-numbered correction, arriving through rebase, skips them, the same way
+    a pre-numbered record does.
     """
     path = Path(path)
     with _ledger_lock(path):
@@ -724,10 +727,12 @@ def append(path: Path | str, record: dict[str, Any]) -> dict[str, Any]:
         entries = read(path, lock=False)
         candidate = copy.deepcopy(record)
         if candidate.get("kind") == corrections.KIND:
-            if not candidate.get("id"):
+            from_cli = not candidate.get("id")
+            if from_cli:
                 candidate["id"] = corrections.allocate(entries, str(candidate.get("corrects", "")))
             validate_record(candidate, previous=entries)
-            corrections.refuse(entries, candidate)
+            if from_cli:
+                corrections.refuse(entries, candidate)
         else:
             if not candidate.get("id"):
                 kind = candidate.get("kind") or ""

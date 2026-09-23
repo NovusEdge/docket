@@ -63,13 +63,18 @@ def validate(record: dict[str, Any], prefix: Any) -> dict[str, Any]:
     target = prefix.by_id.get(target_id)
     if target is None:
         raise _error(ident, f"corrects unknown or later ID {target_id!r}")
-    refused = sorted(set(fields) - correctable(target["kind"]))
-    if refused:
+    fixed = sorted(set(fields) - _COMMON - _DECISION_ONLY)
+    if fixed:
         raise _error(
             ident,
-            f"cannot correct {', '.join(refused)} on a {target['kind']}; "
+            f"cannot correct {', '.join(fixed)} on a {target['kind']}; "
             "supersede the record to change it",
         )
+    if target["kind"] != "decision":
+        decision_only = sorted(set(fields) & _DECISION_ONLY)
+        if decision_only:
+            noun = "field" if len(decision_only) == 1 else "fields"
+            raise _error(ident, f"{', '.join(decision_only)} is a decision-only {noun}")
     if number <= prefix.corrections.get(target_id, 0):
         raise _error(ident, "correction numbers must increase for each record; gaps are allowed")
     # The record's own type rules check each replacement value.
@@ -141,17 +146,28 @@ def make(
 
 
 def refuse(entries: list[dict[str, Any]], correction: dict[str, Any]) -> None:
-    """Run the write-time refusals on the record as this correction leaves it.
+    """Drop no-op fields and run the write-time refusals on what remains.
 
-    Only the fields the correction replaces are checked, against the record
-    as earlier corrections left it.
+    A field whose replacement value equals the record's current projected
+    value changes nothing, so it is dropped before the echo and question-text
+    refusals run and before the reduced fields are written. A correction left
+    with no field is itself refused: it would append a line that changes
+    nothing the reader can see.
+
+    Only the fields the correction still carries are checked, against the
+    record as earlier corrections left it.
     """
-    from docket.ledger import _reject_empty_reasoning, _reject_question_text
+    from docket.ledger import _error, _reject_empty_reasoning, _reject_question_text
 
-    fields = correction["fields"]
     target = next(item for item in fold(entries) if item["id"] == correction["corrects"])
-    record = {**target, **fields}
-    if "text" in fields:
+    reduced = {
+        field: value for field, value in correction["fields"].items() if target.get(field) != value
+    }
+    if not reduced:
+        raise _error(correction["id"], "nothing to correct: every field already has that value")
+    correction["fields"] = reduced
+    record = {**target, **reduced}
+    if "text" in reduced:
         _reject_question_text(record)
     if record["kind"] == "decision":
-        _reject_empty_reasoning(record, frozenset(fields))
+        _reject_empty_reasoning(record, frozenset(reduced))

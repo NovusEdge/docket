@@ -69,6 +69,14 @@ class ValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ledger.LedgerError, "alternatives"):
             ledger.validate_entries([claim("c1"), line("c1.1", "c1", {"alternatives": ["x"]})])
 
+    def test_decision_only_field_has_its_own_message(self):
+        with self.assertRaisesRegex(ledger.LedgerError, "alternatives is a decision-only field"):
+            ledger.validate_entries([claim("c1"), line("c1.1", "c1", {"alternatives": ["x"]})])
+
+    def test_a_fixed_field_keeps_the_supersede_message(self):
+        with self.assertRaisesRegex(ledger.LedgerError, "supersede the record"):
+            ledger.validate_entries([decision("d1"), line("d1.1", "d1", {"choice": "Postgres"})])
+
     def test_a_value_of_the_wrong_type_is_refused(self):
         with self.assertRaisesRegex(ledger.LedgerError, "scope"):
             ledger.validate_entries([decision("d1"), line("d1.1", "d1", {"scope": "a.py"})])
@@ -266,6 +274,23 @@ class AppendTests(unittest.TestCase):
         self.correct("d1", {"rationale": "It is fast."})
         with self.assertRaisesRegex(ledger.LedgerError, "say why"):
             self.correct("d1", {"text": "It is fast."})
+
+    def test_a_no_op_field_is_refused(self):
+        self.add("claim", "Writes are durable.", pinned=True)
+        with self.assertRaisesRegex(ledger.LedgerError, "nothing to correct"):
+            self.correct("c1", {"pinned": True})
+
+    def test_a_no_op_alongside_a_real_change_writes_only_the_real_field(self):
+        self.add("claim", "Writes are durable.", scope=["a.py"])
+        entry = self.correct("c1", {"scope": ["a.py"], "revisit": "Later."})
+        self.assertEqual(entry["fields"], {"revisit": "Later."})
+
+    def test_a_pre_numbered_correction_skips_the_write_time_refusals(self):
+        self.add("decision", "The cache lives in Redis.", choice="Redis")
+        pre_numbered = corrections.make("d1", {"text": "Redis"}, author="test")
+        pre_numbered["id"] = "d1.1"
+        entry = ledger.append(self.path, pre_numbered)
+        self.assertEqual(entry["id"], "d1.1")
 
 
 if __name__ == "__main__":
