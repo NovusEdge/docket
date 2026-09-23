@@ -150,7 +150,7 @@ where:
     fi
     ./bin/docket where
 
-# bump, roll the changelog, test, commit, tag, push and publish the GitHub release
+# bump, roll the changelog, test, commit, tag, and push; CI publishes the release
 [group('release')]
 release new:
     #!/usr/bin/env bash
@@ -184,30 +184,23 @@ release new:
     git tag -a "v{{new}}" -m "docket {{new}}"
     just publish "{{new}}"
 
-# push a tag from `just release`, build its assets, create the GitHub release
+# push a tag from `just release`; the Release workflow builds and publishes it
 [group('release')]
 publish new:
     #!/usr/bin/env bash
     set -euo pipefail
-    # Separate from release so a failed publish is one command to retry, and so
-    # a tag cut on a machine without gh can be published from another. docket
-    # update reads releases/latest, so a tag alone reaches nobody: v0.16.0 was
-    # tagged and pushed while every installed copy was still offered 0.15.0.
-    command -v gh >/dev/null || { echo "gh is not installed; cannot publish v{{new}}"; exit 1; }
+    # Separate from release so a failed push is one command to retry. The tag
+    # push triggers .github/workflows/installer.yml, which tests, builds every
+    # asset on a clean runner, and creates the GitHub release. docket update
+    # reads releases/latest, so installed copies see the version only once
+    # that workflow finishes.
     git rev-parse -q --verify "refs/tags/v{{new}}" >/dev/null \
       || { echo "no tag v{{new}}; run just release {{new}} first"; exit 1; }
     test "$(cat VERSION)" = "{{new}}" \
       || { echo "VERSION says $(cat VERSION), not {{new}}"; exit 1; }
     git push origin HEAD --follow-tags
-    # Built here, not reused from a previous run: an asset must come from the
-    # tree the tag names, and dist/ survives a checkout.
-    rm -rf dist
-    python3 installer/release.py
-    python3 graph/release.py
-    notes="$(mktemp)"
-    trap 'rm -f "$notes"' EXIT
-    python3 scripts/roll_changelog.py "{{new}}" --notes > "$notes"
-    gh release create "v{{new}}" --title "docket {{new}}" --notes-file "$notes" --latest \
-      dist/installer/* dist/graph/*
-    rm -rf dist
+    echo "pushed v{{new}}; the Release workflow publishes it"
+    if command -v gh >/dev/null; then
+      echo "watch it with: gh run watch \$(gh run list --workflow installer.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
+    fi
     echo "published v{{new}}; docket update now offers it"
