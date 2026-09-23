@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `docket correct` fixes a record's wording or metadata while it keeps its id. Corrections are ledger lines, `docket show` lists them, and briefings tag corrected records. A ledger that holds a correction needs this release or later to read.
+
 ### Changed
 
 - `docket claim` and `docket decision` refuse a text that ends in `?`. A

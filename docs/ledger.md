@@ -116,6 +116,36 @@ For decisions, `decided_by` can attribute the commitment to another person or
 agent. Both values are self-reported; Docket does not authenticate these
 identities.
 
+## Correction lines
+
+A correction line fixes the wording or metadata of an earlier record. The
+record keeps its id, so relations, feature includes, and citations that name
+it stay valid.
+
+    {"schema":2,"kind":"correction","id":"d12.1","corrects":"d12",
+     "fields":{"scope":["docket/env.py"]},"reason":"scope named the old path",
+     "ts":"...","author":"...","session":"...","branch":"..."}
+
+| Field | Meaning |
+|---|---|
+| `id` | `<record id>.<n>`; `n` counts that record's corrections from 1 and must increase |
+| `corrects` | the record id; must equal the id's base and name an earlier record |
+| `fields` | replacement values; each replaces the record's value whole |
+| `reason` | why the record was wrong; may be empty |
+
+A correction may replace `text`, `rationale`, `scope`, `cost_if_wrong`,
+`evidence`, `revisit`, and `pinned`, and on a decision also `alternatives`
+and `decided_by`. It may not replace `choice`, the state, a relation, the
+kind, or provenance: those change what the record commits to, so record a
+restatement with `--supersedes` instead.
+
+Nothing may point at a correction id. Commands that read the ledger apply
+corrections in file order; `docket show ID --json` carries `corrections` and
+`original`, the values before the first correction.
+
+A docket release older than the one that introduced corrections refuses a
+ledger that holds a correction line.
+
 ## Relations
 
 ### Supports
