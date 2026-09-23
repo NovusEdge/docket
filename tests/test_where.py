@@ -1,3 +1,4 @@
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -5,30 +6,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from docket import ledger, where
 
-# graph/main_test.go TestFilterTokenizerMatchesPython holds the same table.
-# The viewer previews text terms with its own tokenizer, so both must split
-# every one of these the same way.
-SHARED_CASES = [
-    (
-        "kind:decision -is:retired scope:docket/ledger.py cache",
-        [
-            ("kind", "decision", False),
-            ("is", "retired", True),
-            ("scope", "docket/ledger.py", False),
-            ("", "cache", False),
-        ],
-    ),
-    ('author:"a teammate"', [("author", "a teammate", False)]),
-    ('"d12:"', [("", "d12:", False)]),
-    ('"https://x.test"', [("", "https://x.test", False)]),
-    ('-"two words" Tail', [("", "two words", True), ("", "tail", False)]),
-    ('a"b c"d', [("", "ab cd", False)]),
-    ("x1:y", [("", "x1:y", False)]),
-    ('"open', [("", "open", False)]),
-    ("- lone", [("", "-", False), ("", "lone", False)]),
-    (":x", [("", ":x", False)]),
-    ("", []),
-]
+# graph/testdata/tokenizer_cases.json holds this table. The viewer previews
+# text terms with its own tokenizer, so both must split every case the same
+# way; graph/main_test.go TestFilterTokenizerMatchesPython reads the same file.
+_CASES_PATH = Path(__file__).parent.parent / "graph" / "testdata" / "tokenizer_cases.json"
+with _CASES_PATH.open(encoding="utf-8") as _f:
+    SHARED_CASES = [
+        (case["input"], [(t["field"], t["value"], t["negated"]) for t in case["terms"]])
+        for case in json.load(_f)
+    ]
 
 
 def entry(**fields):

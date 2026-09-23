@@ -64,6 +64,9 @@ func newFilterTerm(negated bool, body []rune, colon int) filterTerm {
 	if colon > 0 && asciiLetters(body[:colon]) {
 		return filterTerm{field: strings.ToLower(string(body[:colon])), value: string(body[colon+1:]), negated: negated}
 	}
+	// strings.ToLower is Go's own case folding, not Python's str.lower. They
+	// disagree on İ (Turkish dotted capital I) and a word-final Σ, so the same
+	// text term can match differently here than in docket/where.py.
 	return filterTerm{value: strings.ToLower(string(body)), negated: negated}
 }
 
@@ -157,6 +160,12 @@ func (m model) submitFilter() (model, tea.Cmd) {
 		m.pendingQuery = value
 		m.status = "filtering…"
 		cmd = runFilterCmd(m.filterCmd, value, m.filterSeq)
+	}
+	if cmd == nil {
+		// No callback is in flight, so this is the state on screen: an empty
+		// query, a text-only query, or a field query shown text-only for want
+		// of a filter command. Esc must be able to come back to it.
+		m.appliedShown, m.appliedQuery = m.shown, m.query
 	}
 	m.reselect(id)
 	return m, cmd

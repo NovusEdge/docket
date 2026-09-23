@@ -1,12 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 	"unicode"
 
 	tea "charm.land/bubbletea/v2"
@@ -498,27 +500,34 @@ func TestSelectionFollowsTheRecordAcrossASort(t *testing.T) {
 	}
 }
 
+// tokenizerCase and the JSON fixture keep the field names Python's
+// tests/test_where.py reads under json.load, unlike filterTerm's Go-only names.
+type tokenizerCase struct {
+	Input string `json:"input"`
+	Terms []struct {
+		Field   string `json:"field"`
+		Value   string `json:"value"`
+		Negated bool   `json:"negated"`
+	} `json:"terms"`
+}
+
 func TestFilterTokenizerMatchesPython(t *testing.T) {
-	// tests/test_where.py SHARED_CASES holds the same table.
-	cases := []struct {
-		input string
-		want  []filterTerm
-	}{
-		{"kind:decision -is:retired scope:docket/ledger.py cache", []filterTerm{{"kind", "decision", false}, {"is", "retired", true}, {"scope", "docket/ledger.py", false}, {"", "cache", false}}},
-		{`author:"a teammate"`, []filterTerm{{"author", "a teammate", false}}},
-		{`"d12:"`, []filterTerm{{"", "d12:", false}}},
-		{`"https://x.test"`, []filterTerm{{"", "https://x.test", false}}},
-		{`-"two words" Tail`, []filterTerm{{"", "two words", true}, {"", "tail", false}}},
-		{`a"b c"d`, []filterTerm{{"", "ab cd", false}}},
-		{"x1:y", []filterTerm{{"", "x1:y", false}}},
-		{`"open`, []filterTerm{{"", "open", false}}},
-		{"- lone", []filterTerm{{"", "-", false}, {"", "lone", false}}},
-		{":x", []filterTerm{{"", ":x", false}}},
-		{"", nil},
+	// tests/test_where.py reads the same fixture.
+	data, err := os.ReadFile("testdata/tokenizer_cases.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []tokenizerCase
+	if err := json.Unmarshal(data, &cases); err != nil {
+		t.Fatal(err)
 	}
 	for _, c := range cases {
-		if got := parseFilter(c.input).terms; fmt.Sprint(got) != fmt.Sprint(c.want) {
-			t.Errorf("parseFilter(%q) = %v, want %v", c.input, got, c.want)
+		var want []filterTerm
+		for _, term := range c.Terms {
+			want = append(want, filterTerm{term.Field, term.Value, term.Negated})
+		}
+		if got := parseFilter(c.Input).terms; fmt.Sprint(got) != fmt.Sprint(want) {
+			t.Errorf("parseFilter(%q) = %v, want %v", c.Input, got, want)
 		}
 	}
 }
@@ -718,6 +727,56 @@ exit 1
 	}
 }
 
+func TestFailedCallbackDuringEditRestoresTheAppliedState(t *testing.T) {
+	argv, _ := writeFilterScript(t, `echo "docket: where: kind:nope: unknown kind nope; use claim, decision, question" >&2
+exit 1
+`)
+	m := newModelWithFilter(testData(), false, argv)
+	m = applyFilter(m, "other")
+	m, cmd := submit(m, "kind:nope root")
+	m, _ = updateModel(m, keyMsg('/'))
+	m = runFilter(t, m, cmd)
+	m, _ = updateModel(m, keyMsg(0x1b))
+	if visibleIDs(m) != "d4" || m.query != "other" {
+		t.Fatalf("after esc: rows=%q query=%q, want d4 and other", visibleIDs(m), m.query)
+	}
+}
+
+func TestFailedSecondQueryRestoresLastAppliedNotAsPreview(t *testing.T) {
+	argv, _ := writeFilterScript(t, `case "$2" in
+*first*) printf 'd1\n' ;;
+*) exit 1 ;;
+esac
+`)
+	m := newModelWithFilter(testData(), false, argv)
+	m, first := submit(m, "kind:decision first")
+	m, second := submit(m, "kind:decision second")
+	m = runFilter(t, m, second)
+	m = runFilter(t, m, first)
+	if visibleIDs(m) != "d1,d2,d3,d4" || m.query != "" {
+		t.Fatalf("after failing B: rows=%q query=%q, want the untouched initial state", visibleIDs(m), m.query)
+	}
+}
+
+func TestCallbackTimeoutKeepsRowsAndReportsIt(t *testing.T) {
+	argv, _ := writeFilterScript(t, `sleep 2
+printf 'd1\n'
+`)
+	old := filterTimeout
+	filterTimeout = 50 * time.Millisecond
+	defer func() { filterTimeout = old }()
+	m := newModelWithFilter(testData(), false, argv)
+	m = applyFilter(m, "other")
+	m, cmd := submit(m, "kind:decision second")
+	m = runFilter(t, m, cmd)
+	if visibleIDs(m) != "d4" || m.query != "other" {
+		t.Fatalf("rows=%q query=%q, want the last applied filter kept", visibleIDs(m), m.query)
+	}
+	if !m.statusErr || !strings.Contains(m.status, "timed out") {
+		t.Fatalf("status = %q err=%v, want a timeout error", m.status, m.statusErr)
+	}
+}
+
 func TestStaleFilterResultIsDropped(t *testing.T) {
 	argv, _ := writeFilterScript(t, `case "$2" in
 *first*) printf 'd1\n' ;;
@@ -785,7 +844,7 @@ func TestHeightsFourSixAndEight(t *testing.T) {
 		if len(lines) != height || !strings.Contains(lines[0], "d1") {
 			t.Fatalf("height %d: %d lines, first %q", height, len(lines), lines[0])
 		}
-		if got := lines[height-1]; got != "4/4 match · sort ledger asc  ? help" {
+		if got := lines[height-1]; got != "? help  4/4 match · sort ledger asc" {
 			t.Fatalf("height %d: pane line = %q", height, got)
 		}
 		m, _ = updateModel(m, keyMsg('/'))
@@ -798,6 +857,27 @@ func TestHeightsFourSixAndEight(t *testing.T) {
 	m, _ = updateModel(m, tea.WindowSizeMsg{Width: 80, Height: 8})
 	if lines := viewLines(m); len(lines) != 8 || lines[5] != "filter: none" || !strings.Contains(lines[0], "d1") {
 		t.Fatalf("height 8: %q", lines)
+	}
+
+	m = NewModel(testData())
+	m, _ = updateModel(m, tea.WindowSizeMsg{Width: 80, Height: 3})
+	m, _ = updateModel(m, keyMsg('/'))
+	m = typeText(m, "ot")
+	if got := viewLines(m)[1]; !strings.HasPrefix(got, "filter: ot") {
+		t.Fatalf("height 3: editing second line = %q", got)
+	}
+}
+
+func TestHelpStaysVisibleAtHeightFiveWithALongStatus(t *testing.T) {
+	argv, _ := writeFilterScript(t, `echo "docket: where: kind:nope: unknown kind nope; use claim, decision, question" >&2
+exit 1
+`)
+	m := newModelWithFilter(testData(), false, argv)
+	m, _ = updateModel(m, tea.WindowSizeMsg{Width: 40, Height: 5})
+	m, cmd := submit(m, "kind:nope")
+	m = runFilter(t, m, cmd)
+	if got := viewLines(m)[4]; !strings.Contains(got, "? help") {
+		t.Fatalf("status line = %q, want ? help visible at width 40", got)
 	}
 }
 

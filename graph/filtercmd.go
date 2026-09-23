@@ -10,7 +10,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-const filterTimeout = 10 * time.Second
+// filterTimeout is a var, not a const, so tests can shorten it instead of
+// waiting out the real 10 seconds.
+var filterTimeout = 10 * time.Second
 
 // filterResultMsg carries the ids the filter command printed, or the reason
 // it failed. seq ties it to the submission that started it.
@@ -61,8 +63,12 @@ func (m model) applyFilterResult(msg filterResultMsg) model {
 	id := m.selectedID()
 	if msg.err != "" {
 		m.status, m.statusErr = msg.err, true
+		// The applied state is the one thing still known good; restore Esc's
+		// target unconditionally, and the view itself once there is no input
+		// left open to preserve.
+		m.prevShown, m.prevQuery = m.appliedShown, m.appliedQuery
 		if !m.searching {
-			m.shown, m.query = m.prevShown, m.prevQuery
+			m.shown, m.query = m.appliedShown, m.appliedQuery
 			m.reselect(id)
 		}
 		return m
@@ -72,6 +78,7 @@ func (m model) applyFilterResult(msg filterResultMsg) model {
 		set[ident] = true
 	}
 	m.status, m.statusErr = "", false
+	m.appliedShown, m.appliedQuery = set, m.pendingQuery
 	if m.searching {
 		m.prevShown, m.prevQuery = set, m.pendingQuery
 		return m

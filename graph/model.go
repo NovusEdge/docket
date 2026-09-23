@@ -93,6 +93,8 @@ type model struct {
 	shown         map[string]bool
 	prevShown     map[string]bool
 	prevQuery     string
+	appliedShown  map[string]bool
+	appliedQuery  string
 	status        string
 	statusErr     bool
 	filterCmd     []string
@@ -186,6 +188,7 @@ func newModelWithFilter(data GraphData, pretty bool, filterCmd []string) model {
 			m.shown[id] = true
 		}
 	}
+	m.appliedShown, m.appliedQuery = m.shown, m.query
 	m.searchInput = textinput.New()
 	m.searchInput.Prompt = "filter: "
 	m.searchInput.Placeholder = "words and field:value terms"
@@ -629,7 +632,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				id := m.selectedID()
 				m.searching = false
 				m.searchInput.Blur()
-				m.shown = m.prevShown
+				m.shown, m.query = m.prevShown, m.prevQuery
 				m.reselect(id)
 				return m, nil
 			}
@@ -655,7 +658,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if key.Matches(msg, keySearch) {
 			m.searching = true
-			m.prevShown, m.prevQuery = m.shown, m.query
+			m.prevShown, m.prevQuery = m.appliedShown, m.appliedQuery
 			m.searchInput.SetValue(m.query)
 			return m, m.searchInput.Focus()
 		}

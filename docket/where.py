@@ -106,6 +106,9 @@ def _split(query: str) -> list[tuple[bool, str, int]]:
 
 def _term(negated: bool, body: str, colon: int) -> Term:
     if colon <= 0 or not _FIELD_RE.fullmatch(body[:colon]):
+        # str.lower is Python's own case folding, not Go's strings.ToLower.
+        # They disagree on İ (Turkish dotted capital I) and a word-final Σ, so
+        # the same text term can match differently in graph/filter.go.
         return Term("", body.lower(), negated)
     field, value = body[:colon].lower(), body[colon + 1 :]
     shown = ("-" if negated else "") + body
