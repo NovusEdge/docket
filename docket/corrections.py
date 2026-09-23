@@ -101,3 +101,57 @@ def fold(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
         current["corrections"] = [*current.get("corrections", []), entry["id"]]
         result[position] = current
     return result
+
+
+def allocate(entries: list[dict[str, Any]], target: str) -> str:
+    highest = 0
+    for entry in entries:
+        if entry.get("kind") == KIND and entry.get("corrects") == target:
+            highest = max(highest, split_id(entry["id"])[1])
+    return f"{target}.{highest + 1}"
+
+
+def make(
+    target: str,
+    fields: dict[str, Any],
+    *,
+    reason: str = "",
+    author: str = "unknown",
+    session: str = "",
+    branch: str = "",
+    ts: str | None = None,
+) -> dict[str, Any]:
+    """An unnumbered correction line; append allocates the id under its lock."""
+    from datetime import datetime, timezone
+
+    from docket.ledger import SCHEMA
+
+    return {
+        "schema": SCHEMA,
+        "kind": KIND,
+        "id": "",
+        "corrects": target,
+        "fields": copy.deepcopy(fields),
+        "reason": reason,
+        "ts": ts if ts is not None else datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "author": author,
+        "session": session,
+        "branch": branch,
+    }
+
+
+def refuse(entries: list[dict[str, Any]], correction: dict[str, Any]) -> None:
+    """Run the write-time refusals on the record as this correction leaves it.
+
+    Only the fields the correction replaces are checked, against the record
+    as earlier corrections left it.
+    """
+    from docket.ledger import _reject_empty_reasoning, _reject_question_text
+
+    fields = correction["fields"]
+    target = next(item for item in fold(entries) if item["id"] == correction["corrects"])
+    record = {**target, **fields}
+    if "text" in fields:
+        _reject_question_text(record)
+    if record["kind"] == "decision":
+        _reject_empty_reasoning(record, frozenset(fields))

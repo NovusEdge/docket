@@ -1,6 +1,7 @@
 import sys
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -187,6 +188,84 @@ class ProjectionTests(unittest.TestCase):
             [decision("d1"), line("d1.1", "d1", {"text": "The cache lives in Valkey."})]
         )
         self.assertEqual(payload["entries"][0]["question"], "The cache lives in Valkey.")
+
+
+class AppendTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = Path(self.tmp.name) / "ledger.jsonl"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def add(self, kind, text, **kwargs):
+        return ledger.append(self.path, ledger.make_record(kind, text, author="test", **kwargs))
+
+    def correct(self, target, fields):
+        return ledger.append(self.path, corrections.make(target, fields, author="test"))
+
+    def test_append_numbers_corrections_per_record(self):
+        self.add("decision", "The cache lives in Redis.", choice="Redis")
+        self.add("claim", "Writes are durable.")
+        self.assertEqual(self.correct("d1", {"scope": ["a"]})["id"], "d1.1")
+        self.assertEqual(self.correct("c2", {"scope": ["a"]})["id"], "c2.1")
+        self.assertEqual(self.correct("d1", {"scope": ["b"]})["id"], "d1.2")
+        self.assertEqual(self.add("claim", "Another.")["id"], "c3")
+
+    def test_concurrent_corrections_never_share_a_number(self):
+        self.add("claim", "Writes are durable.")
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            ids = list(pool.map(lambda n: self.correct("c1", {"revisit": str(n)})["id"], range(8)))
+        self.assertEqual(sorted(ids), sorted(f"c1.{n}" for n in range(1, 9)))
+
+    def test_question_shaped_text_is_refused(self):
+        self.add("decision", "The cache lives in Redis.", choice="Redis")
+        with self.assertRaisesRegex(ledger.LedgerError, "not ask it"):
+            self.correct("d1", {"text": "Where does the cache live?"})
+        self.assertEqual([item["id"] for item in ledger.read(self.path)], ["d1"])
+
+    def test_text_that_restates_the_choice_is_refused(self):
+        self.add("decision", "The cache lives in Redis.", choice="Redis")
+        with self.assertRaisesRegex(ledger.LedgerError, "more than the choice"):
+            self.correct("d1", {"text": "Redis"})
+
+    def test_a_rationale_that_echoes_the_choice_is_refused(self):
+        self.add("decision", "The cache lives in Redis.", choice="Redis")
+        with self.assertRaisesRegex(ledger.LedgerError, "say why"):
+            self.correct("d1", {"rationale": "redis"})
+
+    def write_echoing_decision(self):
+        # Records written before the echo rule carry rationale == choice.
+        record = ledger.make_record(
+            "decision", "The cache lives in Redis.", choice="Redis", author="test"
+        )
+        record["rationale"] = "Redis"
+        record["alternatives"] = ["Redis"]
+        ledger.append(self.path, record)
+
+    def test_scope_correction_ignores_an_old_rationale_echo(self):
+        self.write_echoing_decision()
+        self.assertEqual(self.correct("d1", {"scope": ["docket/env.py"]})["id"], "d1.1")
+
+    def test_text_correction_ignores_an_old_rationale_echo(self):
+        self.write_echoing_decision()
+        self.assertEqual(self.correct("d1", {"text": "The cache lives in Valkey."})["id"], "d1.1")
+
+    def test_a_text_correction_that_equals_the_rationale_is_refused(self):
+        self.add("decision", "The cache lives in Redis.", choice="Redis", rationale="It is fast.")
+        with self.assertRaisesRegex(ledger.LedgerError, "say why"):
+            self.correct("d1", {"text": "It is fast."})
+
+    def test_alternatives_that_only_repeat_the_choice_are_refused(self):
+        self.add("decision", "The cache lives in Redis.", choice="Redis")
+        with self.assertRaisesRegex(ledger.LedgerError, "option the choice beat"):
+            self.correct("d1", {"alternatives": ["redis"]})
+
+    def test_a_correction_refusal_checks_the_corrected_state(self):
+        self.add("decision", "The cache lives in Redis.", choice="Redis")
+        self.correct("d1", {"rationale": "It is fast."})
+        with self.assertRaisesRegex(ledger.LedgerError, "say why"):
+            self.correct("d1", {"text": "It is fast."})
 
 
 if __name__ == "__main__":

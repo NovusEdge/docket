@@ -76,7 +76,9 @@ def _normalized(value: str) -> str:
     return " ".join(value.split()).casefold()
 
 
-def _reject_empty_reasoning(record: dict[str, Any]) -> None:
+def _reject_empty_reasoning(
+    record: dict[str, Any], changed: frozenset[str] | None = None
+) -> None:
     """Refuse a decision whose text or reasoning fields only echo the choice.
 
     Requiring the choice to appear in ``alternatives`` made a one-element list
@@ -86,25 +88,43 @@ def _reject_empty_reasoning(record: dict[str, Any]) -> None:
     refused, which leaves no reason to invent an alternative that never existed.
 
     This runs when a record is written, never when one is read. A ledger
-    recorded under the old rule stays readable.
+    recorded under the old rule stays readable. ``changed`` names the fields a
+    correction replaces, and each check then runs only when its own field
+    changed: 27 migrated decisions carry a rationale equal to their choice,
+    and a scope correction must not fail on it.
     """
+
+    def touched(*names: str) -> bool:
+        return changed is None or any(name in changed for name in names)
+
     choice = _normalized(record.get("choice", ""))
     alternatives = [_normalized(item) for item in record.get("alternatives", [])]
-    if choice and alternatives and all(item == choice for item in alternatives):
+    if (
+        touched("alternatives")
+        and choice
+        and alternatives
+        and all(item == choice for item in alternatives)
+    ):
         raise _error(
             "record",
             "decision alternatives must name an option the choice beat; leave "
             "--alternative off when the decision had no contender",
         )
     text = _normalized(record.get("text", ""))
-    if choice and text == choice:
+    if touched("text") and choice and text == choice:
         raise _error(
             "record",
             "decision text must carry more than the choice; name what the "
             "decision commits to and leave the option detail in --choice",
         )
     rationale = _normalized(record.get("rationale", ""))
-    if rationale and rationale in (choice, text):
+    if touched("rationale"):
+        against: tuple[str, ...] = (choice, text)
+    elif touched("text"):
+        against = (text,)
+    else:
+        against = ()
+    if rationale and rationale in against:
         raise _error(
             "record",
             "decision rationale must say why the choice won; leave --rationale off "
@@ -692,8 +712,10 @@ ledger_lock = _ledger_lock
 def append(path: Path | str, record: dict[str, Any]) -> dict[str, Any]:
     """Validate and append one record under a process lock.
 
-    The caller may supply an empty id; in that case the global sequence is
-    allocated while holding the lock, preventing duplicate IDs between writers.
+    The caller may supply an empty id; the record id, or a correction's
+    `<target>.<n>`, is then allocated while holding the lock, preventing
+    duplicate IDs between writers. A correction's write-time refusals run on
+    the projection read under the same lock.
     """
     path = Path(path)
     with _ledger_lock(path):
@@ -701,10 +723,16 @@ def append(path: Path | str, record: dict[str, Any]) -> dict[str, Any]:
         # would block against the lock this call already holds.
         entries = read(path, lock=False)
         candidate = copy.deepcopy(record)
-        if not candidate.get("id"):
-            kind = candidate.get("kind") or ""
-            candidate["id"] = allocate_id(entries, kind)
-        validate_record(candidate, previous=entries)
+        if candidate.get("kind") == corrections.KIND:
+            if not candidate.get("id"):
+                candidate["id"] = corrections.allocate(entries, str(candidate.get("corrects", "")))
+            validate_record(candidate, previous=entries)
+            corrections.refuse(entries, candidate)
+        else:
+            if not candidate.get("id"):
+                kind = candidate.get("kind") or ""
+                candidate["id"] = allocate_id(entries, kind)
+            validate_record(candidate, previous=entries)
         path.parent.mkdir(parents=True, exist_ok=True)
         try:
             with path.open("a+", encoding="utf-8") as stream:
