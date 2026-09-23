@@ -42,7 +42,7 @@ func (m model) bottomPane() []string {
 		if m.searching {
 			return []string{fitLine(m.filterLine(), m.width)}
 		}
-		return []string{fitLine(m.statusLine()+"  ? help", m.width)}
+		return []string{fitLine("? help  "+m.statusLine(), m.width)}
 	}
 	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("#7F8C98"))
 	return []string{

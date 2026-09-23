@@ -160,8 +160,8 @@ def _run_graph_viewer(
                 command.append("--pretty")
             # An older viewer binary exits on an unknown flag but ignores an
             # unknown variable, so the callback travels in the environment.
-            env = {**os.environ, "DOCKET_GRAPH_FILTER_CMD": json.dumps(_filter_command())}
-            result = subprocess.run(command, env=env)
+            child_env = {**os.environ, "DOCKET_GRAPH_FILTER_CMD": json.dumps(_filter_command())}
+            result = subprocess.run(command, env=child_env)
         except KeyboardInterrupt:
             return 130
         except OSError as exc:
