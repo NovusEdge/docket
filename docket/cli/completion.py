@@ -52,6 +52,7 @@ _COMPLETION_CMDS = (
     "claim",
     "decision",
     "question",
+    "correct",
     "list",
     "show",
     "graph",
