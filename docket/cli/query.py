@@ -12,7 +12,7 @@ import shutil
 import sys
 import textwrap
 
-from docket import corrections, env
+from docket import corrections, env, where
 from docket.cli.term import _DIM, _STATE_COLOR, _c, _match, _use_color
 from docket.context_model import positions
 from docket.env import LEDGER, justification_sets, read, retired_by
@@ -36,9 +36,10 @@ def _list_dim_tail(line: str, marker: str, use_color: bool) -> str:
 
 
 def cmd_list(args: argparse.Namespace) -> int:
+    query = where.parse(getattr(args, "where", None) or "")
     entries = project(read(env.ledger_path()), validated=True)
     retired = retired_by(entries)
-    if not args.superseded:
+    if not args.superseded and not query.wants_retired:
         entries = [e for e in entries if e.get("id") not in retired]
     if args.state:
         entries = [e for e in entries if e.get("state") == args.state]
@@ -46,6 +47,7 @@ def cmd_list(args: argparse.Namespace) -> int:
         entries = [e for e in entries if e.get("kind") == args.kind]
     if args.find:
         entries = [e for e in entries if _match(e, args.find)]
+    entries = [e for e in entries if query.matches(e)]
     if not entries:
         if getattr(args, "json", False):
             print("[]")
@@ -205,4 +207,21 @@ def cmd_where(args: argparse.Namespace) -> int:
     return 0
 
 
-__all__ = ["cmd_list", "cmd_show", "cmd_where"]
+def cmd_filter_ids(args: argparse.Namespace) -> int:
+    """Print the id of every record the query matches, retired included.
+
+    The graph viewer runs this for a query with a field term and keeps the
+    rows whose ids it prints.
+    """
+    parts = list(args.query)
+    # argparse keeps the "--" separator at the head of a REMAINDER list.
+    if parts[:1] == ["--"]:
+        parts = parts[1:]
+    query = where.parse(" ".join(parts))
+    for e in project(read(env.ledger_path()), validated=True):
+        if query.matches(e):
+            print(e["id"])
+    return 0
+
+
+__all__ = ["cmd_filter_ids", "cmd_list", "cmd_show", "cmd_where"]

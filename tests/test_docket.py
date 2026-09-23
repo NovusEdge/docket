@@ -15,11 +15,12 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from docket import ROOT, ledger  # noqa: E402
 from docket import env as docket_env  # noqa: E402
-from docket import ledger  # noqa: E402
 from docket.cli import autoscope as cli_autoscope  # noqa: E402
 from docket.cli import context_cmd as cli_context_cmd  # noqa: E402
 from docket.cli import graph as cli_graph  # noqa: E402
+from docket.cli import main as cli_main  # noqa: E402
 from docket.cli import query as cli_query  # noqa: E402
 from docket.ledger import make_record  # noqa: E402
 
@@ -676,6 +677,231 @@ class RebaseCommandTests(unittest.TestCase):
             self.assertEqual(run(home, "check").returncode, 0)
             after = (Path(home) / ".docket" / "ledger.jsonl").read_text()
         self.assertIn("Their premise", after)
+
+
+def _where_ledger(root):
+    """c1 and q2, then d3 retired by d4, which d5 retires in turn."""
+    (root / ".git").mkdir()
+    path = root / ".docket" / "ledger.jsonl"
+    path.parent.mkdir()
+    records = [
+        make_record(
+            "claim", "Writes are durable.", state="accepted", author="test", record_id="c1"
+        ),
+        make_record("question", "Where does the cache live", author="test", record_id="q2"),
+        make_record(
+            "decision",
+            "The cache lives in Redis.",
+            choice="Redis",
+            supports=[["c1"]],
+            pinned=True,
+            author="test",
+            record_id="d3",
+        ),
+        make_record(
+            "decision",
+            "The cache lives in memory.",
+            choice="memory",
+            supersedes=["d3"],
+            author="test",
+            record_id="d4",
+        ),
+        make_record(
+            "decision",
+            "The cache lives on disk.",
+            choice="disk",
+            supersedes=["d4"],
+            author="test",
+            record_id="d5",
+        ),
+    ]
+    path.write_text("\n".join(json.dumps(item) for item in records) + "\n")
+    return path
+
+
+def _graph_args(**overrides):
+    values = {
+        "style": None,
+        "state": None,
+        "kind": None,
+        "find": None,
+        "plain": True,
+        "pretty": False,
+        "interactive": False,
+        "no_interactive": False,
+        "where": None,
+        "format": None,
+        "out": None,
+        "superseded": False,
+        "detail": 40,
+        "direction": "LR",
+    }
+    values.update(overrides)
+    return argparse.Namespace(**values)
+
+
+class WhereCliTests(unittest.TestCase):
+    def list_ids(self, root, *flags):
+        result = run(root, "list", "--json", *flags)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return [item["id"] for item in json.loads(result.stdout)]
+
+    def test_list_where_hides_retired_records_unless_asked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _where_ledger(root)
+            self.assertEqual(self.list_ids(root, "--where", "kind:decision"), ["d5"])
+            self.assertEqual(
+                self.list_ids(root, "--where", "kind:decision", "--superseded"), ["d3", "d4", "d5"]
+            )
+            self.assertEqual(self.list_ids(root, "--where", "is:pinned"), [])
+            self.assertEqual(self.list_ids(root, "--where", "is:pinned", "--superseded"), ["d3"])
+
+    def test_list_where_is_retired_pulls_retired_records_in(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _where_ledger(root)
+            self.assertEqual(self.list_ids(root, "--where", "is:retired"), ["d3", "d4"])
+
+    def test_list_where_ands_with_kind(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _where_ledger(root)
+            self.assertEqual(self.list_ids(root, "--where", "cache", "--kind", "question"), ["q2"])
+            self.assertEqual(self.list_ids(root, "--where", "kind:decision", "--kind", "claim"), [])
+
+    def test_list_where_takes_a_negated_query_after_an_equals_sign(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _where_ledger(root)
+            self.assertEqual(self.list_ids(root, "--where=-kind:question"), ["c1", "d5"])
+
+    def test_list_where_refuses_an_invalid_query(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _where_ledger(root)
+            result = run(root, "list", "--where", "colour:red")
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("unknown field colour", result.stderr)
+            self.assertNotIn("Traceback", result.stderr)
+
+    def test_graph_format_with_is_retired_keeps_retired_records(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _where_ledger(root)
+            result = run(
+                root, "graph", "--format", "mermaid", "--no-interactive", "--where", "is:retired"
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("d4 -- retires --> d3", result.stdout)
+            self.assertIn("classDef retired", result.stdout)
+            self.assertNotIn("d5", result.stdout)
+
+    def test_static_graph_honours_where(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _where_ledger(root)
+            result = run(root, "graph", "--no-interactive", "--plain", "--where", "kind:claim")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Writes are durable.", result.stdout)
+            self.assertNotIn("on disk", result.stdout)
+
+    def test_the_no_viewer_fallback_honours_where(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = _where_ledger(root)
+            out, err = io.StringIO(), io.StringIO()
+            with (
+                mock.patch.object(docket_env, "ledger_path", lambda: path),
+                mock.patch.object(cli_graph, "_graph_is_tty", lambda: True),
+                mock.patch.object(cli_graph, "_graph_viewer_path", lambda: root / "missing"),
+                contextlib.redirect_stdout(out),
+                contextlib.redirect_stderr(err),
+            ):
+                code = cli_graph.cmd_graph(_graph_args(plain=False, where="kind:claim"))
+            self.assertEqual(code, 0)
+            self.assertIn("Writes are durable.", out.getvalue())
+            self.assertNotIn("on disk", out.getvalue())
+            self.assertIn("build", err.getvalue().lower())
+
+    def test_an_invalid_where_exits_before_the_viewer_starts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = _where_ledger(root)
+            viewer = root / "viewer"
+            viewer.write_text("viewer")
+            calls = []
+            err = io.StringIO()
+            with (
+                mock.patch.object(docket_env, "ledger_path", lambda: path),
+                mock.patch.object(cli_graph, "_graph_is_tty", lambda: True),
+                mock.patch.object(cli_graph, "_graph_viewer_path", lambda: viewer),
+                mock.patch.object(cli_graph.subprocess, "run", lambda *a, **k: calls.append(a)),
+                contextlib.redirect_stderr(err),
+            ):
+                code = cli_main(["graph", "--where", "kind:nope"])
+            self.assertEqual(code, 1)
+            self.assertEqual(calls, [])
+            self.assertIn("unknown kind nope", err.getvalue())
+
+    def test_the_viewer_payload_carries_the_filter_and_the_callback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = _where_ledger(root)
+            viewer = root / "viewer"
+            viewer.write_text("viewer")
+            seen = {}
+
+            def fake_run(argv, **kwargs):
+                seen["argv"] = argv
+                seen["env"] = kwargs.get("env") or {}
+                seen["payload"] = json.loads(Path(argv[2]).read_text())
+                return subprocess.CompletedProcess(argv, 0)
+
+            with (
+                mock.patch.object(docket_env, "ledger_path", lambda: path),
+                mock.patch.object(cli_graph, "_graph_is_tty", lambda: True),
+                mock.patch.object(cli_graph, "_graph_viewer_path", lambda: viewer),
+                mock.patch.object(cli_graph.subprocess, "run", fake_run),
+            ):
+                self.assertEqual(
+                    cli_graph.cmd_graph(_graph_args(plain=False, where="kind:claim")), 0
+                )
+                payload = seen["payload"]
+                self.assertEqual(payload["version"], 2)
+                self.assertEqual(
+                    [item["id"] for item in payload["entries"]], ["c1", "q2", "d3", "d4", "d5"]
+                )
+                self.assertEqual(payload["filter"], {"query": "kind:claim", "ids": ["c1"]})
+                self.assertEqual(
+                    json.loads(seen["env"]["DOCKET_GRAPH_FILTER_CMD"]),
+                    [sys.executable, str(ROOT / "bin" / "docket"), "_filter-ids", "--"],
+                )
+                self.assertNotIn("--filter-cmd", seen["argv"])
+
+                self.assertEqual(cli_graph.cmd_graph(_graph_args(plain=False)), 0)
+                self.assertNotIn("filter", seen["payload"])
+                self.assertIn("DOCKET_GRAPH_FILTER_CMD", seen["env"])
+
+    def test_filter_ids_takes_a_negated_query_after_the_separator(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _where_ledger(root)
+            result = run(root, "_filter-ids", "--", "-kind:question")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.split(), ["c1", "d3", "d4", "d5"])
+            result = run(root, "_filter-ids", "--", "kind:decision is:pinned")
+            self.assertEqual(result.stdout.split(), ["d3"])
+
+    def test_filter_ids_reports_a_bad_query_on_stderr(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _where_ledger(root)
+            result = run(root, "_filter-ids", "--", "kind:nope")
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.stdout, "")
+            self.assertIn("unknown kind nope", result.stderr.strip().splitlines()[-1])
+            self.assertNotIn("Traceback", result.stderr)
 
 
 class FeatureSkillTests(unittest.TestCase):
