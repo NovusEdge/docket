@@ -11,10 +11,11 @@ from docket.cli.context_cmd import CONTEXT_ENVELOPES, cmd_context
 from docket.cli.correct import add_correct_parser
 from docket.cli.feature_parser import add_feature_parser
 from docket.cli.graph import cmd_graph
-from docket.cli.query import cmd_list, cmd_show, cmd_where
+from docket.cli.query import cmd_filter_ids, cmd_list, cmd_show, cmd_where
 from docket.cli.record import cmd_claim, cmd_decision, cmd_question
 from docket.cli.selfupdate import cmd_update, cmd_update_fetch
 from docket.ledger import KINDS, STATES, LedgerError
+from docket.where import WhereError
 
 
 class VersionAction(argparse.Action):
@@ -87,6 +88,7 @@ def main(argv: list[str] | None = None) -> int:
         "--state", choices=tuple(sorted({state for values in STATES.values() for state in values}))
     )
     ls.add_argument("--find", help="match question or answer text")
+    ls.add_argument("--where", metavar="QUERY", help="filter with the query language")
     ls.add_argument(
         "--superseded",
         action="store_true",
@@ -105,6 +107,7 @@ def main(argv: list[str] | None = None) -> int:
         "--state", choices=tuple(sorted({state for values in STATES.values() for state in values}))
     )
     gr.add_argument("--find", help="match question or answer text")
+    gr.add_argument("--where", metavar="QUERY", help="filter with the query language")
     gr.add_argument(
         "--format",
         choices=("mermaid", "dot", "csv"),
@@ -243,6 +246,10 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("_update-fetch").set_defaults(func=cmd_update_fetch)
 
+    fi = sub.add_parser("_filter-ids")
+    fi.add_argument("query", nargs=argparse.REMAINDER)
+    fi.set_defaults(func=cmd_filter_ids)
+
     args = p.parse_args(argv)
     if args.cmd is None:
         print(f"docket {version()}")
@@ -261,6 +268,6 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         return args.func(args)
-    except (LedgerError, features.FeatureError, OutcomeError, OSError) as exc:
+    except (LedgerError, features.FeatureError, OutcomeError, WhereError, OSError) as exc:
         print(str(exc), file=sys.stderr)
         return 1

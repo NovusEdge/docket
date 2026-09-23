@@ -33,6 +33,12 @@ func main() {
 		fmt.Fprintf(os.Stderr, "docket-graph: %v\n", err)
 		os.Exit(2)
 	}
+	// A flag would make an older viewer binary exit on the new CLI's launch.
+	filterCmd, err := parseFilterCmd(os.Getenv("DOCKET_GRAPH_FILTER_CMD"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "docket-graph: %v\n", err)
+		os.Exit(2)
+	}
 	if *plain || !isTerminal(os.Stdin) || !isTerminal(os.Stdout) {
 		if err := renderPlain(os.Stdout, data); err != nil {
 			fmt.Fprintf(os.Stderr, "docket-graph: %v\n", err)
@@ -40,7 +46,7 @@ func main() {
 		}
 		return
 	}
-	program := tea.NewProgram(newModel(data, *pretty || os.Getenv("NO_COLOR") == ""))
+	program := tea.NewProgram(newModelWithFilter(data, *pretty || os.Getenv("NO_COLOR") == "", filterCmd))
 	if _, err := program.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "docket-graph: %v\n", err)
 		os.Exit(1)
@@ -70,6 +76,17 @@ func readData(path string) (GraphData, error) {
 		seen[entry.ID] = struct{}{}
 	}
 	return data, nil
+}
+
+func parseFilterCmd(raw string) ([]string, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	var argv []string
+	if err := json.Unmarshal([]byte(raw), &argv); err != nil || len(argv) == 0 {
+		return nil, fmt.Errorf("DOCKET_GRAPH_FILTER_CMD must be a non-empty JSON array of strings")
+	}
+	return argv, nil
 }
 
 func renderPlain(w io.Writer, data GraphData) error {

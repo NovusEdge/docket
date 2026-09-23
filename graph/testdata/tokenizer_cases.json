@@ -1,0 +1,71 @@
+[
+  {
+    "input": "kind:decision -is:retired scope:docket/ledger.py cache",
+    "terms": [
+      {"field": "kind", "value": "decision", "negated": false},
+      {"field": "is", "value": "retired", "negated": true},
+      {"field": "scope", "value": "docket/ledger.py", "negated": false},
+      {"field": "", "value": "cache", "negated": false}
+    ]
+  },
+  {
+    "input": "author:\"a teammate\"",
+    "terms": [
+      {"field": "author", "value": "a teammate", "negated": false}
+    ]
+  },
+  {
+    "input": "\"d12:\"",
+    "terms": [
+      {"field": "", "value": "d12:", "negated": false}
+    ]
+  },
+  {
+    "input": "\"https://x.test\"",
+    "terms": [
+      {"field": "", "value": "https://x.test", "negated": false}
+    ]
+  },
+  {
+    "input": "-\"two words\" Tail",
+    "terms": [
+      {"field": "", "value": "two words", "negated": true},
+      {"field": "", "value": "tail", "negated": false}
+    ]
+  },
+  {
+    "input": "a\"b c\"d",
+    "terms": [
+      {"field": "", "value": "ab cd", "negated": false}
+    ]
+  },
+  {
+    "input": "x1:y",
+    "terms": [
+      {"field": "", "value": "x1:y", "negated": false}
+    ]
+  },
+  {
+    "input": "\"open",
+    "terms": [
+      {"field": "", "value": "open", "negated": false}
+    ]
+  },
+  {
+    "input": "- lone",
+    "terms": [
+      {"field": "", "value": "-", "negated": false},
+      {"field": "", "value": "lone", "negated": false}
+    ]
+  },
+  {
+    "input": ":x",
+    "terms": [
+      {"field": "", "value": ":x", "negated": false}
+    ]
+  },
+  {
+    "input": "",
+    "terms": []
+  }
+]

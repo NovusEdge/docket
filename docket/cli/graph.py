@@ -11,7 +11,7 @@ import textwrap
 from pathlib import Path
 from typing import Any
 
-from docket import ROOT, env
+from docket import ROOT, env, where
 from docket.cli.term import (
     _DIM,
     _GRAPH_GLYPHS,
@@ -124,22 +124,44 @@ def _graph_payload(entries: list[dict], retired: dict[str, str]) -> dict:
     return graph_payload(entries)
 
 
-def _run_graph_viewer(entries: list[dict], retired: dict[str, str], pretty: bool = False) -> int:
+def _filter_command() -> list[str]:
+    """The argv the viewer runs for a query with a field term.
+
+    The viewer appends the query as one final argument. sys.executable names
+    the interpreter, so this also runs on Windows, where bin/docket cannot be
+    executed by itself.
+    """
+    return [sys.executable, str(ROOT / "bin" / "docket"), "_filter-ids", "--"]
+
+
+def _run_graph_viewer(
+    entries: list[dict],
+    retired: dict[str, str],
+    pretty: bool = False,
+    where_text: str = "",
+    ids: list[str] | None = None,
+) -> int:
     """Run the native viewer with an inherited terminal and private input."""
     viewer = _graph_viewer_path()
     temp_path: Path | None = None
     try:
         fd, raw_path = tempfile.mkstemp(prefix="docket-graph-", suffix=".json")
         temp_path = Path(raw_path)
+        payload = _graph_payload(entries, retired)
+        if where_text:
+            payload["filter"] = {"query": where_text, "ids": ids or []}
         with os.fdopen(fd, "w", encoding="utf-8") as data_file:
-            json.dump(_graph_payload(entries, retired), data_file)
+            json.dump(payload, data_file)
             data_file.write("\n")
 
         try:
             command = [str(viewer), "--data", str(temp_path)]
             if pretty:
                 command.append("--pretty")
-            result = subprocess.run(command)
+            # An older viewer binary exits on an unknown flag but ignores an
+            # unknown variable, so the callback travels in the environment.
+            child_env = {**os.environ, "DOCKET_GRAPH_FILTER_CMD": json.dumps(_filter_command())}
+            result = subprocess.run(command, env=child_env)
         except KeyboardInterrupt:
             return 130
         except OSError as exc:
@@ -441,18 +463,23 @@ def _render_graph(
     return 0
 
 
-def _write_csv(entries: list[dict], args: argparse.Namespace) -> int:
+def _render_static(
+    entries: list[dict], retired: dict[str, str], args: argparse.Namespace, style: str
+) -> int:
+    if not entries:
+        print("docket: nothing recorded")
+        return 0
+    return _render_graph(entries, retired, args, style)
+
+
+def _write_csv(entries: list[dict], args: argparse.Namespace, superseded: bool) -> int:
     """Write nodes.csv and edges.csv for Gephi into args.out."""
 
     from pathlib import Path
 
     from docket.graph_export import to_csv
 
-    nodes, edges = to_csv(
-        entries,
-        detail=args.detail,
-        superseded=bool(getattr(args, "superseded", False)),
-    )
+    nodes, edges = to_csv(entries, detail=args.detail, superseded=superseded)
     if not nodes:
         print("docket: no record in this selection carries a relation", file=sys.stderr)
         return 0
@@ -499,6 +526,8 @@ def cmd_graph(args: argparse.Namespace) -> int:
         # two documents and stdout cannot carry both.
         print("docket: --format csv writes two files; name a directory with --out", file=sys.stderr)
         return 2
+    where_text = getattr(args, "where", None) or ""
+    query = where.parse(where_text)
     if interactive and not _graph_is_tty():
         print("docket: --interactive requires terminal stdin and stdout", file=sys.stderr)
         return 1
@@ -507,20 +536,17 @@ def cmd_graph(args: argparse.Namespace) -> int:
     if not entries:
         print("docket: nothing recorded")
         return 0
+    shown = [e for e in entries if query.matches(e)]
+    superseded = bool(getattr(args, "superseded", False)) or query.wants_retired
 
     if fmt == "csv":
-        return _write_csv(entries, args)
+        return _write_csv(shown, args, superseded)
 
     if fmt:
         from docket.graph_export import to_dot, to_mermaid
 
         render = to_dot if args.format == "dot" else to_mermaid
-        text = render(
-            entries,
-            detail=args.detail,
-            direction=args.direction,
-            superseded=bool(getattr(args, "superseded", False)),
-        )
+        text = render(shown, detail=args.detail, direction=args.direction, superseded=superseded)
         if not text:
             print("docket: no record in this selection carries a relation", file=sys.stderr)
             return 0
@@ -535,7 +561,15 @@ def cmd_graph(args: argparse.Namespace) -> int:
             _graph_viewer_error(viewer)
             if interactive:
                 return 1
-            return _render_graph(entries, retired, args, "compact")
-        return _run_graph_viewer(entries, retired, pretty=bool(getattr(args, "pretty", False)))
+            return _render_static(shown, retired, args, "compact")
+        # The viewer gets every record the other flags allow, so clearing its
+        # filter brings them back; --where travels as its initial filter.
+        return _run_graph_viewer(
+            entries,
+            retired,
+            pretty=bool(getattr(args, "pretty", False)),
+            where_text=where_text,
+            ids=[e["id"] for e in shown],
+        )
 
-    return _render_graph(entries, retired, args, style or "forest")
+    return _render_static(shown, retired, args, style or "forest")

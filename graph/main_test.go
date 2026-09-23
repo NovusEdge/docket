@@ -1,10 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 	"unicode"
 
 	tea "charm.land/bubbletea/v2"
@@ -372,11 +376,11 @@ func TestPlainOverviewShowsKindAndEffectiveState(t *testing.T) {
 	}
 }
 
-func TestLedgerGraphTitleAndBlockedStyle(t *testing.T) {
+func TestTreeStartsOnTheFirstRowAndBlockedStyle(t *testing.T) {
 	m := NewModel(testData())
 	view := ansi.Strip(m.View().Content)
-	if !strings.Contains(view, "LEDGER GRAPH") || strings.Contains(view, "DECISION GRAPH") {
-		t.Fatalf("graph title = %q", view)
+	if strings.Contains(view, "LEDGER GRAPH") || !strings.Contains(strings.Split(view, "\n")[0], "d1") {
+		t.Fatalf("the tree does not start on the first row: %q", view)
 	}
 	blocked := newModel(GraphData{Version: 2, Entries: []Entry{{ID: "d1", Kind: "decision", State: "adopted", Applicable: false}}}, true).stateStyle("blocked").Render("state")
 	adopted := newModel(GraphData{Version: 2, Entries: []Entry{{ID: "d1", Kind: "decision", State: "adopted", Applicable: true}}}, true).stateStyle("adopted").Render("state")
@@ -435,8 +439,8 @@ func TestSortReordersRootsAndKeepsSubtreesContiguous(t *testing.T) {
 	}
 	assertRowOrder(t, m, "b", "b1", "a", "a1", "a2")
 	assertTreeIntact(t, m)
-	if !strings.Contains(ansi.Strip(m.footer()), "sort id desc") {
-		t.Fatalf("footer hid the active sort: %q", ansi.Strip(m.footer()))
+	if !strings.Contains(ansi.Strip(m.statusLine()), "sort id desc") {
+		t.Fatalf("status line hid the active sort: %q", ansi.Strip(m.statusLine()))
 	}
 
 	m, _ = updateModel(m, keyMsg('r'))
@@ -494,6 +498,443 @@ func TestSelectionFollowsTheRecordAcrossASort(t *testing.T) {
 	if m.selectedID() != "d4" {
 		t.Fatalf("selection = %q after a direction flip, want d4", m.selectedID())
 	}
+}
+
+// tokenizerCase and the JSON fixture keep the field names Python's
+// tests/test_where.py reads under json.load, unlike filterTerm's Go-only names.
+type tokenizerCase struct {
+	Input string `json:"input"`
+	Terms []struct {
+		Field   string `json:"field"`
+		Value   string `json:"value"`
+		Negated bool   `json:"negated"`
+	} `json:"terms"`
+}
+
+func TestFilterTokenizerMatchesPython(t *testing.T) {
+	// tests/test_where.py reads the same fixture.
+	data, err := os.ReadFile("testdata/tokenizer_cases.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []tokenizerCase
+	if err := json.Unmarshal(data, &cases); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range cases {
+		var want []filterTerm
+		for _, term := range c.Terms {
+			want = append(want, filterTerm{term.Field, term.Value, term.Negated})
+		}
+		if got := parseFilter(c.Input).terms; fmt.Sprint(got) != fmt.Sprint(want) {
+			t.Errorf("parseFilter(%q) = %v, want %v", c.Input, got, want)
+		}
+	}
+}
+
+func TestTextTermsSearchIDTextChoiceAndRationale(t *testing.T) {
+	e := Entry{ID: "d9", Kind: "decision", Question: "The cache lives in Redis.", Choice: "Redis", Rationale: "Latency.", Author: "alice"}
+	for query, want := range map[string]bool{
+		"d9": true, "cache": true, "REDIS": true, "latency": true, "alice": false, "decision": false,
+		"cache redis": true, "cache postgres": false, "-postgres": true, "-redis": false,
+		`"in redis"`: true, `"redis in"`: false,
+	} {
+		if got := parseFilter(query).textMatches(e); got != want {
+			t.Errorf("textMatches(%q) = %v, want %v", query, got, want)
+		}
+	}
+	if !parseFilter("kind:decision").hasFields() || parseFilter(`"kind:decision"`).hasFields() {
+		t.Fatal("hasFields misread a field term or a quoted term")
+	}
+}
+
+func TestLivePreviewAndsWordsAndHonoursNegation(t *testing.T) {
+	m := NewModel(testData())
+	m, _ = updateModel(m, keyMsg('/'))
+	m = typeText(m, "o -root")
+	if !m.searching {
+		t.Fatal("typing closed the filter input")
+	}
+	if got := visibleIDs(m); got != "d3,d4" {
+		t.Fatalf("live preview rows = %q, want d3,d4", got)
+	}
+}
+
+func TestEnterAppliesTextAndEmptyEnterClears(t *testing.T) {
+	m := applyFilter(NewModel(testData()), "other")
+	if m.searching || m.query != "other" || visibleIDs(m) != "d4" {
+		t.Fatalf("text filter: searching=%v query=%q rows=%q", m.searching, m.query, visibleIDs(m))
+	}
+	m = applyFilter(m, "")
+	if m.query != "" || visibleIDs(m) != "d1,d2,d3,d4" {
+		t.Fatalf("empty enter did not clear: query=%q rows=%q", m.query, visibleIDs(m))
+	}
+}
+
+func TestEscRestoresTheRowsBeforeTheEdit(t *testing.T) {
+	m := applyFilter(NewModel(testData()), "other")
+	m, _ = updateModel(m, keyMsg('/'))
+	m = typeText(m, "zzz")
+	if got := visibleIDs(m); got != "" {
+		t.Fatalf("preview rows = %q, want none", got)
+	}
+	m, _ = updateModel(m, keyMsg(0x1b))
+	if m.searching || m.query != "other" || visibleIDs(m) != "d4" {
+		t.Fatalf("esc: searching=%v query=%q rows=%q", m.searching, m.query, visibleIDs(m))
+	}
+}
+
+func TestTabIsIgnoredWhileEditing(t *testing.T) {
+	m := NewModel(testData())
+	m, _ = updateModel(m, keyMsg('/'))
+	m, _ = updateModel(m, keyMsg('\t'))
+	if !m.searching || m.detailFocus {
+		t.Fatalf("tab while editing: searching=%v detailFocus=%v", m.searching, m.detailFocus)
+	}
+}
+
+func TestSelectionStaysOnTheRecordAcrossAFilterChange(t *testing.T) {
+	m := NewModel(testData())
+	for m.selectedID() != "d4" {
+		m, _ = updateModel(m, keyMsg('j'))
+	}
+	m = applyFilter(m, "o")
+	if m.selectedID() != "d4" || m.detailID != "d4" {
+		t.Fatalf("selection = %q after a filter that keeps d4", m.selectedID())
+	}
+	m = applyFilter(m, "child")
+	if m.selectedID() != "d2" || m.selected != 0 {
+		t.Fatalf("selection = %q at %d, want the first row d2", m.selectedID(), m.selected)
+	}
+}
+
+func TestFieldTermsWithoutAFilterCommandApplyOnlyTheText(t *testing.T) {
+	m := applyFilter(NewModel(testData()), "kind:decision other")
+	if got := visibleIDs(m); got != "d4" {
+		t.Fatalf("rows = %q, want the text term's d4", got)
+	}
+	if m.status != "field filters need docket" || !m.statusErr || m.query != "kind:decision other" {
+		t.Fatalf("status=%q err=%v query=%q", m.status, m.statusErr, m.query)
+	}
+}
+
+func typeText(m model, text string) model {
+	for _, r := range text {
+		m, _ = updateModel(m, tea.KeyPressMsg(tea.Key{Code: r, Text: string(r)}))
+	}
+	return m
+}
+
+func applyFilter(m model, query string) model {
+	m, _ = updateModel(m, keyMsg('/'))
+	m.searchInput.SetValue(query)
+	m, _ = updateModel(m, keyMsg('\r'))
+	return m
+}
+
+func visibleIDs(m model) string {
+	ids := make([]string, 0, len(m.rows))
+	for _, row := range m.visibleRows() {
+		ids = append(ids, row.id)
+	}
+	return strings.Join(ids, ",")
+}
+
+func TestPayloadFilterAppliesAtStartup(t *testing.T) {
+	path := t.TempDir() + "/graph.json"
+	const payload = `{"version":2,"entries":[{"id":"d1","question":"Root"},{"id":"d2","question":"Child","supports":["d1"]},{"id":"d3","question":"Other"}],"filter":{"query":"kind:decision","ids":["d1","d3"]}}`
+	if err := os.WriteFile(path, []byte(payload), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	data, err := readData(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := NewModel(data)
+	if m.query != "kind:decision" || visibleIDs(m) != "d1,d3" || m.selectedID() != "d1" {
+		t.Fatalf("startup filter: query=%q rows=%q selected=%q", m.query, visibleIDs(m), m.selectedID())
+	}
+}
+
+func TestParseFilterCmd(t *testing.T) {
+	argv, err := parseFilterCmd(`["/usr/bin/python3","/x/bin/docket","_filter-ids","--"]`)
+	if err != nil || len(argv) != 4 || argv[3] != "--" {
+		t.Fatalf("argv=%q err=%v", argv, err)
+	}
+	if argv, err := parseFilterCmd(""); argv != nil || err != nil {
+		t.Fatalf("empty flag: argv=%q err=%v", argv, err)
+	}
+	for _, bad := range []string{"[]", "not json", `{"a":1}`, `[1,2]`} {
+		if _, err := parseFilterCmd(bad); err == nil {
+			t.Errorf("parseFilterCmd(%q) accepted a bad value", bad)
+		}
+	}
+}
+
+func TestFieldQueryRunsTheCommandAndKeepsTheReturnedIDs(t *testing.T) {
+	argv, dir := writeFilterScript(t, `printf '%s\n' "$@" > "$(dirname "$0")/args"
+printf 'd1\nd4\n'
+`)
+	m := newModelWithFilter(testData(), false, argv)
+	m, cmd := submit(m, "kind:decision is:pinned")
+	if m.status != "filtering…" || m.statusErr {
+		t.Fatalf("status while filtering = %q", m.status)
+	}
+	m = runFilter(t, m, cmd)
+	if got := visibleIDs(m); got != "d1,d4" {
+		t.Fatalf("rows = %q, want d1,d4", got)
+	}
+	if m.status != "" || m.query != "kind:decision is:pinned" {
+		t.Fatalf("status=%q query=%q", m.status, m.query)
+	}
+	args, err := os.ReadFile(filepath.Join(dir, "args"))
+	if err != nil || string(args) != "--\nkind:decision is:pinned\n" {
+		t.Fatalf("command args = %q, err %v; want the query as one argument after --", args, err)
+	}
+}
+
+func TestTextOnlyEnterRunsNoCommand(t *testing.T) {
+	argv, dir := writeFilterScript(t, `touch "$(dirname "$0")/ran"
+`)
+	m := newModelWithFilter(testData(), false, argv)
+	m, cmd := submit(m, "other -root")
+	if cmd != nil {
+		t.Fatal("a text-only query returned a command")
+	}
+	if visibleIDs(m) != "d4" || m.status != "" {
+		t.Fatalf("rows=%q status=%q", visibleIDs(m), m.status)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "ran")); err == nil {
+		t.Fatal("a text-only query ran the filter command")
+	}
+}
+
+func TestFailingFilterCommandKeepsRowsAndShowsTheLastStderrLine(t *testing.T) {
+	argv, _ := writeFilterScript(t, `echo "Traceback (most recent call last):" >&2
+echo "docket: where: kind:nope: unknown kind nope; use claim, decision, question" >&2
+echo "" >&2
+exit 1
+`)
+	m := newModelWithFilter(testData(), false, argv)
+	m, _ = submit(m, "other")
+	m, cmd := submit(m, "kind:nope")
+	m = runFilter(t, m, cmd)
+	if visibleIDs(m) != "d4" || m.query != "other" {
+		t.Fatalf("a failed filter changed the view: rows=%q query=%q", visibleIDs(m), m.query)
+	}
+	if m.status != "docket: where: kind:nope: unknown kind nope; use claim, decision, question" || !m.statusErr {
+		t.Fatalf("status = %q, err %v", m.status, m.statusErr)
+	}
+}
+
+func TestFailedCallbackDuringEditRestoresTheAppliedState(t *testing.T) {
+	argv, _ := writeFilterScript(t, `echo "docket: where: kind:nope: unknown kind nope; use claim, decision, question" >&2
+exit 1
+`)
+	m := newModelWithFilter(testData(), false, argv)
+	m = applyFilter(m, "other")
+	m, cmd := submit(m, "kind:nope root")
+	m, _ = updateModel(m, keyMsg('/'))
+	m = runFilter(t, m, cmd)
+	m, _ = updateModel(m, keyMsg(0x1b))
+	if visibleIDs(m) != "d4" || m.query != "other" {
+		t.Fatalf("after esc: rows=%q query=%q, want d4 and other", visibleIDs(m), m.query)
+	}
+}
+
+func TestFailedSecondQueryRestoresLastAppliedNotAsPreview(t *testing.T) {
+	argv, _ := writeFilterScript(t, `case "$2" in
+*first*) printf 'd1\n' ;;
+*) exit 1 ;;
+esac
+`)
+	m := newModelWithFilter(testData(), false, argv)
+	m, first := submit(m, "kind:decision first")
+	m, second := submit(m, "kind:decision second")
+	m = runFilter(t, m, second)
+	m = runFilter(t, m, first)
+	if visibleIDs(m) != "d1,d2,d3,d4" || m.query != "" {
+		t.Fatalf("after failing B: rows=%q query=%q, want the untouched initial state", visibleIDs(m), m.query)
+	}
+}
+
+func TestCallbackTimeoutKeepsRowsAndReportsIt(t *testing.T) {
+	argv, _ := writeFilterScript(t, `sleep 2
+printf 'd1\n'
+`)
+	old := filterTimeout
+	filterTimeout = 50 * time.Millisecond
+	defer func() { filterTimeout = old }()
+	m := newModelWithFilter(testData(), false, argv)
+	m = applyFilter(m, "other")
+	m, cmd := submit(m, "kind:decision second")
+	m = runFilter(t, m, cmd)
+	if visibleIDs(m) != "d4" || m.query != "other" {
+		t.Fatalf("rows=%q query=%q, want the last applied filter kept", visibleIDs(m), m.query)
+	}
+	if !m.statusErr || !strings.Contains(m.status, "timed out") {
+		t.Fatalf("status = %q err=%v, want a timeout error", m.status, m.statusErr)
+	}
+}
+
+func TestStaleFilterResultIsDropped(t *testing.T) {
+	argv, _ := writeFilterScript(t, `case "$2" in
+*first*) printf 'd1\n' ;;
+*) printf 'd4\n' ;;
+esac
+`)
+	m := newModelWithFilter(testData(), false, argv)
+	m, first := submit(m, "kind:decision first")
+	m, second := submit(m, "kind:decision second")
+	m = runFilter(t, m, second)
+	m = runFilter(t, m, first)
+	if visibleIDs(m) != "d4" || m.query != "kind:decision second" {
+		t.Fatalf("a stale result replaced the latest: rows=%q query=%q", visibleIDs(m), m.query)
+	}
+}
+
+// writeFilterScript stands in for `docket _filter-ids`, so these tests never
+// need Python.
+func writeFilterScript(t *testing.T, body string) ([]string, string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the filter command fixture is a POSIX shell script")
+	}
+	dir := t.TempDir()
+	script := filepath.Join(dir, "filter.sh")
+	if err := os.WriteFile(script, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return []string{"/bin/sh", script, "--"}, dir
+}
+
+func submit(m model, query string) (model, tea.Cmd) {
+	m, _ = updateModel(m, keyMsg('/'))
+	m.searchInput.SetValue(query)
+	return updateModel(m, keyMsg('\r'))
+}
+
+func runFilter(t *testing.T, m model, cmd tea.Cmd) model {
+	t.Helper()
+	if cmd == nil {
+		t.Fatal("a field query returned no command")
+	}
+	m, _ = updateModel(m, cmd())
+	return m
+}
+
+func TestBottomPaneAtEightyAndFiftyEightColumns(t *testing.T) {
+	m := NewModel(testData())
+	m, _ = updateModel(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	assertPane(t, m, "filter: none", "4/4 match · sort ledger asc", "/ filter  s sort  tab detail  ? help  q quit")
+	m, _ = updateModel(m, keyMsg(' '))
+	assertPane(t, m, "filter: none", "4/4 match · 2 shown · sort ledger asc", "/ filter  s sort  tab detail  ? help  q quit")
+	m, _ = updateModel(m, keyMsg(' '))
+	m = applyFilter(m, "other")
+	assertPane(t, m, "filter: other", "1/4 match · sort ledger asc", "/ filter  s sort  tab detail  ? help  q quit")
+	m, _ = updateModel(m, tea.WindowSizeMsg{Width: 58, Height: 24})
+	assertPane(t, m, "filter: other", "1/4 match · sort ledger asc", "? help  q quit")
+}
+
+func TestHeightsFourSixAndEight(t *testing.T) {
+	for _, height := range []int{4, 6} {
+		m := NewModel(testData())
+		m, _ = updateModel(m, tea.WindowSizeMsg{Width: 80, Height: height})
+		lines := viewLines(m)
+		if len(lines) != height || !strings.Contains(lines[0], "d1") {
+			t.Fatalf("height %d: %d lines, first %q", height, len(lines), lines[0])
+		}
+		if got := lines[height-1]; got != "? help  4/4 match · sort ledger asc" {
+			t.Fatalf("height %d: pane line = %q", height, got)
+		}
+		m, _ = updateModel(m, keyMsg('/'))
+		m = typeText(m, "ot")
+		if got := viewLines(m)[height-1]; !strings.HasPrefix(got, "filter: ot") {
+			t.Fatalf("height %d: editing pane line = %q", height, got)
+		}
+	}
+	m := NewModel(testData())
+	m, _ = updateModel(m, tea.WindowSizeMsg{Width: 80, Height: 8})
+	if lines := viewLines(m); len(lines) != 8 || lines[5] != "filter: none" || !strings.Contains(lines[0], "d1") {
+		t.Fatalf("height 8: %q", lines)
+	}
+
+	m = NewModel(testData())
+	m, _ = updateModel(m, tea.WindowSizeMsg{Width: 80, Height: 3})
+	m, _ = updateModel(m, keyMsg('/'))
+	m = typeText(m, "ot")
+	if got := viewLines(m)[1]; !strings.HasPrefix(got, "filter: ot") {
+		t.Fatalf("height 3: editing second line = %q", got)
+	}
+}
+
+func TestHelpStaysVisibleAtHeightFiveWithALongStatus(t *testing.T) {
+	argv, _ := writeFilterScript(t, `echo "docket: where: kind:nope: unknown kind nope; use claim, decision, question" >&2
+exit 1
+`)
+	m := newModelWithFilter(testData(), false, argv)
+	m, _ = updateModel(m, tea.WindowSizeMsg{Width: 40, Height: 5})
+	m, cmd := submit(m, "kind:nope")
+	m = runFilter(t, m, cmd)
+	if got := viewLines(m)[4]; !strings.Contains(got, "? help") {
+		t.Fatalf("status line = %q, want ? help visible at width 40", got)
+	}
+}
+
+func TestTreeKeepsARowAtEveryHeightFromFour(t *testing.T) {
+	for _, width := range []int{40, 80} {
+		for height := 4; height <= 30; height++ {
+			m := NewModel(testData())
+			m, _ = updateModel(m, tea.WindowSizeMsg{Width: width, Height: height})
+			lines := viewLines(m)
+			if len(lines) != height || !strings.Contains(lines[0], "d1") {
+				t.Fatalf("%dx%d: %d lines, first %q", width, height, len(lines), lines[0])
+			}
+		}
+	}
+}
+
+func TestHelpOverlayOpensFromDetailFocusAndAnyKeyClosesIt(t *testing.T) {
+	m := NewModel(testData())
+	m, _ = updateModel(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m, _ = updateModel(m, keyMsg('\t'))
+	m, _ = updateModel(m, keyMsg('?'))
+	if !m.helpOpen {
+		t.Fatal("? in detail focus did not open the help overlay")
+	}
+	view := strings.Join(viewLines(m), "\n")
+	for _, want := range []string{"move", "fold", "detail", "sort", "filter", "scope:PATH", "scope:DIR/"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("help overlay missing %q:\n%s", want, view)
+		}
+	}
+	before := m.detail.YOffset()
+	m, _ = updateModel(m, keyMsg('j'))
+	if m.helpOpen || !m.detailFocus || m.detail.YOffset() != before {
+		t.Fatalf("j did not only close the overlay: open=%v focus=%v y=%d", m.helpOpen, m.detailFocus, m.detail.YOffset())
+	}
+	m, _ = updateModel(m, keyMsg('?'))
+	m, cmd := updateModel(m, keyMsg('q'))
+	if m.helpOpen || cmd != nil {
+		t.Fatal("q closed the overlay and also quit")
+	}
+}
+
+func assertPane(t *testing.T, m model, want ...string) {
+	t.Helper()
+	lines := viewLines(m)
+	got := lines[len(lines)-len(want):]
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("bottom pane = %q, want %q", got, want)
+	}
+}
+
+func viewLines(m model) []string {
+	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimRight(line, " ")
+	}
+	return lines
 }
 
 func keyMsg(k rune) tea.KeyPressMsg { return tea.KeyPressMsg(tea.Key{Code: k}) }

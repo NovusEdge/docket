@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `docket list --where` and `docket graph --where` take a query language: plain words, `kind:`, `state:`, `scope:PATH`, `is:pinned|corrected|retired|blocked`, `author:`, `branch:`, `after:`, and `before:`, with `-` to negate a term. `docs/commands.md` lists the rules.
+- The graph viewer filters with the same language. It previews text terms as you type and asks the CLI about field terms when you press `Enter`. A bottom pane shows the filter, the match count, the sort, and the key hints, and `?` opens a help overlay.
+
+### Changed
+
+- The graph viewer's `/` searches the id, text, choice, and rationale, and ANDs its words. Before, it matched one substring across every field. The `LEDGER GRAPH` title and the separate search line are gone.
+
 ## [0.19.0] - 2026-09-23
 
 ### Added

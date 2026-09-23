@@ -35,6 +35,7 @@ _COMPLETION_FLAGS = (
     "--at",
     "--all",
     "--find",
+    "--where",
     "--superseded",
     "--oneline",
     "--json",

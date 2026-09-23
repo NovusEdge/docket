@@ -17,8 +17,16 @@ import (
 )
 
 type GraphData struct {
-	Version int     `json:"version"`
-	Entries []Entry `json:"entries"`
+	Version int          `json:"version"`
+	Entries []Entry      `json:"entries"`
+	Filter  *GraphFilter `json:"filter"`
+}
+
+// GraphFilter is the --where query the CLI already applied, and the ids it
+// kept.
+type GraphFilter struct {
+	Query string   `json:"query"`
+	IDs   []string `json:"ids"`
 }
 
 type Entry struct {
@@ -82,6 +90,17 @@ type model struct {
 	searchInput   textinput.Model
 	searching     bool
 	query         string
+	shown         map[string]bool
+	prevShown     map[string]bool
+	prevQuery     string
+	appliedShown  map[string]bool
+	appliedQuery  string
+	status        string
+	statusErr     bool
+	filterCmd     []string
+	filterSeq     int
+	pendingQuery  string
+	helpOpen      bool
 	detail        viewport.Model
 	detailFocus   bool
 	detailID      string
@@ -94,7 +113,8 @@ var (
 	keyUp          = key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "up"))
 	keyDown        = key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "down"))
 	keyCollapse    = key.NewBinding(key.WithKeys("space", "enter"), key.WithHelp("space", "collapse"))
-	keySearch      = key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search"))
+	keySearch      = key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter"))
+	keyHelp        = key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help"))
 	keyQuit        = key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit"))
 	keyTab         = key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "detail"))
 	keyPageUp      = key.NewBinding(key.WithKeys("pgup", "ctrl+u"), key.WithHelp("pgup", "detail up"))
@@ -105,19 +125,17 @@ var (
 	keyBottom      = key.NewBinding(key.WithKeys("G"), key.WithHelp("G", "last row"))
 	keySort        = key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sort field"))
 	keyReverse     = key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reverse sort"))
-	footerUp       = key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "move"))
-	footerDown     = key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "move"))
-	footerCollapse = key.NewBinding(key.WithKeys("space", "enter"), key.WithHelp("space", "fold"))
-	footerTab      = key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "view"))
-	footerSearch   = key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "find"))
+	keyApply       = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "apply"))
+	keyCancel      = key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel"))
+	footerSearch   = key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter"))
+	footerSort     = key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sort"))
+	footerTab      = key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "detail"))
+	footerHelp     = key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help"))
 	footerQuit     = key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit"))
 	footerPageUp   = key.NewBinding(key.WithKeys("pgup", "ctrl+u"), key.WithHelp("pgup", "up"))
 	footerPageDown = key.NewBinding(key.WithKeys("pgdown", "ctrl+d"), key.WithHelp("pgdn", "down"))
 	footerLeft     = key.NewBinding(key.WithKeys("left", "h"), key.WithHelp("h/←", "left"))
 	footerRight    = key.NewBinding(key.WithKeys("right", "l"), key.WithHelp("l/→", "right"))
-	footerJump     = key.NewBinding(key.WithKeys("g", "G"), key.WithHelp("gg/G", "ends"))
-	footerSort     = key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sort"))
-	footerReverse  = key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "reverse"))
 )
 
 type sortField int
@@ -144,7 +162,16 @@ func NewModel(data GraphData) model {
 }
 
 func newModel(data GraphData, pretty bool) model {
+	return newModelWithFilter(data, pretty, nil)
+}
+
+// newModelWithFilter takes the argv of the command that answers a query with
+// field terms; nil leaves field terms unanswered.
+func newModelWithFilter(data GraphData, pretty bool, filterCmd []string) model {
 	m := model{data: data, entries: make(map[string]Entry), collapsed: make(map[string]bool), width: 80, height: 24, pretty: pretty}
+	if len(filterCmd) > 0 {
+		m.filterCmd = filterCmd
+	}
 	for _, entry := range data.Entries {
 		if entry.ID == "" || m.entries[entry.ID].ID != "" {
 			continue
@@ -154,10 +181,19 @@ func newModel(data GraphData, pretty bool) model {
 	}
 	m.rows = buildRows(m.order, m.entries)
 	m.projectedChildren = projectedChildren(m.rows)
+	if data.Filter != nil {
+		m.query = sanitize(data.Filter.Query)
+		m.shown = make(map[string]bool, len(data.Filter.IDs))
+		for _, id := range data.Filter.IDs {
+			m.shown[id] = true
+		}
+	}
+	m.appliedShown, m.appliedQuery = m.shown, m.query
 	m.searchInput = textinput.New()
-	m.searchInput.Prompt = "/ "
-	m.searchInput.Placeholder = "find an entry"
+	m.searchInput.Prompt = "filter: "
+	m.searchInput.Placeholder = "words and field:value terms"
 	m.help = help.New()
+	m.help.ShortSeparator = "  "
 	m.detail = viewport.New(viewport.WithWidth(35), viewport.WithHeight(18))
 	m.refreshDetail()
 	return m
@@ -319,7 +355,7 @@ func (m model) visibleRows() []graphRow {
 			}
 			hiddenDepth = -1
 		}
-		if m.query != "" && !m.matches(row.id) {
+		if m.shown != nil && !m.shown[row.id] {
 			continue
 		}
 		rows = append(rows, row)
@@ -328,32 +364,6 @@ func (m model) visibleRows() []graphRow {
 		}
 	}
 	return rows
-}
-
-func (m model) matches(id string) bool {
-	e := m.entries[id]
-	needle := strings.ToLower(m.query)
-	values := []string{e.ID, e.Kind, e.State, e.RecordedState, e.Question, e.Answer, e.Choice, e.Cost, e.Rationale, e.Revisit, e.Author, e.DecidedBy, e.TS, e.Branch, e.Session, e.RetiredBy}
-	values = append(values, e.Scope...)
-	values = append(values, e.Alternatives...)
-	values = append(values, e.Supports...)
-	values = append(values, e.DependsOn...)
-	values = append(values, e.Answers...)
-	values = append(values, e.Supersedes...)
-	values = append(values, e.ResolvedBy...)
-	values = append(values, e.BlockedBy...)
-	for _, set := range e.Sets {
-		values = append(values, set...)
-	}
-	for _, evidence := range e.Evidence {
-		values = append(values, evidence.Ref, evidence.CheckedAt, evidence.Commit)
-	}
-	for _, value := range values {
-		if strings.Contains(strings.ToLower(sanitize(value)), needle) {
-			return true
-		}
-	}
-	return false
 }
 
 func (m *model) refreshDetail() {
@@ -601,32 +611,40 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = max(1, msg.Width), max(1, msg.Height)
 		m.resize()
 		return m, nil
+	case filterResultMsg:
+		return m.applyFilterResult(msg), nil
 	case tea.KeyPressMsg:
+		if m.helpOpen {
+			m.helpOpen = false
+			return m, nil
+		}
 		if !m.searching && key.Matches(msg, keyQuit) {
 			return m, tea.Quit
 		}
 		if m.searching {
-			if key.Matches(msg, keyTab) {
-				m.searching = false
-				m.searchInput.Blur()
+			switch {
+			case key.Matches(msg, keyTab):
 				return m, nil
-			}
-			if key.Matches(msg, key.NewBinding(key.WithKeys("enter"))) {
-				m.query = strings.TrimSpace(sanitize(m.searchInput.Value()))
+			case key.Matches(msg, keyApply):
+				next, cmd := m.submitFilter()
+				return next, cmd
+			case key.Matches(msg, keyCancel):
+				id := m.selectedID()
 				m.searching = false
 				m.searchInput.Blur()
-				m.selected = 0
-				m.refreshDetail()
-				return m, nil
-			}
-			if key.Matches(msg, key.NewBinding(key.WithKeys("esc"))) {
-				m.searching = false
-				m.searchInput.Blur()
+				m.shown, m.query = m.prevShown, m.prevQuery
+				m.reselect(id)
 				return m, nil
 			}
 			var cmd tea.Cmd
 			m.searchInput, cmd = m.searchInput.Update(msg)
+			m.previewFilter()
 			return m, cmd
+		}
+		if key.Matches(msg, keyHelp) {
+			m.helpOpen = true
+			m.pendingG = false
+			return m, nil
 		}
 		if m.pendingG {
 			m.pendingG = false
@@ -640,6 +658,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if key.Matches(msg, keySearch) {
 			m.searching = true
+			m.prevShown, m.prevQuery = m.appliedShown, m.appliedQuery
 			m.searchInput.SetValue(m.query)
 			return m, m.searchInput.Focus()
 		}
@@ -723,13 +742,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) resize() {
-	m.searchInput.SetWidth(max(1, m.width-4))
+	m.searchInput.SetWidth(max(1, m.width-lipgloss.Width(m.searchInput.Prompt)-1))
+	body := bodyHeightFor(m.height)
 	if m.width >= 70 {
 		m.detail.SetWidth(max(1, m.width-m.width*46/100-3))
-		m.detail.SetHeight(max(1, m.height-5))
+		m.detail.SetHeight(max(1, body-1))
 	} else {
 		m.detail.SetWidth(max(1, m.width-2))
-		m.detail.SetHeight(max(1, m.height/2-2))
+		m.detail.SetHeight(max(1, body-overviewHeightFor(body)-1))
 	}
 	m.refreshDetail()
 }
@@ -744,6 +764,9 @@ func (m model) View() tea.View {
 	if m.height < 1 {
 		m.height = 1
 	}
+	if m.helpOpen {
+		return altView(m.helpView())
+	}
 	if m.height <= 3 {
 		line := "GRAPH"
 		if id := m.selectedID(); id != "" {
@@ -751,11 +774,13 @@ func (m model) View() tea.View {
 		}
 		lines := []string{fitLine(line, m.width)}
 		if m.height >= 2 {
-			lines = append(lines, fitLine(m.footer(), m.width))
+			second := m.footer()
+			if m.searching {
+				second = m.filterLine()
+			}
+			lines = append(lines, fitLine(second, m.width))
 		}
-		view := tea.NewView(strings.Join(lines, "\n"))
-		view.AltScreen = true
-		return view
+		return altView(strings.Join(lines, "\n"))
 	}
 	leftWidth := m.width
 	wide := m.width >= 70
@@ -763,7 +788,7 @@ func (m model) View() tea.View {
 		leftWidth = max(28, m.width*46/100)
 	}
 	bodyHeight := bodyHeightFor(m.height)
-	overviewHeight := min(bodyHeight-1, max(3, bodyHeight/2))
+	overviewHeight := overviewHeightFor(bodyHeight)
 	rows := m.visibleRows()
 	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#D7A86E"))
 	selectedStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#F4D7A1")).Background(lipgloss.Color("#3A2F26"))
@@ -772,19 +797,10 @@ func (m model) View() tea.View {
 	kindStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#B9A58C"))
 	recordTitleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#E2D5C4"))
 	idWidth := overviewIDWidth(rows, leftWidth)
-	leftLines := []string{m.paint(titleStyle, fitLine("LEDGER GRAPH", leftWidth))}
-	if m.searching {
-		searchView := m.searchInput.View()
-		if !m.pretty {
-			searchView = ansi.Strip(searchView)
-		}
-		leftLines = append(leftLines, fitLine(searchView, leftWidth))
-	} else if m.query != "" {
-		leftLines = append(leftLines, m.paint(mutedStyle, fitLine("/ "+m.query, leftWidth)))
-	}
-	rowCapacity := max(1, bodyHeight-len(leftLines))
+	leftLines := make([]string, 0, bodyHeight)
+	rowCapacity := bodyHeight
 	if !wide {
-		rowCapacity = max(1, overviewHeight-len(leftLines))
+		rowCapacity = overviewHeight
 	}
 	rowStart := 0
 	if m.selected >= rowCapacity {
@@ -905,10 +921,8 @@ func (m model) View() tea.View {
 			}
 			out[i] = fitLine(leftLines[i], leftWidth) + "│" + fitLine(r, rightWidth)
 		}
-		out = append(out, m.paint(mutedStyle, fitLine(m.footer(), m.width)))
-		view := tea.NewView(strings.Join(out, "\n"))
-		view.AltScreen = true
-		return view
+		out = append(out, m.bottomPane()...)
+		return altView(strings.Join(out, "\n"))
 	}
 	// At narrow widths the panes stack and each receives a real share of the
 	// screen. The detail viewport remains scrollable with tab + j/k.
@@ -938,13 +952,9 @@ func (m model) View() tea.View {
 	for len(stack) < bodyHeight {
 		stack = append(stack, fitLine("", m.width))
 	}
-	stack = append(stack, m.paint(mutedStyle, fitLine(m.footer(), m.width)))
-	view := tea.NewView(strings.Join(stack, "\n"))
-	view.AltScreen = true
-	return view
+	stack = append(stack, m.bottomPane()...)
+	return altView(strings.Join(stack, "\n"))
 }
-
-func bodyHeightFor(height int) int { return max(1, height-3) }
 
 func overviewIDWidth(rows []graphRow, available int) int {
 	width := 2
@@ -956,32 +966,6 @@ func overviewIDWidth(rows []graphRow, available int) int {
 
 func (m model) hasChildren(id string) bool {
 	return m.projectedChildren[id]
-}
-
-func (m model) footer() string {
-	if m.searching {
-		return "enter apply  esc cancel"
-	}
-	if m.width < 70 {
-		if m.detailFocus {
-			return "pgup/pgdn scroll  h/l side  tab tree  q quit"
-		}
-		// Below 70 columns fitLine truncates the tail, so the sort state leads:
-		// a dropped key hint is recoverable at a wider size, the state is not.
-		return m.sortStatus() + "  j/k move  gg/G ends  space fold  tab detail  / find  q quit"
-	}
-	bindings := []key.Binding{footerUp, footerDown, footerJump, footerCollapse, footerTab, footerSearch, footerSort, footerReverse, footerQuit}
-	status := "  " + m.sortStatus()
-	if m.detailFocus {
-		bindings = []key.Binding{footerPageUp, footerPageDown, footerLeft, footerRight, footerTab, footerQuit}
-		status = ""
-	}
-	m.help.SetWidth(max(1, m.width-lipgloss.Width(status)))
-	result := m.help.ShortHelpView(bindings) + status
-	if !m.pretty {
-		return ansi.Strip(result)
-	}
-	return result
 }
 
 func (m model) sortStatus() string {

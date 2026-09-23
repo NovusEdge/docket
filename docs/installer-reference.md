@@ -185,14 +185,23 @@ detail pane. Use these keys:
 | `tab` | Switch between the tree and detail pane |
 | `s` | Cycle the sort field: ledger, id, timestamp, kind, state |
 | `r` | Reverse the sort direction |
-| `/` | Search IDs, kinds, states, text, choices, and costs |
+| `/` | Filter with the [query language](commands.md#query-language) |
+| `?` | Show every key and the filter terms; any key closes it |
 | `q`/`Ctrl-C` | Quit |
 
 When the detail pane is focused, `PgUp`/`Ctrl-U` and `PgDn`/`Ctrl-D` scroll it;
-`h`/`left` and `l`/`right` move horizontally. Press `Enter` to apply a search
-and `Esc` to cancel it. A sort reorders roots only, and each subtree moves with
-its root. The selection follows the record, not the row. The footer names the
-active sort field and direction.
+`h`/`left` and `l`/`right` move horizontally. A sort reorders roots only, and
+each subtree moves with its root. The selection follows the record, not the
+row.
+
+The bottom pane shows the applied filter, a count such as `12/130 match`, the
+sort, and the key hints. While you type a filter, the tree previews its text
+terms. `Enter` applies the filter, `Esc` restores the previous rows, and
+`Enter` on an empty input clears the filter. A query with a field term, such
+as `kind:decision` or `scope:graph/`, runs `docket _filter-ids` when you press
+`Enter`, and the status line shows `filtering…` until it answers. If the query
+is invalid, the previous rows stay and the status line shows the error.
+`docket graph --where QUERY` opens the viewer with that filter applied.
 
 Piped output stays static. Use `--no-interactive` or `--plain` to force static
 output, or choose `--style forest`, `--style rail`, or `--style compact`.
