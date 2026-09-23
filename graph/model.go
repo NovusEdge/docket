@@ -17,8 +17,16 @@ import (
 )
 
 type GraphData struct {
-	Version int     `json:"version"`
-	Entries []Entry `json:"entries"`
+	Version int          `json:"version"`
+	Entries []Entry      `json:"entries"`
+	Filter  *GraphFilter `json:"filter"`
+}
+
+// GraphFilter is the --where query the CLI already applied, and the ids it
+// kept.
+type GraphFilter struct {
+	Query string   `json:"query"`
+	IDs   []string `json:"ids"`
 }
 
 type Entry struct {
@@ -87,6 +95,9 @@ type model struct {
 	prevQuery     string
 	status        string
 	statusErr     bool
+	filterCmd     []string
+	filterSeq     int
+	pendingQuery  string
 	detail        viewport.Model
 	detailFocus   bool
 	detailID      string
@@ -151,7 +162,16 @@ func NewModel(data GraphData) model {
 }
 
 func newModel(data GraphData, pretty bool) model {
+	return newModelWithFilter(data, pretty, nil)
+}
+
+// newModelWithFilter takes the argv of the command that answers a query with
+// field terms; nil leaves field terms unanswered.
+func newModelWithFilter(data GraphData, pretty bool, filterCmd []string) model {
 	m := model{data: data, entries: make(map[string]Entry), collapsed: make(map[string]bool), width: 80, height: 24, pretty: pretty}
+	if len(filterCmd) > 0 {
+		m.filterCmd = filterCmd
+	}
 	for _, entry := range data.Entries {
 		if entry.ID == "" || m.entries[entry.ID].ID != "" {
 			continue
@@ -161,6 +181,13 @@ func newModel(data GraphData, pretty bool) model {
 	}
 	m.rows = buildRows(m.order, m.entries)
 	m.projectedChildren = projectedChildren(m.rows)
+	if data.Filter != nil {
+		m.query = sanitize(data.Filter.Query)
+		m.shown = make(map[string]bool, len(data.Filter.IDs))
+		for _, id := range data.Filter.IDs {
+			m.shown[id] = true
+		}
+	}
 	m.searchInput = textinput.New()
 	m.searchInput.Prompt = "/ "
 	m.searchInput.Placeholder = "find an entry"
@@ -582,6 +609,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = max(1, msg.Width), max(1, msg.Height)
 		m.resize()
 		return m, nil
+	case filterResultMsg:
+		return m.applyFilterResult(msg), nil
 	case tea.KeyPressMsg:
 		if !m.searching && key.Matches(msg, keyQuit) {
 			return m, tea.Quit

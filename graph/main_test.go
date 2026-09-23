@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"unicode"
@@ -627,6 +629,139 @@ func visibleIDs(m model) string {
 		ids = append(ids, row.id)
 	}
 	return strings.Join(ids, ",")
+}
+
+func TestPayloadFilterAppliesAtStartup(t *testing.T) {
+	path := t.TempDir() + "/graph.json"
+	const payload = `{"version":2,"entries":[{"id":"d1","question":"Root"},{"id":"d2","question":"Child","supports":["d1"]},{"id":"d3","question":"Other"}],"filter":{"query":"kind:decision","ids":["d1","d3"]}}`
+	if err := os.WriteFile(path, []byte(payload), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	data, err := readData(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := NewModel(data)
+	if m.query != "kind:decision" || visibleIDs(m) != "d1,d3" || m.selectedID() != "d1" {
+		t.Fatalf("startup filter: query=%q rows=%q selected=%q", m.query, visibleIDs(m), m.selectedID())
+	}
+}
+
+func TestParseFilterCmd(t *testing.T) {
+	argv, err := parseFilterCmd(`["/usr/bin/python3","/x/bin/docket","_filter-ids","--"]`)
+	if err != nil || len(argv) != 4 || argv[3] != "--" {
+		t.Fatalf("argv=%q err=%v", argv, err)
+	}
+	if argv, err := parseFilterCmd(""); argv != nil || err != nil {
+		t.Fatalf("empty flag: argv=%q err=%v", argv, err)
+	}
+	for _, bad := range []string{"[]", "not json", `{"a":1}`, `[1,2]`} {
+		if _, err := parseFilterCmd(bad); err == nil {
+			t.Errorf("parseFilterCmd(%q) accepted a bad value", bad)
+		}
+	}
+}
+
+func TestFieldQueryRunsTheCommandAndKeepsTheReturnedIDs(t *testing.T) {
+	argv, dir := writeFilterScript(t, `printf '%s\n' "$@" > "$(dirname "$0")/args"
+printf 'd1\nd4\n'
+`)
+	m := newModelWithFilter(testData(), false, argv)
+	m, cmd := submit(m, "kind:decision is:pinned")
+	if m.status != "filtering…" || m.statusErr {
+		t.Fatalf("status while filtering = %q", m.status)
+	}
+	m = runFilter(t, m, cmd)
+	if got := visibleIDs(m); got != "d1,d4" {
+		t.Fatalf("rows = %q, want d1,d4", got)
+	}
+	if m.status != "" || m.query != "kind:decision is:pinned" {
+		t.Fatalf("status=%q query=%q", m.status, m.query)
+	}
+	args, err := os.ReadFile(filepath.Join(dir, "args"))
+	if err != nil || string(args) != "--\nkind:decision is:pinned\n" {
+		t.Fatalf("command args = %q, err %v; want the query as one argument after --", args, err)
+	}
+}
+
+func TestTextOnlyEnterRunsNoCommand(t *testing.T) {
+	argv, dir := writeFilterScript(t, `touch "$(dirname "$0")/ran"
+`)
+	m := newModelWithFilter(testData(), false, argv)
+	m, cmd := submit(m, "other -root")
+	if cmd != nil {
+		t.Fatal("a text-only query returned a command")
+	}
+	if visibleIDs(m) != "d4" || m.status != "" {
+		t.Fatalf("rows=%q status=%q", visibleIDs(m), m.status)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "ran")); err == nil {
+		t.Fatal("a text-only query ran the filter command")
+	}
+}
+
+func TestFailingFilterCommandKeepsRowsAndShowsTheLastStderrLine(t *testing.T) {
+	argv, _ := writeFilterScript(t, `echo "Traceback (most recent call last):" >&2
+echo "docket: where: kind:nope: unknown kind nope; use claim, decision, question" >&2
+echo "" >&2
+exit 1
+`)
+	m := newModelWithFilter(testData(), false, argv)
+	m, _ = submit(m, "other")
+	m, cmd := submit(m, "kind:nope")
+	m = runFilter(t, m, cmd)
+	if visibleIDs(m) != "d4" || m.query != "other" {
+		t.Fatalf("a failed filter changed the view: rows=%q query=%q", visibleIDs(m), m.query)
+	}
+	if m.status != "docket: where: kind:nope: unknown kind nope; use claim, decision, question" || !m.statusErr {
+		t.Fatalf("status = %q, err %v", m.status, m.statusErr)
+	}
+}
+
+func TestStaleFilterResultIsDropped(t *testing.T) {
+	argv, _ := writeFilterScript(t, `case "$2" in
+*first*) printf 'd1\n' ;;
+*) printf 'd4\n' ;;
+esac
+`)
+	m := newModelWithFilter(testData(), false, argv)
+	m, first := submit(m, "kind:decision first")
+	m, second := submit(m, "kind:decision second")
+	m = runFilter(t, m, second)
+	m = runFilter(t, m, first)
+	if visibleIDs(m) != "d4" || m.query != "kind:decision second" {
+		t.Fatalf("a stale result replaced the latest: rows=%q query=%q", visibleIDs(m), m.query)
+	}
+}
+
+// writeFilterScript stands in for `docket _filter-ids`, so these tests never
+// need Python.
+func writeFilterScript(t *testing.T, body string) ([]string, string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the filter command fixture is a POSIX shell script")
+	}
+	dir := t.TempDir()
+	script := filepath.Join(dir, "filter.sh")
+	if err := os.WriteFile(script, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return []string{"/bin/sh", script, "--"}, dir
+}
+
+func submit(m model, query string) (model, tea.Cmd) {
+	m, _ = updateModel(m, keyMsg('/'))
+	m.searchInput.SetValue(query)
+	return updateModel(m, keyMsg('\r'))
+}
+
+func runFilter(t *testing.T, m model, cmd tea.Cmd) model {
+	t.Helper()
+	if cmd == nil {
+		t.Fatal("a field query returned no command")
+	}
+	m, _ = updateModel(m, cmd())
+	return m
 }
 
 func keyMsg(k rune) tea.KeyPressMsg { return tea.KeyPressMsg(tea.Key{Code: k}) }

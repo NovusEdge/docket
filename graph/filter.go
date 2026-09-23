@@ -136,20 +136,30 @@ func (m *model) previewFilter() {
 	m.reselect(id)
 }
 
+// submitFilter applies the text terms at once. A query with a field term
+// also runs the filter command; until it answers, the tree keeps the text
+// preview. Every submission takes a new sequence number, so a slow answer to
+// an earlier one cannot overwrite a later filter.
 func (m model) submitFilter() (model, tea.Cmd) {
 	id := m.selectedID()
 	value := strings.TrimSpace(sanitize(m.searchInput.Value()))
 	m.searching = false
 	m.searchInput.Blur()
+	m.filterSeq++
 	q := parseFilter(value)
 	m.query = value
 	m.shown = m.textSet(q)
 	m.status, m.statusErr = "", false
-	if q.hasFields() {
+	var cmd tea.Cmd
+	if q.hasFields() && m.filterCmd == nil {
 		m.status, m.statusErr = "field filters need docket", true
+	} else if q.hasFields() {
+		m.pendingQuery = value
+		m.status = "filtering…"
+		cmd = runFilterCmd(m.filterCmd, value, m.filterSeq)
 	}
 	m.reselect(id)
-	return m, nil
+	return m, cmd
 }
 
 // reselect keeps the cursor on id when the row is still visible after a
