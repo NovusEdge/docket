@@ -100,6 +100,25 @@ class AttachTests(unittest.TestCase):
         self.assertEqual(top["brief_specificity"], len("installer/planner.go"))
         self.assertEqual(top["brief_matches"], 1)
 
+    def test_a_scope_correction_attaches_a_record(self):
+        from docket import corrections, ledger
+
+        record = ledger.make_record(
+            "decision",
+            "The cache lives in Redis.",
+            choice="Redis",
+            author="t",
+            record_id="d1",
+            scope=["lib/cache.py"],
+        )
+        fix = corrections.make("d1", {"scope": ["docket/cache.py"]}, author="t")
+        fix["id"] = "d1.1"
+        entries = ledger.project([record, fix])
+        self.assertEqual(
+            [item["id"] for item in brief.attach(entries, ["docket/cache.py"])], ["d1"]
+        )
+        self.assertEqual(brief.attach(entries, ["lib/cache.py"]), [])
+
 
 class ExpandTests(unittest.TestCase):
     def setUp(self):

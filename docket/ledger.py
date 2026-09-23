@@ -17,6 +17,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
+from docket import corrections
+
 SCHEMA = 2
 KINDS = ("claim", "decision", "question")
 STATES = {
@@ -74,7 +76,7 @@ def _normalized(value: str) -> str:
     return " ".join(value.split()).casefold()
 
 
-def _reject_empty_reasoning(record: dict[str, Any]) -> None:
+def _reject_empty_reasoning(record: dict[str, Any], changed: frozenset[str] | None = None) -> None:
     """Refuse a decision whose text or reasoning fields only echo the choice.
 
     Requiring the choice to appear in ``alternatives`` made a one-element list
@@ -84,25 +86,43 @@ def _reject_empty_reasoning(record: dict[str, Any]) -> None:
     refused, which leaves no reason to invent an alternative that never existed.
 
     This runs when a record is written, never when one is read. A ledger
-    recorded under the old rule stays readable.
+    recorded under the old rule stays readable. ``changed`` names the fields a
+    correction replaces, and each check then runs only when its own field
+    changed: 27 migrated decisions carry a rationale equal to their choice,
+    and a scope correction must not fail on it.
     """
+
+    def touched(*names: str) -> bool:
+        return changed is None or any(name in changed for name in names)
+
     choice = _normalized(record.get("choice", ""))
     alternatives = [_normalized(item) for item in record.get("alternatives", [])]
-    if choice and alternatives and all(item == choice for item in alternatives):
+    if (
+        touched("alternatives")
+        and choice
+        and alternatives
+        and all(item == choice for item in alternatives)
+    ):
         raise _error(
             "record",
             "decision alternatives must name an option the choice beat; leave "
             "--alternative off when the decision had no contender",
         )
     text = _normalized(record.get("text", ""))
-    if choice and text == choice:
+    if touched("text") and choice and text == choice:
         raise _error(
             "record",
             "decision text must carry more than the choice; name what the "
             "decision commits to and leave the option detail in --choice",
         )
     rationale = _normalized(record.get("rationale", ""))
-    if rationale and rationale in (choice, text):
+    if touched("rationale"):
+        against: tuple[str, ...] = (choice, text)
+    elif touched("text"):
+        against = (text,)
+    else:
+        against = ()
+    if rationale and rationale in against:
         raise _error(
             "record",
             "decision rationale must say why the choice won; leave --rationale off "
@@ -231,23 +251,30 @@ def make_record(
 
 
 class _Prefix:
-    """The id map, sequence maximum, and retirement map of the records so far.
+    """The id map, sequence maximum, retirement map, and correction counters
+    of the records so far.
 
     Validating a whole ledger walks the prefix once per record. Deriving these
-    three from the prefix list each time made a read cost O(n squared), so a
-    caller that validates in order updates one of these instead.
+    from the prefix list each time made a read cost O(n squared), so a caller
+    that validates in order updates one of these instead.
     """
 
-    __slots__ = ("by_id", "max_number", "retired")
+    __slots__ = ("by_id", "max_number", "retired", "corrections")
 
     def __init__(self, entries: list[dict[str, Any]]) -> None:
         self.by_id: dict[str, dict[str, Any]] = {}
         self.max_number = 0
         self.retired: dict[str, str] = {}
+        self.corrections: dict[str, int] = {}
         for entry in entries:
             self.add(entry)
 
     def add(self, entry: dict[str, Any]) -> None:
+        # A correction is no relation target and carries no supersedes.
+        if entry.get("kind") == corrections.KIND:
+            target, number = corrections.parts_of(entry["id"])
+            self.corrections[target] = max(self.corrections.get(target, 0), number)
+            return
         ident = entry["id"]
         self.by_id[ident] = entry
         self.max_number = max(self.max_number, int(ident[1:]))
@@ -268,6 +295,12 @@ def validate_record(
         raise _error("record", "each JSONL line must be an object")
     if any(not isinstance(key, str) for key in record):
         raise _error("record", "field names must be strings")
+    if record.get("kind") == corrections.KIND:
+        if prefix is not None and previous is not None:
+            raise _error("record", "pass previous or prefix, not both")
+        if prefix is None and previous is not None:
+            prefix = _Prefix(previous)
+        return corrections.validate(record, prefix)
     if record.get("schema") in (None, 1):
         raise _error(
             "schema", "legacy format is unsupported; run 'docket migrate' to convert it to schema 2"
@@ -584,6 +617,7 @@ def project(entries: list[dict[str, Any]], *, validated: bool = False) -> list[d
     """
     if not validated:
         entries = validate_entries(entries)
+    entries = corrections.fold(entries)
     retired = retired_by(entries)
     answers = resolved_by(entries)
     applicability, blocked = _decision_applicability(entries, retired)
@@ -676,8 +710,13 @@ ledger_lock = _ledger_lock
 def append(path: Path | str, record: dict[str, Any]) -> dict[str, Any]:
     """Validate and append one record under a process lock.
 
-    The caller may supply an empty id; in that case the global sequence is
-    allocated while holding the lock, preventing duplicate IDs between writers.
+    The caller may supply an empty id; the record id, or a correction's
+    `<target>.<n>`, is then allocated while holding the lock, preventing
+    duplicate IDs between writers. A correction's write-time refusals, and its
+    no-op field drop, run on the projection read under the same lock, but only
+    for a correction that arrived with no id: that is the CLI path. A
+    pre-numbered correction, arriving through rebase, skips them, the same way
+    a pre-numbered record does.
     """
     path = Path(path)
     with _ledger_lock(path):
@@ -685,10 +724,18 @@ def append(path: Path | str, record: dict[str, Any]) -> dict[str, Any]:
         # would block against the lock this call already holds.
         entries = read(path, lock=False)
         candidate = copy.deepcopy(record)
-        if not candidate.get("id"):
-            kind = candidate.get("kind") or ""
-            candidate["id"] = allocate_id(entries, kind)
-        validate_record(candidate, previous=entries)
+        if candidate.get("kind") == corrections.KIND:
+            from_cli = not candidate.get("id")
+            if from_cli:
+                candidate["id"] = corrections.allocate(entries, str(candidate.get("corrects", "")))
+            validate_record(candidate, previous=entries)
+            if from_cli:
+                corrections.refuse(entries, candidate)
+        else:
+            if not candidate.get("id"):
+                kind = candidate.get("kind") or ""
+                candidate["id"] = allocate_id(entries, kind)
+            validate_record(candidate, previous=entries)
         path.parent.mkdir(parents=True, exist_ok=True)
         try:
             with path.open("a+", encoding="utf-8") as stream:

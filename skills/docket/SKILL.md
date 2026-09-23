@@ -106,6 +106,18 @@ The common options are `--scope` (repeatable), `--rationale`, `--supports`,
 `--depends-on`, `--answers`, `--supersedes`, `--evidence` (repeatable),
 `--revisit`, `--cost`, and `--pin`.
 
+## Correct a record
+
+Use `docket correct` when a record was written down wrong and its commitment
+still holds: a wrong scope, a question-shaped headline, a stale rationale.
+
+    docket correct d12 --scope docket/env.py --reason "scope named the old path"
+
+The record keeps its id, so records that support it keep their grounds. Use
+`--supersedes` instead when the commitment itself changed: a correction
+cannot change `choice`, the state, or a relation. A briefing tags a corrected
+record `corrected`; `docket show ID` lists the corrections.
+
 ## What recording refuses, and what it only warns about
 
 Four forms are refused outright:

@@ -8,6 +8,7 @@ from docket.cli.admin import cmd_check, cmd_init, cmd_migrate, cmd_rebase
 from docket.cli.completion import cmd_completion
 from docket.cli.construct import cmd_construct
 from docket.cli.context_cmd import CONTEXT_ENVELOPES, cmd_context
+from docket.cli.correct import add_correct_parser
 from docket.cli.feature_parser import add_feature_parser
 from docket.cli.graph import cmd_graph
 from docket.cli.query import cmd_list, cmd_show, cmd_where
@@ -53,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = p.add_subparsers(
         dest="cmd",
         metavar=(
-            "{claim,decision,question,list,show,graph,context,where,check,"
+            "{claim,decision,question,correct,list,show,graph,context,where,check,"
             "rebase,migrate,init,feature,completion,update}"
         ),
     )
@@ -77,6 +78,8 @@ def main(argv: list[str] | None = None) -> int:
     qu.add_argument("text")
     _add_shared_args(qu)
     qu.set_defaults(func=cmd_question)
+
+    add_correct_parser(sub)
 
     ls = sub.add_parser("list", help="list records")
     ls.add_argument("--kind", choices=KINDS)

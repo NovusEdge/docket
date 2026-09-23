@@ -83,6 +83,32 @@ class RebaseTests(unittest.TestCase):
         self.assertEqual(tail, [])
         self.assertEqual(mapping, {})
 
+    def test_an_incoming_correction_follows_its_renumbered_record(self):
+        from docket import corrections
+
+        shared = make_record("claim", "Shared.", author="t", record_id="c1")
+        mine = [shared, make_record("claim", "Mine.", author="t", record_id="c2")]
+        theirs_record = make_record("claim", "Theirs.", author="t", record_id="c2")
+        fix = corrections.make("c2", {"scope": ["a.py"]}, author="t")
+        fix["id"] = "c2.1"
+        tail, mapping = renumber(mine, [shared, theirs_record, fix])
+        self.assertEqual(mapping, {"c2": "c3", "c2.1": "c3.1"})
+        self.assertEqual(tail[1]["corrects"], "c3")
+
+    def test_both_branches_corrected_one_record(self):
+        from docket import corrections
+
+        shared = make_record("claim", "Shared.", author="t", record_id="c1")
+        mine_fix = corrections.make("c1", {"scope": ["a.py"]}, author="t")
+        mine_fix["id"] = "c1.1"
+        their_fix = corrections.make("c1", {"scope": ["b.py"]}, author="t")
+        their_fix["id"] = "c1.1"
+        their_second = corrections.make("c1", {"revisit": "Later."}, author="t")
+        their_second["id"] = "c1.2"
+        tail, mapping = renumber([shared, mine_fix], [shared, their_fix, their_second])
+        self.assertEqual(mapping, {"c1.1": "c1.2", "c1.2": "c1.3"})
+        self.assertEqual([item["corrects"] for item in tail], ["c1", "c1"])
+
 
 if __name__ == "__main__":
     unittest.main()

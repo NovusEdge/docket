@@ -82,6 +82,7 @@ def build_context(
     settings: Mapping[str, Any] | None = None,
     settings_id: str = "default",
     feature: str = "",
+    latest_id: str = "",
 ) -> str:
     """Render whole records under tiered budget rules.
 
@@ -153,11 +154,13 @@ def build_context(
             adjacency[ident].add(target)
             adjacency[target].add(ident)
     revision = _revision(history)
-    latest = max(by_id, key=lambda ident: at[ident], default="")
+    latest = latest_id or max(by_id, key=lambda ident: at[ident], default="")
     if latest:
         # The digest covers the history up to and including that record, which
         # here is the whole history. A rebase renumbers the tail, so an agent
         # that passes the pair back to --since learns its baseline is stale.
+        # A correction can be the last line, and projection drops correction
+        # lines, so the caller passes the raw last id.
         latest = f"{latest}@{revision}"
     feature_prefix = _feature_prefix(feature, max(1, soft_limit // 4))
     prefix = (

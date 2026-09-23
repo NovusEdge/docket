@@ -12,7 +12,7 @@ import shutil
 import sys
 import textwrap
 
-from docket import env
+from docket import corrections, env
 from docket.cli.term import _DIM, _STATE_COLOR, _c, _match, _use_color
 from docket.context_model import positions
 from docket.env import LEDGER, justification_sets, read, retired_by
@@ -110,6 +110,8 @@ def cmd_show(args: argparse.Namespace) -> int:
         at = positions(raw)
         cutoff = at[args.at]
         raw = [item for item in raw if at[item["id"]] <= cutoff]
+    if corrections.split_id(args.id):
+        return _show_correction(raw, args.id, args.json)
     entries = project(raw, validated=True)
     by_id = {e.get("id"): e for e in entries}
     e = by_id.get(args.id)
@@ -163,9 +165,35 @@ def cmd_show(args: argparse.Namespace) -> int:
         field("Decided by", e["decided_by"])
     if e.get("cost_if_wrong"):
         field("Cost if wrong", e["cost_if_wrong"])
+    if e.get("corrections"):
+        field("Corrections", ", ".join(e["corrections"]))
     field("Recorded state", e.get("recorded_state", e.get("state", "")))
+    print(f"  Recorded: {e.get('ts', '')}")
     print(
         f"  Author: {e.get('author', '')}  Session: {e.get('session', '')}  Branch: {e.get('branch', '')}"
+    )
+    return 0
+
+
+def _show_correction(raw: list, ident: str, as_json: bool) -> int:
+    at = next((index for index, item in enumerate(raw) if item["id"] == ident), None)
+    if at is None:
+        print(f"docket: no entry {ident}", file=sys.stderr)
+        return 1
+    line = raw[at]
+    target = next(i for i in corrections.fold(raw[:at]) if i["id"] == line["corrects"])
+    before = {field: target.get(field) for field in line["fields"]}
+    if as_json:
+        print(json.dumps({**line, "before": before}, indent=2))
+        return 0
+    print(f"{ident}  correction  corrects {line['corrects']}")
+    for field, value in line["fields"].items():
+        print(f"  {field}: {json.dumps(before[field])} -> {json.dumps(value)}")
+    if line["reason"]:
+        print(f"  Reason: {line['reason']}")
+    print(
+        f"  Author: {line['author']}  Session: {line['session']}  Branch: {line['branch']}  "
+        f"Ts: {line['ts']}"
     )
     return 0
 

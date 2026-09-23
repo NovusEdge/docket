@@ -222,7 +222,8 @@ def main() -> int:
                     f"This writes {target} directly. A ledger is append-only and is "
                     "validated on every read, so an edit made around the CLI can "
                     "break it. Record with `docket claim`, `docket decision` or "
-                    "`docket question`; repair with `docket check` and `docket "
+                    "`docket question`; fix a recorded field with `docket correct`; "
+                    "repair with `docket check` and `docket "
                     "rebase`; convert an old ledger with `docket migrate`. Approve "
                     "only if you mean to edit the file itself."
                 ),

@@ -18,6 +18,7 @@ import copy
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from docket import corrections
 from docket.ledger import ID_RE, allocate_id
 
 
@@ -81,9 +82,16 @@ def renumber(
     mapping: dict[str, str] = {}
     for record in tail:
         old = str(record.get("id", ""))
-        if not ID_RE.fullmatch(old):
-            raise RebaseError(f"malformed id {old!r} in the incoming tail")
-        new = allocate_id(allocated, str(record.get("kind")))
+        if record.get("kind") == corrections.KIND:
+            # Counted against allocated, which holds mine and the tail so far,
+            # so two incoming corrections of one record take distinct numbers.
+            target = mapping.get(str(record.get("corrects")), str(record.get("corrects")))
+            record["corrects"] = target
+            new = corrections.allocate(allocated, target)
+        else:
+            if not ID_RE.fullmatch(old):
+                raise RebaseError(f"malformed id {old!r} in the incoming tail")
+            new = allocate_id(allocated, str(record.get("kind")))
         mapping[old] = new
         record["id"] = new
         allocated.append(record)

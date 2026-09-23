@@ -52,6 +52,26 @@ prerequisite must be current and accepted. A decision with missing prerequisites
 remains recorded as adopted but reports that it is blocked. See the
 [relationship reference](ledger.md#relations).
 
+`docket correct ID`
+
+| Flag | Effect |
+|---|---|
+| `--text T`, `--rationale R` | Replace the record's text or rationale |
+| `--scope PATH` | Replace the scope list. Repeat for more than one value. |
+| `--evidence REF` | Replace the evidence list. Repeat for more than one value. |
+| `--revisit R`, `--cost C` | Replace the revisit note or cost-if-wrong |
+| `--pin`, `--unpin` | Replace the pinned flag |
+| `--alternative A` | Decision only. Replace the alternatives list. Repeat for more. |
+| `--decided-by WHO` | Decision only. Replace who made the call. |
+| `--clear scope\|evidence\|alternatives` | Empty a list instead of replacing it. Repeat for more than one field. |
+| `--reason R` | Why the record was wrong |
+
+Fix a record that was written down wrong. The record keeps its id, and a
+repeated flag replaces the whole list it names. The command refuses
+`--choice`, `--state`, and the relation flags; supersede the record instead
+to change those. `docket show ID` lists a record's corrections, and `docket
+show ID.N` prints one correction with the values it replaced.
+
 ## Reading
 
 `docket list`

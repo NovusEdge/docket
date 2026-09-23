@@ -148,6 +148,7 @@ def cmd_context(args: argparse.Namespace) -> int:
             projected,
             since=args.since,
             baseline=project(prefix),
+            raw=raw,
             max_chars=args.max_chars,
             ledger=str(env.ledger_path()),
             settings=settings,
@@ -168,7 +169,8 @@ def cmd_context(args: argparse.Namespace) -> int:
     if forced or default_on:
         files = tuple(dict.fromkeys(files + auto_scope_files(settings["auto_scope"]["limit"])))
     try:
-        entries = project(read(env.ledger_path()), validated=True)
+        raw = read(env.ledger_path())
+        entries = project(raw, validated=True)
         text = render_context(
             entries,
             query=args.query or "",
@@ -179,6 +181,7 @@ def cmd_context(args: argparse.Namespace) -> int:
             settings=settings,
             settings_id=settings_id,
             feature=_feature_block(env.project_root(), entries),
+            latest_id=raw[-1]["id"] if raw else "",
         )
     except (LedgerError, OSError) as exc:
         print(str(exc), file=sys.stderr)
