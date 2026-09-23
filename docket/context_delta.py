@@ -21,6 +21,7 @@ def build_delta(
     *,
     since: str,
     baseline: Iterable[Mapping[str, Any]],
+    raw: Iterable[Mapping[str, Any]] | None = None,
     max_chars: int | None = None,
     ledger: str = "",
     settings: Mapping[str, Any] | None = None,
@@ -38,39 +39,54 @@ def build_delta(
     """
 
     history = list(entries)
+    baseline = list(baseline)
     by_id = {_id(item): item for item in history}
-    at = positions(history)
+    lines = list(raw) if raw is not None else history
+    at = positions(lines)
     since, _, expected = since.partition("@")
-    if since not in by_id:
+    if since not in at:
         return None
     cutoff = at[since]
-    prefix = [item for item in history if at[_id(item)] <= cutoff]
-    if expected and _revision(prefix) != expected:
+    # The token was minted when since was the last line, so the baseline, the
+    # projection of lines up to since, is exactly the history it hashed.
+    if expected and _revision(baseline) != expected:
         # A rebase renumbers the tail, so this ID now covers different history.
         return None
     was_available = {_id(item) for item in baseline if _available(item)}
     cfg = settings if settings is not None else _SETTINGS_DEFAULTS
     limit = max_chars if max_chars is not None else cfg["budget"]["target"]
+    corrected_ids = {
+        str(line["corrects"])
+        for line in lines
+        if line.get("kind") == "correction"
+        and at[_id(line)] > cutoff
+        and at.get(str(line["corrects"]), cutoff + 1) <= cutoff
+    }
     added = [item for item in history if at[_id(item)] > cutoff]
+    corrected = [item for item in history if _id(item) in corrected_ids]
     changed = [
         item
         for item in history
-        if at[_id(item)] <= cutoff and _id(item) in was_available and not _available(item)
+        if at[_id(item)] <= cutoff
+        and _id(item) in was_available
+        and not _available(item)
+        and _id(item) not in corrected_ids
     ]
-    latest = max(by_id, key=lambda ident: at[ident], default="")
+    latest = _id(lines[-1]) if lines else ""
     revision = _revision(history)
     head = (
         "\n".join(
             [
                 f"# docket: {_clip_metadata(ledger or 'ledger', 180)} | revision: {revision}"
                 f" | latest: {latest}@{revision} | since: {since}",
-                f"# changed: {len(added)} added, {len(changed)} no longer available.",
+                f"# changed: {len(added)} added, {len(corrected)} corrected, "
+                f"{len(changed)} no longer available.",
             ]
         )
         + "\n\n"
     )
     blocks: list[str] = []
-    for item in added + changed:
+    for item in added + corrected + changed:
         block = _render_record(item, "changed", "", by_id)
         if len(head) + len("\n\n".join(blocks + [block])) > limit:
             block = _index_line(item, cfg["index"]["detail_min"])

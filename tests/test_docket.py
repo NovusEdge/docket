@@ -597,7 +597,7 @@ class ContextDeltaTests(unittest.TestCase):
         stdout = out.getvalue()
         self.assertIn("since: d1", stdout)
         self.assertIn("### c8 ", stdout)
-        self.assertIn("1 added, 1 no longer available", stdout)
+        self.assertIn("1 added, 0 corrected, 1 no longer available", stdout)
 
 
 class InitTests(unittest.TestCase):

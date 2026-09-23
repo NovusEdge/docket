@@ -142,6 +142,8 @@ def _render_record(
         tags.append("pinned")
     if _is_retired(entry):
         tags.append("historical")
+    if _list(entry.get("corrections")):
+        tags.append("corrected")
     lines = [f"### {ident} | {kind} | {state} [{', '.join(tags)}]", f"role: {role}"]
     lines.append(f"text: {_text(entry.get('text'))}")
     if recorded_state != state:

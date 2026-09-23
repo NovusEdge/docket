@@ -914,6 +914,70 @@ class DeltaTests(unittest.TestCase):
             build_delta(history, since=stale, baseline=projected(records), ledger="repo")
         )
 
+    def correction(self, ident, target, fields):
+        from docket import corrections
+
+        line = corrections.make(target, fields, author="test", ts="2026-09-23T00:00:00+00:00")
+        line["id"] = ident
+        return line
+
+    def test_a_corrected_record_is_tagged(self):
+        raw = [
+            entry("c1", "claim", "A premise", state="accepted"),
+            self.correction("c1.1", "c1", {"rationale": "Measured."}),
+        ]
+        rendered = build_context(project(raw, validated=True), ledger="repo", latest_id="c1.1")
+        self.assertRegex(rendered, r"### c1 \| claim \| accepted \[[^\]]*corrected")
+
+    def test_since_a_correction_token_yields_a_delta(self):
+        raw = [
+            entry("c1", "claim", "A premise", state="accepted"),
+            self.correction("c1.1", "c1", {"rationale": "Measured."}),
+        ]
+        history = project(raw, validated=True)
+        rendered = build_context(history, ledger="repo", latest_id="c1.1")
+        token = re.search(r"latest: (c1\.1@[0-9a-f]+)", rendered).group(1)
+        delta = build_delta(history, since=token, baseline=history, raw=raw, ledger="repo")
+        self.assertIsNotNone(delta)
+        self.assertIn("0 added, 0 corrected, 0 no longer available", delta)
+
+    def test_delta_reports_a_correction_after_the_baseline(self):
+        raw = [
+            entry("c1", "claim", "A premise", state="accepted"),
+            entry("c2", "claim", "Another premise", state="accepted"),
+            self.correction("c1.1", "c1", {"rationale": "Measured."}),
+        ]
+        delta = build_delta(
+            project(raw, validated=True),
+            since="c2",
+            baseline=project(raw[:2], validated=True),
+            raw=raw,
+            ledger="repo",
+        )
+        self.assertIn("### c1 ", delta)
+        self.assertIn("0 added, 1 corrected, 0 no longer available", delta)
+
+    def test_the_three_delta_lists_stay_disjoint(self):
+        raw = [
+            entry("c1", "claim", "A premise", state="accepted"),
+            entry("d2", "decision", "Serve from the cache", choice="serve", depends_on=("c1",)),
+            entry("c3", "claim", "Replace the premise", state="accepted", supersedes=("c1",)),
+            self.correction("c1.1", "c1", {"rationale": "Measured."}),
+            self.correction("c3.1", "c3", {"rationale": "Measured."}),
+        ]
+        delta = build_delta(
+            project(raw, validated=True),
+            since="d2",
+            baseline=project(raw[:2], validated=True),
+            raw=raw,
+            ledger="repo",
+        )
+        # c3 is added, not corrected. c1 is corrected, not also unavailable.
+        # d2 lost its prerequisite, and a retirement is no correction.
+        self.assertIn("1 added, 1 corrected, 1 no longer available", delta)
+        self.assertEqual(delta.count("### c1 "), 1)
+        self.assertEqual(delta.count("### c3 "), 1)
+
 
 class FeatureHeaderTests(unittest.TestCase):
     def entries(self):
