@@ -28,6 +28,14 @@ def split_id(ident: str) -> tuple[str, int] | None:
     return (match.group(1), int(match.group(2))) if match else None
 
 
+def parts_of(ident: str) -> tuple[str, int]:
+    """split_id for an id that validation already accepted."""
+    parts = split_id(ident)
+    if parts is None:
+        raise ValueError(f"not a correction id: {ident!r}")
+    return parts
+
+
 def correctable(kind: str) -> frozenset[str]:
     return _COMMON | _DECISION_ONLY if kind == "decision" else _COMMON
 
@@ -41,8 +49,7 @@ def validate(record: dict[str, Any], prefix: Any) -> dict[str, Any]:
     from docket.ledger import SCHEMA, _error, validate_record
 
     ident = record.get("id")
-    parts = split_id(ident) if isinstance(ident, str) else None
-    if parts is None:
+    if not isinstance(ident, str) or (parts := split_id(ident)) is None:
         raise _error("record", "correction id must match <record id>.<n> with n from 1")
     unknown = sorted(set(record) - _LINE_FIELDS)
     if unknown:
@@ -112,7 +119,7 @@ def allocate(entries: list[dict[str, Any]], target: str) -> str:
     highest = 0
     for entry in entries:
         if entry.get("kind") == KIND and entry.get("corrects") == target:
-            highest = max(highest, split_id(entry["id"])[1])
+            highest = max(highest, parts_of(entry["id"])[1])
     return f"{target}.{highest + 1}"
 
 

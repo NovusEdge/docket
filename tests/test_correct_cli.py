@@ -28,8 +28,15 @@ class CorrectCommandTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.cwd = self.tmp.name
-        out = run(self.cwd, "decision", "The cache lives in Redis.", "--choice", "Redis",
-                  "--scope", "lib/cache.py")
+        out = run(
+            self.cwd,
+            "decision",
+            "The cache lives in Redis.",
+            "--choice",
+            "Redis",
+            "--scope",
+            "lib/cache.py",
+        )
         self.assertEqual(out.returncode, 0, out.stderr)
 
     def tearDown(self):
@@ -181,9 +188,20 @@ class CheckTests(unittest.TestCase):
         self.cwd = self.tmp.name
         subprocess.run(["git", "init", "-q"], cwd=self.cwd, check=True)
         subprocess.run(
-            ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
-             "--allow-empty", "-m", "init"],
-            cwd=self.cwd, check=True,
+            [
+                "git",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "user.name=t",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "init",
+            ],
+            cwd=self.cwd,
+            check=True,
         )
         run(self.cwd, "decision", "The cache lives in Redis.", "--choice", "Redis")
         run(self.cwd, "correct", "d1", "--scope", "a.py")
@@ -200,9 +218,23 @@ class CheckTests(unittest.TestCase):
 
     def test_check_reports_a_malformed_correction(self):
         with self.path.open("a") as stream:
-            stream.write(json.dumps({"schema": 2, "kind": "correction", "id": "d1.2",
-                                     "corrects": "d1", "fields": {"choice": "x"}, "reason": "",
-                                     "ts": "", "author": "", "session": "", "branch": ""}) + "\n")
+            stream.write(
+                json.dumps(
+                    {
+                        "schema": 2,
+                        "kind": "correction",
+                        "id": "d1.2",
+                        "corrects": "d1",
+                        "fields": {"choice": "x"},
+                        "reason": "",
+                        "ts": "",
+                        "author": "",
+                        "session": "",
+                        "branch": "",
+                    }
+                )
+                + "\n"
+            )
         out = run(self.cwd, "check")
         self.assertEqual(out.returncode, 1)
         self.assertIn("line 3", out.stdout)

@@ -47,7 +47,9 @@ class ValidationTests(unittest.TestCase):
 
     def test_the_id_base_must_equal_corrects(self):
         with self.assertRaisesRegex(ledger.LedgerError, "must start with"):
-            ledger.validate_entries([decision("d1"), decision("d2"), line("d1.1", "d2", {"scope": []})])
+            ledger.validate_entries(
+                [decision("d1"), decision("d2"), line("d1.1", "d2", {"scope": []})]
+            )
 
     def test_a_malformed_id_is_refused(self):
         with self.assertRaisesRegex(ledger.LedgerError, "<record id>.<n>"):
@@ -89,9 +91,7 @@ class ValidationTests(unittest.TestCase):
 
     def test_unknown_line_fields_are_refused(self):
         with self.assertRaisesRegex(ledger.LedgerError, "unknown field"):
-            ledger.validate_entries(
-                [decision("d1"), line("d1.1", "d1", {"scope": []}, note="x")]
-            )
+            ledger.validate_entries([decision("d1"), line("d1.1", "d1", {"scope": []}, note="x")])
 
     def test_n_must_increase_per_target_and_gaps_are_allowed(self):
         ledger.validate_entries(
@@ -105,7 +105,11 @@ class ValidationTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ledger.LedgerError, "must increase"):
             ledger.validate_entries(
-                [decision("d1"), line("d1.2", "d1", {"scope": []}), line("d1.1", "d1", {"scope": []})]
+                [
+                    decision("d1"),
+                    line("d1.2", "d1", {"scope": []}),
+                    line("d1.1", "d1", {"scope": []}),
+                ]
             )
 
     def test_a_retired_record_is_correctable(self):
@@ -165,7 +169,9 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual(record["original"], {"scope": ["lib/a.py"], "rationale": ""})
 
     def test_an_empty_list_clears_a_field(self):
-        projected = ledger.project([decision("d1", scope=["a.py"]), line("d1.1", "d1", {"scope": []})])
+        projected = ledger.project(
+            [decision("d1", scope=["a.py"]), line("d1.1", "d1", {"scope": []})]
+        )
         self.assertEqual(projected[0]["scope"], [])
 
     def test_an_uncorrected_record_gains_no_keys(self):

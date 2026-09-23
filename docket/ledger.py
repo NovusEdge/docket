@@ -76,9 +76,7 @@ def _normalized(value: str) -> str:
     return " ".join(value.split()).casefold()
 
 
-def _reject_empty_reasoning(
-    record: dict[str, Any], changed: frozenset[str] | None = None
-) -> None:
+def _reject_empty_reasoning(record: dict[str, Any], changed: frozenset[str] | None = None) -> None:
     """Refuse a decision whose text or reasoning fields only echo the choice.
 
     Requiring the choice to appear in ``alternatives`` made a one-element list
@@ -274,7 +272,7 @@ class _Prefix:
     def add(self, entry: dict[str, Any]) -> None:
         # A correction is no relation target and carries no supersedes.
         if entry.get("kind") == corrections.KIND:
-            target, number = corrections.split_id(entry["id"])
+            target, number = corrections.parts_of(entry["id"])
             self.corrections[target] = max(self.corrections.get(target, 0), number)
             return
         ident = entry["id"]

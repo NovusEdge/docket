@@ -156,8 +156,11 @@ def main(argv: list[str] | None = None) -> int:
         out.append(json.dumps(entry, ensure_ascii=False, separators=(",", ":")))
 
     missed = sorted(
-        (entry["id"] for entry in map(json.loads, out)
-         if entry["kind"] == "decision" and entry["text"].rstrip().endswith("?")),
+        (
+            entry["id"]
+            for entry in map(json.loads, out)
+            if entry["kind"] == "decision" and entry["text"].rstrip().endswith("?")
+        ),
         key=lambda ident: int(ident[1:]),
     )
     if missed:
