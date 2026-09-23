@@ -110,5 +110,48 @@ class CorrectCommandTests(unittest.TestCase):
         self.assertEqual(json.loads(out.stdout)["scope"], ["a.py"])
 
 
+class CheckTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.cwd = self.tmp.name
+        subprocess.run(["git", "init", "-q"], cwd=self.cwd, check=True)
+        subprocess.run(
+            ["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
+             "--allow-empty", "-m", "init"],
+            cwd=self.cwd, check=True,
+        )
+        run(self.cwd, "decision", "The cache lives in Redis.", "--choice", "Redis")
+        run(self.cwd, "correct", "d1", "--scope", "a.py")
+        self.path = Path(run(self.cwd, "where").stdout.split("  (")[0])
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_check_accepts_a_correction(self):
+        out = run(self.cwd, "check")
+        self.assertEqual(out.returncode, 0, out.stdout)
+        self.assertIn("reads cleanly", out.stdout)
+
+    def test_check_reports_a_malformed_correction(self):
+        with self.path.open("a") as stream:
+            stream.write(json.dumps({"schema": 2, "kind": "correction", "id": "d1.1",
+                                     "corrects": "d1", "fields": {"choice": "x"}, "reason": "",
+                                     "ts": "", "author": "", "session": "", "branch": ""}) + "\n")
+        out = run(self.cwd, "check")
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("line 3", out.stdout)
+
+    def test_check_reports_a_feature_naming_a_correction(self):
+        store = self.path.parent / "features.jsonl"
+        out = run(self.cwd, "feature", "start", "cache", "--text", "Cache work", "--path", "src/")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        out = run(self.cwd, "feature", "amend", "cache", "--include", "d1.1")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        out = run(self.cwd, "check")
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("include names d1.1", out.stdout)
+        self.assertTrue(store.exists())
+
+
 if __name__ == "__main__":
     unittest.main()

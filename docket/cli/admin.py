@@ -152,6 +152,16 @@ def cmd_check(args: argparse.Namespace) -> int:
             faults.append(f"line {number}: invalid JSON: {exc.msg}")
             continue
         count += 1
+        if isinstance(record, dict) and record.get("kind") == "correction":
+            # Kept out of seen: a feature that names a correction id names
+            # nothing a brief can attach, and the feature check reports it.
+            try:
+                checked = validate_record(record, prefix=prefix)
+            except LedgerError as exc:
+                faults.append(f"line {number}: {str(exc).removeprefix('docket: ')}")
+            else:
+                prefix.add(checked)
+            continue
         ident = str(record.get("id", "")) if isinstance(record, dict) else ""
         match = ID_RE.fullmatch(ident)
         if not match:
