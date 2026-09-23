@@ -142,7 +142,8 @@ def cmd_check(args: argparse.Namespace) -> int:
     prefix = _Prefix([])
     seen: dict[str, int] = {}
     highest = 0
-    count = 0
+    records = 0
+    correction_lines = 0
     for number, line in enumerate(lines, 1):
         if not line.strip():
             continue
@@ -151,8 +152,8 @@ def cmd_check(args: argparse.Namespace) -> int:
         except json.JSONDecodeError as exc:
             faults.append(f"line {number}: invalid JSON: {exc.msg}")
             continue
-        count += 1
         if isinstance(record, dict) and record.get("kind") == "correction":
+            correction_lines += 1
             # Kept out of seen: a feature that names a correction id names
             # nothing a brief can attach, and the feature check reports it.
             try:
@@ -162,6 +163,7 @@ def cmd_check(args: argparse.Namespace) -> int:
             else:
                 prefix.add(checked)
             continue
+        records += 1
         ident = str(record.get("id", "")) if isinstance(record, dict) else ""
         match = ID_RE.fullmatch(ident)
         if not match:
@@ -190,7 +192,10 @@ def cmd_check(args: argparse.Namespace) -> int:
 
     failed = bool(faults)
     if not faults:
-        print(f"docket: {path} reads cleanly, {count} record{'s' if count != 1 else ''}")
+        summary = f"{records} record{'s' if records != 1 else ''}"
+        if correction_lines:
+            summary += f" and {correction_lines} correction{'s' if correction_lines != 1 else ''}"
+        print(f"docket: {path} reads cleanly, {summary}")
     else:
         print(f"docket: {path} has {len(faults)} fault{'s' if len(faults) != 1 else ''}")
         for fault in faults:

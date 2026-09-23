@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -78,6 +79,48 @@ class CorrectCommandTests(unittest.TestCase):
         self.assertEqual(out.returncode, 1)
         self.assertIn("unknown or later", out.stderr)
 
+    def test_clear_alternatives_names_the_real_flag(self):
+        out = run(self.cwd, "correct", "d1", "--clear", "alternatives", "--alternative", "Postgres")
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("--alternative", out.stderr)
+        self.assertNotIn("--alternatives", out.stderr)
+
+    def test_a_malformed_id_is_refused_before_anything_else(self):
+        out = run(self.cwd, "correct", "d1.1", "--scope", "a.py")
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("correct names a claim, decision, or question id", out.stderr)
+
+    def test_state_is_refused_with_a_pointer_to_supersession(self):
+        out = run(self.cwd, "correct", "d1", "--state", "adopted")
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("--supersedes", out.stderr)
+        self.assertNotIn("corrections", self.show("d1"))
+
+    def test_supersedes_is_refused_with_a_pointer_to_supersession(self):
+        out = run(self.cwd, "correct", "d1", "--supersedes", "d1")
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("--supersedes", out.stderr)
+        self.assertNotIn("corrections", self.show("d1"))
+
+    def test_decision_only_field_is_refused_on_a_claim(self):
+        run(self.cwd, "claim", "Writes are durable.")
+        out = run(self.cwd, "correct", "c2", "--alternative", "x")
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("decision-only field", out.stderr)
+
+    def test_repeating_a_pin_refuses_as_a_no_op(self):
+        run(self.cwd, "correct", "d1", "--pin")
+        out = run(self.cwd, "correct", "d1", "--pin")
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("nothing to correct", out.stderr)
+        self.assertEqual(self.show("d1")["corrections"], ["d1.1"])
+
+    def test_a_no_op_field_alongside_a_real_change_writes_only_the_real_field(self):
+        out = run(self.cwd, "correct", "d1", "--scope", "lib/cache.py", "--rationale", "Fast.")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        data = self.show("d1.1")
+        self.assertEqual(data["fields"], {"rationale": "Fast."})
+
     def test_pin_and_unpin(self):
         run(self.cwd, "correct", "d1", "--pin")
         self.assertTrue(self.show("d1")["pinned"])
@@ -110,6 +153,28 @@ class CorrectCommandTests(unittest.TestCase):
         self.assertEqual(json.loads(out.stdout)["scope"], ["a.py"])
 
 
+class ContextCmdTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.cwd = self.tmp.name
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_context_since_a_correction_token_reports_no_change(self):
+        out = run(self.cwd, "decision", "The cache lives in Redis.", "--choice", "Redis")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        out = run(self.cwd, "correct", "d1", "--scope", "docket/cache.py")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        out = run(self.cwd, "context", "--no-auto-scope")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("latest: d1.1@", out.stdout)
+        token = re.search(r"latest: (d1\.1@[0-9a-f]+)", out.stdout).group(1)
+        out = run(self.cwd, "context", "--no-auto-scope", "--since", token)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("# changed: 0 added, 0 corrected, 0 no longer available.", out.stdout)
+
+
 class CheckTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -131,15 +196,17 @@ class CheckTests(unittest.TestCase):
         out = run(self.cwd, "check")
         self.assertEqual(out.returncode, 0, out.stdout)
         self.assertIn("reads cleanly", out.stdout)
+        self.assertIn("1 record and 1 correction", out.stdout)
 
     def test_check_reports_a_malformed_correction(self):
         with self.path.open("a") as stream:
-            stream.write(json.dumps({"schema": 2, "kind": "correction", "id": "d1.1",
+            stream.write(json.dumps({"schema": 2, "kind": "correction", "id": "d1.2",
                                      "corrects": "d1", "fields": {"choice": "x"}, "reason": "",
                                      "ts": "", "author": "", "session": "", "branch": ""}) + "\n")
         out = run(self.cwd, "check")
         self.assertEqual(out.returncode, 1)
         self.assertIn("line 3", out.stdout)
+        self.assertIn("choice", out.stdout)
 
     def test_check_reports_a_feature_naming_a_correction(self):
         store = self.path.parent / "features.jsonl"

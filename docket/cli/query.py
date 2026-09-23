@@ -168,6 +168,7 @@ def cmd_show(args: argparse.Namespace) -> int:
     if e.get("corrections"):
         field("Corrections", ", ".join(e["corrections"]))
     field("Recorded state", e.get("recorded_state", e.get("state", "")))
+    print(f"  Recorded: {e.get('ts', '')}")
     print(
         f"  Author: {e.get('author', '')}  Session: {e.get('session', '')}  Branch: {e.get('branch', '')}"
     )
@@ -190,7 +191,10 @@ def _show_correction(raw: list, ident: str, as_json: bool) -> int:
         print(f"  {field}: {json.dumps(before[field])} -> {json.dumps(value)}")
     if line["reason"]:
         print(f"  Reason: {line['reason']}")
-    print(f"  Author: {line['author']}  Session: {line['session']}  Branch: {line['branch']}")
+    print(
+        f"  Author: {line['author']}  Session: {line['session']}  Branch: {line['branch']}  "
+        f"Ts: {line['ts']}"
+    )
     return 0
 
 

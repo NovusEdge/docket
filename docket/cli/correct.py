@@ -2,7 +2,7 @@ import argparse
 import sys
 
 from docket import corrections, env
-from docket.ledger import LedgerError, append, parse_evidence
+from docket.ledger import ID_RE, LedgerError, append, parse_evidence
 
 # Flags that change what a record commits to. Accepted by the parser only so
 # the refusal can name supersession instead of argparse's generic error.
@@ -15,6 +15,7 @@ FIXED_FLAGS = {
     "supersedes": "--supersedes",
 }
 CLEARABLE = ("scope", "evidence", "alternatives")
+CLEAR_FLAGS = {"scope": "--scope", "evidence": "--evidence", "alternatives": "--alternative"}
 
 
 def _fields(args: argparse.Namespace) -> dict:
@@ -41,12 +42,15 @@ def _fields(args: argparse.Namespace) -> dict:
         fields["decided_by"] = args.decided_by
     for name in args.clear:
         if name in fields:
-            raise LedgerError(f"docket: --clear {name} and --{name} conflict")
+            raise LedgerError(f"docket: --clear {name} and {CLEAR_FLAGS[name]} conflict")
         fields[name] = []
     return fields
 
 
 def cmd_correct(args: argparse.Namespace) -> int:
+    if not ID_RE.fullmatch(args.id):
+        print("docket: correct names a claim, decision, or question id", file=sys.stderr)
+        return 1
     fixed = [flag for dest, flag in FIXED_FLAGS.items() if getattr(args, dest) is not None]
     if fixed:
         print(
@@ -70,7 +74,7 @@ def cmd_correct(args: argparse.Namespace) -> int:
                 branch=env.branch(env.project_root()),
             ),
         )
-    except LedgerError as exc:
+    except (LedgerError, OSError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
     print(f"{entry['id']}  corrects {entry['corrects']}: {', '.join(sorted(fields))}")

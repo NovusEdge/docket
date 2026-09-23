@@ -914,6 +914,17 @@ class DeltaTests(unittest.TestCase):
             build_delta(history, since=stale, baseline=projected(records), ledger="repo")
         )
 
+    def test_delta_reports_a_supersession_with_no_correction_as_unavailable_not_corrected(self):
+        records = [
+            entry("c1", "claim", "A premise", state="accepted"),
+            entry("c2", "claim", "Replace the premise", state="accepted", supersedes=("c1",)),
+        ]
+        delta = build_delta(
+            projected(records), since="c1", baseline=projected(records[:1]), ledger="repo"
+        )
+        self.assertIn("0 corrected", delta)
+        self.assertIn("1 no longer available", delta)
+
     def correction(self, ident, target, fields):
         from docket import corrections
 
