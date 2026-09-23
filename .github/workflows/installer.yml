@@ -1,8 +1,8 @@
-name: Installer release binaries
+name: Release
 
 on:
-  release:
-    types: [published]
+  push:
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       version:
@@ -24,6 +24,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Check the tag against VERSION
+        if: github.event_name == 'push'
+        run: |
+          test "v$(cat VERSION)" = "$GITHUB_REF_NAME" \
+            || { echo "tag $GITHUB_REF_NAME does not match VERSION $(cat VERSION)"; exit 1; }
       - name: Test native installer
         working-directory: installer
         run: go test ./...
@@ -38,11 +43,11 @@ jobs:
         run: python3 -m unittest installer/test_bootstrap.py
       - name: Build release assets
         env:
-          RELEASE_VERSION: ${{ github.event.release.tag_name || inputs.version }}
+          RELEASE_VERSION: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
         run: python3 installer/release.py --output-dir dist/installer --version "$RELEASE_VERSION"
       - name: Build graph viewer release assets
         env:
-          RELEASE_VERSION: ${{ github.event.release.tag_name || inputs.version }}
+          RELEASE_VERSION: ${{ github.event_name == 'push' && github.ref_name || inputs.version }}
         run: python3 graph/release.py --output-dir dist/graph --version "$RELEASE_VERSION"
       - uses: actions/upload-artifact@v4
         with:
@@ -50,9 +55,18 @@ jobs:
           path: |
             dist/installer/*
             dist/graph/*
-      - name: Upload assets to the published release
-        if: github.event_name == 'release'
+      # docket update reads releases/latest, so the release exists only once
+      # every asset is attached: a rerun after a partial failure replaces them.
+      - name: Publish the GitHub release
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$RELEASE_TAG" dist/installer/* dist/graph/* --clobber
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          python3 scripts/roll_changelog.py "$version" --notes > notes.md
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/installer/* dist/graph/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" --title "docket $version" --notes-file notes.md \
+              --latest --verify-tag dist/installer/* dist/graph/*
+          fi

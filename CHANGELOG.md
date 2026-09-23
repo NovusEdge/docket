@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- A pushed `v*` tag now publishes the release. The Release workflow tests the tagged tree, builds the installer and graph viewer binaries, and creates the GitHub release with its changelog notes. `just release` stops after it pushes the tag, and no longer needs `gh`.
+
 ## [0.20.0] - 2026-09-23
 
 ### Added
