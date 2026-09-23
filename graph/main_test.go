@@ -374,11 +374,11 @@ func TestPlainOverviewShowsKindAndEffectiveState(t *testing.T) {
 	}
 }
 
-func TestLedgerGraphTitleAndBlockedStyle(t *testing.T) {
+func TestTreeStartsOnTheFirstRowAndBlockedStyle(t *testing.T) {
 	m := NewModel(testData())
 	view := ansi.Strip(m.View().Content)
-	if !strings.Contains(view, "LEDGER GRAPH") || strings.Contains(view, "DECISION GRAPH") {
-		t.Fatalf("graph title = %q", view)
+	if strings.Contains(view, "LEDGER GRAPH") || !strings.Contains(strings.Split(view, "\n")[0], "d1") {
+		t.Fatalf("the tree does not start on the first row: %q", view)
 	}
 	blocked := newModel(GraphData{Version: 2, Entries: []Entry{{ID: "d1", Kind: "decision", State: "adopted", Applicable: false}}}, true).stateStyle("blocked").Render("state")
 	adopted := newModel(GraphData{Version: 2, Entries: []Entry{{ID: "d1", Kind: "decision", State: "adopted", Applicable: true}}}, true).stateStyle("adopted").Render("state")
@@ -437,8 +437,8 @@ func TestSortReordersRootsAndKeepsSubtreesContiguous(t *testing.T) {
 	}
 	assertRowOrder(t, m, "b", "b1", "a", "a1", "a2")
 	assertTreeIntact(t, m)
-	if !strings.Contains(ansi.Strip(m.footer()), "sort id desc") {
-		t.Fatalf("footer hid the active sort: %q", ansi.Strip(m.footer()))
+	if !strings.Contains(ansi.Strip(m.statusLine()), "sort id desc") {
+		t.Fatalf("status line hid the active sort: %q", ansi.Strip(m.statusLine()))
 	}
 
 	m, _ = updateModel(m, keyMsg('r'))
@@ -762,6 +762,99 @@ func runFilter(t *testing.T, m model, cmd tea.Cmd) model {
 	}
 	m, _ = updateModel(m, cmd())
 	return m
+}
+
+func TestBottomPaneAtEightyAndFiftyEightColumns(t *testing.T) {
+	m := NewModel(testData())
+	m, _ = updateModel(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	assertPane(t, m, "filter: none", "4/4 match · sort ledger asc", "/ filter  s sort  tab detail  ? help  q quit")
+	m, _ = updateModel(m, keyMsg(' '))
+	assertPane(t, m, "filter: none", "4/4 match · 2 shown · sort ledger asc", "/ filter  s sort  tab detail  ? help  q quit")
+	m, _ = updateModel(m, keyMsg(' '))
+	m = applyFilter(m, "other")
+	assertPane(t, m, "filter: other", "1/4 match · sort ledger asc", "/ filter  s sort  tab detail  ? help  q quit")
+	m, _ = updateModel(m, tea.WindowSizeMsg{Width: 58, Height: 24})
+	assertPane(t, m, "filter: other", "1/4 match · sort ledger asc", "? help  q quit")
+}
+
+func TestHeightsFourSixAndEight(t *testing.T) {
+	for _, height := range []int{4, 6} {
+		m := NewModel(testData())
+		m, _ = updateModel(m, tea.WindowSizeMsg{Width: 80, Height: height})
+		lines := viewLines(m)
+		if len(lines) != height || !strings.Contains(lines[0], "d1") {
+			t.Fatalf("height %d: %d lines, first %q", height, len(lines), lines[0])
+		}
+		if got := lines[height-1]; got != "4/4 match · sort ledger asc  ? help" {
+			t.Fatalf("height %d: pane line = %q", height, got)
+		}
+		m, _ = updateModel(m, keyMsg('/'))
+		m = typeText(m, "ot")
+		if got := viewLines(m)[height-1]; !strings.HasPrefix(got, "filter: ot") {
+			t.Fatalf("height %d: editing pane line = %q", height, got)
+		}
+	}
+	m := NewModel(testData())
+	m, _ = updateModel(m, tea.WindowSizeMsg{Width: 80, Height: 8})
+	if lines := viewLines(m); len(lines) != 8 || lines[5] != "filter: none" || !strings.Contains(lines[0], "d1") {
+		t.Fatalf("height 8: %q", lines)
+	}
+}
+
+func TestTreeKeepsARowAtEveryHeightFromFour(t *testing.T) {
+	for _, width := range []int{40, 80} {
+		for height := 4; height <= 30; height++ {
+			m := NewModel(testData())
+			m, _ = updateModel(m, tea.WindowSizeMsg{Width: width, Height: height})
+			lines := viewLines(m)
+			if len(lines) != height || !strings.Contains(lines[0], "d1") {
+				t.Fatalf("%dx%d: %d lines, first %q", width, height, len(lines), lines[0])
+			}
+		}
+	}
+}
+
+func TestHelpOverlayOpensFromDetailFocusAndAnyKeyClosesIt(t *testing.T) {
+	m := NewModel(testData())
+	m, _ = updateModel(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m, _ = updateModel(m, keyMsg('\t'))
+	m, _ = updateModel(m, keyMsg('?'))
+	if !m.helpOpen {
+		t.Fatal("? in detail focus did not open the help overlay")
+	}
+	view := strings.Join(viewLines(m), "\n")
+	for _, want := range []string{"move", "fold", "detail", "sort", "filter", "scope:PATH", "scope:DIR/"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("help overlay missing %q:\n%s", want, view)
+		}
+	}
+	before := m.detail.YOffset()
+	m, _ = updateModel(m, keyMsg('j'))
+	if m.helpOpen || !m.detailFocus || m.detail.YOffset() != before {
+		t.Fatalf("j did not only close the overlay: open=%v focus=%v y=%d", m.helpOpen, m.detailFocus, m.detail.YOffset())
+	}
+	m, _ = updateModel(m, keyMsg('?'))
+	m, cmd := updateModel(m, keyMsg('q'))
+	if m.helpOpen || cmd != nil {
+		t.Fatal("q closed the overlay and also quit")
+	}
+}
+
+func assertPane(t *testing.T, m model, want ...string) {
+	t.Helper()
+	lines := viewLines(m)
+	got := lines[len(lines)-len(want):]
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("bottom pane = %q, want %q", got, want)
+	}
+}
+
+func viewLines(m model) []string {
+	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimRight(line, " ")
+	}
+	return lines
 }
 
 func keyMsg(k rune) tea.KeyPressMsg { return tea.KeyPressMsg(tea.Key{Code: k}) }
