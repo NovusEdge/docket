@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Docket is released under the MIT license, in `LICENSE` and in both plugin manifests.
+- `PRIVACY.md` states what Docket stores and when it makes network requests.
+
 ### Changed
 
 - A pushed `v*` tag now publishes the release. The Release workflow tests the tagged tree, builds the installer and graph viewer binaries, and creates the GitHub release with its changelog notes. `just release` stops after it pushes the tag, and no longer needs `gh`.
