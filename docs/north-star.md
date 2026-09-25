@@ -58,11 +58,11 @@ work. The counts below describe a snapshot of this repository's ledger at
 |---|---|
 | `supports`, `answers`, `supersedes`, `scope` | in constant use |
 | `depends_on` | 9 decisions declare one |
-| `supports` with more than one set | one record, d95 |
+| `supports` with more than one set | one record |
 | `applicable`, `blocked_by` | derived on every read, never yet true |
-| `cost_if_wrong` | empty on 15 of 111 claims and decisions, and free text that nothing scores (c60) |
+| `cost_if_wrong` | empty on 15 of 111 claims and decisions, and free text that nothing scores |
 
-Fields with no usage examples remain in the schema under decision d93.
+Fields with no usage examples remain in the schema.
 Their presence alone does not establish that they work well in practice.
 
 Type, recorded state, and currentness are separate. A claim can be `accepted`

@@ -32,8 +32,8 @@ throughout a task.
 A fixed context budget can hold only part of a growing ledger. Preserve the
 complete ledger and make the boundaries of each briefing explicit.
 
-The character budget limits how much text a reader scans at session start
-(d114). It is not a measure of token use or a limit on the model's
+The character budget limits how much text a reader scans at session start.
+It is not a measure of token use or a limit on the model's
 context window: 8000 characters is under half a percent of a 1M token window.
 Converting it to tokens would need a network call the session-start hook cannot
 require, and no offline tokenizer matches Claude's. A published

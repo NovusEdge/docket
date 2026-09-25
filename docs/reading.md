@@ -137,32 +137,26 @@ so a partition can distinguish them from records.
 
 ### A worked example
 
-This example of `docket graph --format mermaid --find installer`, taken from
-the project's ledger, has seven nodes and five edges:
+For the example ledger in [Recording decisions](recording.md), a graph can
+show the database choice's supporting claim and the driver choice's answer
+to an open question. With record labels simplified, those relationships are:
 
 ```mermaid
 flowchart LR
-  d34["d34 Where should the native installer live?"]
-  d41["d41 How is the native installer structured?"]
-  d42["d42 How does the native installer configure Codex?"]
-  q75{{"q75 How should the installer place the plugin?"}}
-  d81["d81 planOpenCode writes plugins/docket.ts"]
-  d88["d88 What is Docket's installation entry point?"]
-  d97["d97 The loader scans plugins/*.ts"]
-  d34 --> d41
-  d34 --> d42
-  d34 --> d88
-  d81 ==> q75
-  d97 ==> q75
+  existing_db(["The service already runs Postgres"])
+  database["Billing uses Postgres"]
+  driver_question{{"Which database driver should billing use?"}}
+  driver["Billing uses psycopg"]
+  existing_db --> database
+  driver ==> driver_question
 ```
 
-Read it as: d34 is the premise d41, d42 and d88 rest on, and two decisions
-answer q75. Pipe the same selection through `dot -Tsvg` for a file you can
-attach to a ticket.
+The claim supports the database decision, and the driver decision answers the
+question. Pipe a DOT export through `dot -Tsvg` for a file you can attach to
+a ticket.
 
-Use the viewer's `--kind`, `--state`, and `--find` filters to narrow an export.
-In the ledger used for this example, filtering by `installer` reduces 72 nodes
-and 57 edges to seven nodes and five edges.
+Use the viewer's `--kind`, `--state`, and `--find` filters to narrow an export
+to the records relevant to your task.
 
 | Option | Effect |
 |---|---|

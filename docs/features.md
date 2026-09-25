@@ -62,19 +62,19 @@ docket feature gc [--expire DAYS]
 ```
 
 ```
-$ docket feature start opencode-discovery \
-    --text "Installer places the OpenCode plugin where discovery finds it" \
-    --path installer/**
-f1 opencode-discovery
+$ docket feature start billing-storage \
+    --text "Billing stores invoices in Postgres" \
+    --path 'billing/**'
+f1 billing-storage
 
-$ docket feature note opencode-discovery "confirmed the plugin path with a fresh install"
+$ docket feature note billing-storage "confirmed invoice storage in an integration test"
 
-$ docket feature amend opencode-discovery --status paused
+$ docket feature amend billing-storage --status paused
 
 $ docket feature list
-f1    paused     opencode-discovery       Installer places the OpenCode plugin...
+f1    paused     billing-storage       Billing stores invoices in Postgres
 
-$ docket feature done opencode-discovery
+$ docket feature done billing-storage
 f1 done: 2 intentional, 1 outside
   outside declared paths: docs/random-note.md
 
@@ -116,7 +116,7 @@ strongest match first.
 Each attached record's line names why it attached: `strength` is the same
 scope score `docket context` ranks records by, `specificity` is the length of
 the matching glob's literal prefix (a record scoped to
-`installer/planner.go` outranks one scoped to `installer/**` even at equal
+`billing/storage.py` outranks one scoped to `billing/**` even at equal
 strength), and `matches` is how many of the feature's files that glob covers.
 Use these values to inspect the ranking. `docket feature amend --exclude ID`
 removes an incorrectly matched record; `--include ID` attaches one the globs
@@ -127,14 +127,9 @@ run `docket feature amend <slug> --clear include` (or `--clear exclude`, or
 `--clear intends`). These flags explicitly clear a field; omitting the field
 from an amendment preserves its value.
 
-```
-$ docket feature brief opencode-discovery
-### f1 | opencode-discovery [active] Installer places the OpenCode plugin...
-intends: the plugin loads
-paths: installer/**
-d81 | decision | ... [strength 1000, specificity 20, matches 1]
-q75 | question | ... [strength 1000, specificity 10, matches 4]
-```
+For example, a billing feature's brief can attach a database decision scoped to
+`billing/storage.py` and an open question scoped to `billing/**`. Each record
+shows its ID, text, and ranking values so you can inspect why it was selected.
 
 ## Blocked
 
