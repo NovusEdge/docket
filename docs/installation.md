@@ -13,9 +13,9 @@ OpenCode. You can ask your agent to set it up or follow the steps for your tool.
 | Build from a Git checkout | Python 3.11+, Git, and Go 1.26+ |
 
 Every command but `docket construct` runs on the standard library. Construct
-needs a provider SDK, which the installer offers to set up and keeps in its own
-virtualenv outside the checkout; that step needs
-[uv](https://docs.astral.sh/uv/) and nothing else does. See
+needs a provider SDK. The installer can set it up in a separate virtualenv
+outside the checkout. Only this setup step requires
+[uv](https://docs.astral.sh/uv/). See
 [Constructing on existing projects](construct.md).
 
 The downloaded installer uses prebuilt binaries when Go is absent, so you do not
@@ -276,9 +276,9 @@ command and agent integrations use the permanent checkout.
 ## Update, uninstall, and cleanup
 
 `docket` checks for a newer release once a day and prints a notice above your
-agent's context briefing when one exists, naming the command for your install
-shape. The check runs in a detached background process so it never delays a
-session start; the result is cached at
+agent's context briefing when one exists, naming the command for your
+installation type. The check runs in a detached background process so it never
+delays a session start; the result is cached at
 `$XDG_STATE_HOME/docket/update.json` (`~/.local/state/docket/update.json` by
 default). Set `DOCKET_NO_UPDATE_CHECK=1` to disable both the check and the
 notice. Run `docket update --check` to ask directly, or `docket update` to
@@ -317,8 +317,7 @@ inside the permanent checkout selects the source-build path and requires Go.
 
 ## Add a harness to an install you already have
 
-Run setup again. This is the path for adding a second harness, or for adding a
-construct provider after the first install.
+Run setup again to add another harness or a construct provider.
 
 ```sh
 python3 "$docket_setup_dir/install.py" --dry-run
@@ -326,29 +325,27 @@ python3 "$docket_setup_dir/install.py"
 ```
 
 Pass `--harness NAME` to configure one harness and leave the others as they
-are; the flag repeats. Pass `--construct PROVIDER` to add the construct SDK.
-On Windows, use `py -3 $docketSetupScript` in place of
+are. Repeat the flag to select several. Pass `--construct PROVIDER` to add the
+construct SDK. On Windows, use `py -3 $docketSetupScript` in place of
 `python3 "$docket_setup_dir/install.py"`.
 
 Repeat `--dir` and `--prefix` if your first install used custom locations. A
-bare rerun takes the defaults, so it would install a second copy beside the
-first. The construct provider is the one choice the installer carries forward
-on its own: it reads the recorded value from `.docket-managed` in the existing
-checkout, because `--update` takes no provider argument and a stale SDK would
-otherwise survive every release.
+rerun without those options uses the default paths and would install a second
+copy. The installer remembers the construct provider through `.docket-managed`
+in the existing checkout. This lets `--update` refresh the SDK without a
+provider argument.
 
 `--dry-run` on a machine that already has Docket prints the same plan as a
 first install, with the resolved paths filled in: the checkout it will refresh,
 the command it will write at the prefix, and one line per harness
 configuration file. Nothing outside those lines changes.
 
-Your ledgers survive. The installer replaces code and writes no ledger line,
-and the plan says so. A project ledger at `.docket/ledger.jsonl` inside the
-managed checkout is left alone, and this repository's own records never merge
-into it.
+The installer replaces code without writing to your ledgers. It preserves a
+project ledger at `.docket/ledger.jsonl` inside the managed checkout and does
+not merge this repository's records into it.
 
-Before 0.14.0 this path failed. The installer planned a fresh checkout, then
-refused the swap because both trees carried `.docket`. The refusal is fixed.
+Before 0.14.0, reinstalling failed when both the existing and replacement
+checkouts contained `.docket`. Version 0.14.0 fixed that refusal.
 
 ## Manual installation
 

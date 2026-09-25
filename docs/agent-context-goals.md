@@ -18,9 +18,10 @@ selects records by query and file scope, includes bounded direct neighbors, and
 fits whole record blocks into a character budget. It reports omissions and
 provides a command to retrieve individual records.
 
-Support alternatives and decision prerequisites are thinner in practice than
-that sentence suggests. One record carries more than one support set, nine
-declare a prerequisite, and no decision has ever derived as blocked.
+The repository's ledger has limited examples of support alternatives and
+decision prerequisites. In the snapshot linked below, one record has more
+than one support set, nine declare a prerequisite, and none has derived as
+blocked.
 [The north star](north-star.md) gives the field-by-field counts.
 
 The next improvements should help agents select, understand, and use that data
@@ -31,8 +32,8 @@ throughout a task.
 A fixed context budget can hold only part of a growing ledger. Preserve the
 complete ledger and make the boundaries of each briefing explicit.
 
-The budget is counted in characters, and it stands in for nothing else (d114).
-It bounds how much text a reader scans at session start. It does not protect a
+The character budget limits how much text a reader scans at session start
+(d114). It is not a measure of token use or a limit on the model's
 context window: 8000 characters is under half a percent of a 1M token window.
 Converting it to tokens would need a network call the session-start hook cannot
 require, and no offline tokenizer matches Claude's. A published

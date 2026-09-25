@@ -65,15 +65,13 @@ Four forms are refused, and the record is not written:
   `docket question` and link it with `--answers` instead.
 - a decision's text that restates the choice.
 
-These are the shapes a recorder reaches for to fill a field it has nothing for.
-A field that looks filled while saying nothing is worse than an empty one.
-Leave the option off. A decision that had no contender is a real decision, and
-an empty `alternatives` list is legal.
+Leave an optional field empty when you have nothing to add. For example, a
+decision with no competing option can have an empty `alternatives` list.
 
-Four fields print a hint on stderr and record anyway, because each is
-legitimately empty for some records: `--scope`, `--alternative`, `--rationale`
-and `--cost`. [Working with Docket](../skills/docket/SKILL.md) gives the table
-of when to fill each one.
+Docket prints a hint on stderr when `--scope`, `--alternative`, `--rationale`,
+or `--cost` is empty, but still records the entry. Each can be empty for a valid
+reason. [Working with Docket](../skills/docket/SKILL.md) explains when to fill
+each field.
 
 Both checks run when a record is written. Reading a ledger checks structure
 alone, so a ledger written before 0.14.0 still reads.

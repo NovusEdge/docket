@@ -24,22 +24,21 @@ Every record has these required fields:
 | `decision` | A commitment to a choice | `adopted`, `revoked` | `choice`, `alternatives`, optional `decided_by` |
 | `question` | An unanswered inquiry | `open` | none |
 
-A claim's or a decision's `text` states what the record commits to and never
-asks it. Recording refuses a text that ends in `?` and names the question
-record to write instead. The question belongs in a `question`, linked from the
-decision with `--answers`.
+A claim's or decision's `text` must be a statement. Recording rejects text
+that ends in `?` and tells you to use a question record. Link a decision to
+the question it answers with `--answers`.
 
-`alternatives` holds the options the choice beat, and it is empty when nothing
-contended. Recording refuses a list that only repeats the choice, a `rationale`
-that restates the choice or the text, and a decision `text` that restates the
-choice. Four other reasoning fields print a hint and record anyway: `scope`,
-`alternatives`, `rationale` and `cost_if_wrong`.
+`alternatives` holds the options considered but not chosen. It can be empty
+when there were no competing options. Recording rejects a list that only
+repeats the choice, a `rationale` that restates the choice or the text, and a
+decision `text` that restates the
+choice. Empty `scope`, `alternatives`, `rationale`, and `cost_if_wrong` fields
+produce a hint but do not prevent recording.
 [Recording](recording.md) covers both tiers.
 
-Every one of those checks runs at write time. Reading a ledger checks structure
-alone, so a ledger recorded under an earlier rule still reads. The 81
-question-shaped decisions this project recorded before the rule are the reason
-the boundary exists.
+These checks run at write time. Reading a ledger checks structure alone, so
+older records remain readable. For example, this project's ledger contains
+81 decisions phrased as questions that predate the rule.
 
 IDs use the type prefix and a positive global sequence number: `c1`, `d2`, and
 `q3`. The sequence is shared across kinds, and gaps are allowed.
@@ -119,7 +118,7 @@ identities.
 ## Correction lines
 
 A correction line fixes the wording or metadata of an earlier record. The
-record keeps its id, so relations, feature includes, and citations that name
+record keeps its ID, so relations, feature includes, and citations that name
 it stay valid.
 
     {"schema":2,"kind":"correction","id":"d12.1","corrects":"d12",
@@ -130,7 +129,7 @@ it stay valid.
 |---|---|
 | `id` | `<record id>.<n>`; `n` counts that record's corrections from 1 and must increase |
 | `corrects` | the record id; must equal the id's base and name an earlier record |
-| `fields` | replacement values; each replaces the record's value whole |
+| `fields` | replacement values; each replaces the corresponding field in full |
 | `reason` | why the record was wrong; may be empty |
 
 A correction may replace `text`, `rationale`, `scope`, `cost_if_wrong`,
@@ -143,8 +142,8 @@ Nothing may point at a correction id. Commands that read the ledger apply
 corrections in file order; `docket show ID --json` carries `corrections` and
 `original`, the values before the first correction.
 
-A docket release older than the one that introduced corrections refuses a
-ledger that holds a correction line.
+Docket releases from before corrections were introduced cannot read a ledger
+containing a correction line.
 
 ## Relations
 
@@ -211,10 +210,10 @@ the union serves the renderer as a convenience.
 `docket context` renders projected records for a harness.
 
 Current records are presented in two tiers when space permits. The full-text
-tier holds complete record blocks. The index tier names remaining records on one line
-with its ID, kind, state, and clipped text. An index line's length follows its
-score, so a near miss carries more text than a distant record. The index names
-at most `index.max_lines` records, 40 by default, in score order, and closes
+tier holds complete record blocks. The index tier lists remaining records with
+one line per record: ID, kind, state, and clipped text. Higher-scoring records
+receive longer index lines. The index names at most `index.max_lines` records,
+40 by default, in score order, and closes
 with a count and `docket list` for the remainder.
 
 - The budget target is 8,000 characters.
@@ -229,9 +228,9 @@ with a count and `docket list` for the remainder.
 Records rank by an integer score over scope match strength, query term rarity,
 position in the record sequence, pinning, and how many records point at the
 record. An exact path scope outranks an explicit `--query`, and a query outranks
-a glob or directory scope. A query states the task; a file scope derived from
-the working tree guesses at it. Each full-text record prints its score and
-components.
+a glob or directory scope. An explicit query describes the task directly;
+scope derived from the working tree is an estimate. Each full-text record
+prints its score and components.
 
 A blocked decision prints one `blocked:` line for each chain of prerequisites.
 The line names every step and the reason the last one is unavailable, which the
@@ -260,8 +259,8 @@ evidence-provenance limits, and a `docket show ID --json` retrieval command.
 
 The coverage line measures the caller's task matches and their prerequisite
 closure. It reports either that all of them reached the full-text tier, or how
-many stayed in the index. An index line is not a gap: it names the record and
-gives the command that fetches it.
+many stayed in the index. Indexed records remain retrievable by the IDs and
+retrieval command in the briefing.
 
 Weights, budget, index detail, expansion decay, and the auto-scope cap come from
 `.docket/config.toml` when it exists. See [the annotated example](config.example.toml).
@@ -303,10 +302,10 @@ docket show c12 --at d40
 
 ## Sharing a ledger
 
-Writers on one host are safe. `append` allocates the record ID, validates, and
-writes while holding an exclusive lock on `ledger.jsonl.lock`, so two processes
-never claim the same sequence number. Readers take a shared lock on the same
-file, so a read never sees a half-written line.
+`append` allocates the record ID, validates, and writes while holding an
+exclusive lock on `ledger.jsonl.lock`. This prevents concurrent writers on
+one host from allocating the same sequence number. Readers take a shared lock
+on the same file so they do not read a partially written line.
 
 Two branches that both record produce a git conflict on the ledger, because
 each branch appends different records after the same last line. Resolve the
@@ -329,10 +328,11 @@ renaming. References into the shared prefix stay valid, because prefix IDs never
 move, and no prefix record can point into the tail: validation forbids forward
 references. `--dry-run` prints the ID map and writes nothing.
 
-Hand-resolving the conflict has one silent failure. Keeping branch A's `c46` and
-branch B's `d47` leaves `d47` pointing at A's `c46`, which exists and has the
-right kind. Validation passes and the reference means something nobody chose.
-Nothing detects this afterwards. Use `docket rebase`.
+Resolving the conflict by hand can silently change a reference. If you keep
+branch A's `c46` and branch B's `d47`, a reference from `d47` to `c46` now
+targets A's record. Validation passes because the target exists and has the
+right kind, even though it is not the record B cited. Use `docket rebase` to
+preserve these references.
 
 When a ledger stops reading, run `docket check`. It reports every malformed,
 duplicate, out-of-order, and invalid record with its line number, where a normal
@@ -369,7 +369,7 @@ and the untouched schema-1 file survives at `ledger.jsonl.schema1`. A ledger
 already at schema 2 exits clean and changes nothing. `--dry-run` prints the
 derived conversion and writes nothing.
 
-Two edge shapes are common in old ledgers and get fixed automatically:
+Migration handles two common legacy relationships automatically:
 
 - A `supersedes` edge that points at a question becomes an `answers` edge.
   Schema 2 does not let a question carry `answers`.

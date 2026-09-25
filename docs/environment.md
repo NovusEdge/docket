@@ -1,11 +1,11 @@
 # Environment variables
 
 Docket reads its configuration from a `docket.toml` beside your ledger. The
-variables here cover the things a config file cannot answer: where the ledger
-lives before one is found, who is writing, and which service `docket construct`
-calls.
+variables here select the global store, identify the recorder, configure
+`docket construct`, and control update checks and terminal output.
 
-Nothing on this page is required. Docket runs with none of it set.
+Most commands need no environment variables. `docket construct` requires a
+provider API key for extraction.
 
 ## Where the ledger lives
 
@@ -25,8 +25,8 @@ instead of sharing yours.
 
 ## Who recorded the entry
 
-Every record names its author, because two agents sharing one ledger is the
-normal case and an entry that does not say who wrote it cannot be weighed.
+Every record names its author so readers can identify the recorder, including
+when several agents share a ledger.
 
 | Variable | Effect |
 |---|---|
@@ -36,7 +36,7 @@ normal case and an entry that does not say who wrote it cannot be weighed.
 | `USER` | The last fallback. |
 
 If none resolves, Docket records `unknown` and prints a warning naming
-`DOCKET_AUTHOR`. A blank author cannot be told from a missing one once written.
+`DOCKET_AUTHOR`.
 
 The session ID comes from `CLAUDE_SESSION_ID`, `CLAUDE_CODE_BRIDGE_SESSION_ID`
 or `SESSION_ID`, in that order. Claude Code has used more than one name across
@@ -104,10 +104,9 @@ and prints a notice above the context briefing.
 
 Colour is also off when output is not a terminal, and when any of
 `CLAUDE_SESSION_ID`, `CLAUDE_CODE_BRIDGE_SESSION_ID`, `SESSION_ID`, `AI_AGENT`,
-`CODEX_SANDBOX` or `CODEX_HOME` is set. Several agent harnesses run shell
-commands over a pseudo-terminal, so a terminal check alone reads them as a
-person. Escape codes in a model's context window cost more than a missing
-colour, so the doubt resolves towards plain.
+`CODEX_SANDBOX` or `CODEX_HOME` is set. Some agent harnesses run commands through
+a pseudo-terminal. Checking these variables keeps their output plain even
+when a terminal is detected.
 
 Pass `--pretty` to force colour on and `--plain` to force it off.
 

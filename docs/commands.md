@@ -29,14 +29,14 @@ Ledger commands use the file that `docket where` reports. Run
 | Flag | Applies to | Effect |
 |---|---|---|
 | `--choice C` | decision | The choice made. Required. |
-| `--alternative A` | decision | An option considered and put down |
-| `--decided-by WHO` | decision | Who made the call |
+| `--alternative A` | decision | An option considered but not chosen |
+| `--decided-by WHO` | decision | Who made the decision |
 | `--state S` | claim, decision | `unassessed`, `accepted`, `disputed`, `rejected` for a claim; `adopted` or `revoked` for a decision |
 | `--scope GLOB` | all | Files the record applies to |
-| `--rationale TEXT` | all | Why |
-| `--cost TEXT` | all | What it costs you if this is wrong |
-| `--evidence REF` | all | A pointer to what backs the record |
-| `--revisit TEXT` | all | A condition that should bring this back up |
+| `--rationale TEXT` | all | The reason for the claim, decision, or question |
+| `--cost TEXT` | all | Consequences if the record is wrong |
+| `--evidence REF` | all | A reference to evidence for the record |
+| `--revisit TEXT` | all | A condition that calls for reviewing the record |
 | `--supports IDS` | all | Earlier claims or decisions given as grounds |
 | `--depends-on IDS` | decision | Claims or decisions required for this decision to apply |
 | `--answers IDS` | claim, decision | Questions this record settles |
@@ -66,7 +66,7 @@ remains recorded as adopted but reports that it is blocked. See the
 | `--clear scope\|evidence\|alternatives` | Empty a list instead of replacing it. Repeat for more than one field. |
 | `--reason R` | Why the record was wrong |
 
-Fix a record that was written down wrong. The record keeps its id, and a
+Correct a record's wording or metadata. The record keeps its ID, and a
 repeated flag replaces the whole list it names. The command refuses
 `--choice`, `--state`, and the relation flags; supersede the record instead
 to change those. `docket show ID` lists a record's corrections, and `docket
@@ -136,7 +136,7 @@ show ID.N` prints one correction with the values it replaced.
   govern a file named `graph/**`. Use `scope:graph/` for a directory.
 - A retired record keeps its state, so `state:adopted` includes superseded
   decisions. `list` hides retired records unless you give `--superseded` or
-  the query holds `is:retired`.
+  the query contains `is:retired`.
 - A query that starts with `-` needs `=`: `--where=-kind:question`. argparse
   reads a separate `-kind:question` as an option.
 - An export draws only records linked to another record in the selection. A
@@ -198,13 +198,13 @@ ledger. Use `--dry-run` to see the ID map first.
 conversion, `--emit-map PATH` to write the derived classification map, and
 `--map PATH` to apply a map you edited.
 
-See [Maintenance](maintenance.md) for when to reach for these.
+See [Maintenance](maintenance.md) for repair and migration procedures.
 
 ## Constructing
 
 `docket construct PATHS` reads the markdown under `PATHS` and stages ledger
 proposals in `.docket/proposed.jsonl`. It writes nothing to the ledger.
-`--dry-run` lists the documents and calls nothing. `--jobs N` sets how many
+`--dry-run` lists the documents without API calls. `--jobs N` sets how many
 documents are read at once.
 
 `docket construct --review` prints the staged proposals with the source line

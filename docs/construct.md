@@ -1,13 +1,12 @@
 # Constructing on existing projects
 
-A project that already has years of design notes starts with an empty ledger.
-`docket construct` reads those documents and proposes records from them, so you
-begin with the decisions your team already made instead of a blank file.
+`docket construct` proposes ledger records from existing design notes. Use it
+to bring earlier decisions into Docket when you add it to an established
+project.
 
 {% hint style="success" %}
-Construct never writes to your ledger on its own. It stages proposals, you read
-them, and you accept the ones that are right. That acceptance is what the ledger
-records.
+Construct stages proposals for review. Read them and mark the ones you want
+to keep, then run `--accept` to add them to the ledger.
 {% endhint %}
 
 ```mermaid
@@ -54,7 +53,7 @@ Install the SDK your key needs:
 docket construct --install-sdk openrouter
 ```
 
-That builds a virtualenv under the global store and puts one package in it. It
+This creates a virtualenv under the global store and installs the provider SDK. It
 uses `uv`, so install [uv](https://docs.astral.sh/uv/) first if you do not have
 it. The installer offers the same step during setup, and
 `--construct <provider>` selects it unattended.
@@ -63,8 +62,9 @@ Every provider except Anthropic is reached through the `openai` package.
 Anthropic needs its own, because its OpenAI-compatible layer ignores
 `response_format`, which is how construct asks for the schema.
 
-A package you installed yourself wins over the virtualenv, so an existing
-`openai` in your environment keeps working untouched.
+A package already installed in your environment takes precedence over the
+virtualenv. For example, construct uses an existing `openai` installation
+when available.
 
 See [Environment variables](environment.md) for the model and endpoint
 overrides.
@@ -72,7 +72,7 @@ overrides.
 ## See what it would read
 
 {% hint style="info" %}
-Run this first. It lists the documents and calls nothing, so it needs no key.
+Run this first to list the documents without making API calls. No key is needed.
 {% endhint %}
 
 ```sh
@@ -88,8 +88,8 @@ any depth.
 docket construct context/decisions context/specs
 ```
 
-Each document becomes one call. The run prints what it found and what it
-refused:
+Construct makes one extraction call per document and reports matched anchors,
+rejected proposals, and proposed relationships:
 
 ```
 read 42 documents
@@ -102,17 +102,15 @@ docket: staged 412 proposals in .docket/proposed.jsonl
 ```
 
 Every proposal carries an **anchor**: one line copied from the source document.
-A proposal whose anchor matches no line in that document is dropped, because
-nothing ties it to something you wrote.
+A proposal is dropped if its anchor matches no line in the source document.
 
 The **anchor match rate** tells you whether the run is trustworthy. A document
 reporting 15/15 was read closely. One reporting 4/12 was paraphrased, and every
 record from it needs your eye before you accept it.
 
-A second pass reads the whole proposal set and proposes the relations between
-records: which one grounds another, which replaces another, and which two
-disagree. A disagreement it cannot settle becomes a question naming both
-records, never a silent replacement.
+A second pass reads the proposal set and proposes relationships: support,
+replacement, and disagreement. When it cannot resolve a disagreement, it
+proposes a question naming both records rather than replacing either one.
 
 ## Read them
 
@@ -135,8 +133,8 @@ Proposals group by source document, strongest first:
     key: 5c644f951a7b
 ```
 
-The anchor is the line to open. Read the record against it and decide whether it
-says what the document says.
+Find the anchor in the source document and check whether the proposed record
+accurately represents it.
 
 `scope resolves` is the number to watch. A record whose scope matches no file in
 the repository can never reach a briefing, and those sort to the bottom of each
@@ -144,8 +142,8 @@ group marked `[unresolved scope]`. A run resolving most of its scoped records
 points at live code. A run resolving few of them describes code that is gone,
 and the answer is to narrow what you feed it rather than to accept the result.
 
-A record with a stale path is not always dead. Sometimes it is the only
-surviving account of a rename, which is why construct never drops one.
+Construct keeps records with stale paths because they may still explain
+earlier changes, such as a rename.
 
 ## Accept what is right
 
@@ -158,9 +156,9 @@ docket construct --accept
 ```
 
 {% hint style="warning" %}
-This is the only step that touches your ledger. It allocates real record IDs,
-rewrites the relations to use them, and appends through the ordinary writer, so
-numbering and locking behave as they do for a record you write by hand.
+This step writes to your ledger. It allocates record IDs, updates relationships
+to use those IDs, and appends records with the same numbering and locking rules
+as manual recording.
 {% endhint %}
 
 Take one document at a time:
@@ -169,34 +167,34 @@ Take one document at a time:
 docket construct --accept --source context/decisions/auth.md
 ```
 
-Acceptance is resumable. Each proposal carries its own state, so you can stop
-after one sitting and continue later. A review of several hundred proposals that
-must finish in one pass gets rubber-stamped instead of read.
+Each proposal retains its review state, so you can stop and continue later.
+Review large sets over several sessions if needed.
 
 Accepted records name their source document in the rationale and record
 `docket-construct` as the author, so a later reader can tell a constructed record
 from one a person wrote at the time.
 
-A record whose supporting record you did not accept is skipped rather than
-written without it. Its grounds are part of what it says.
+A record is skipped if you have not accepted a record it cites as support.
+This preserves its declared grounds.
 
 ## Running it again
 
-Re-running is safe. Construct keys each proposal on its source path and its
-anchor, so a record you already accepted stays accepted even though the model
-words it differently on the second run.
+Construct identifies each proposal by its source path and anchor. A proposal
+you already accepted stays accepted on a later run, even if the model words
+it differently.
 
-Editing a source line changes that key, and the record returns to review. The
-text you accepted it against no longer exists.
+Editing the source line changes that key and returns the record to review
+because its supporting text has changed.
 
 ## What it does not do well
 
-Construct finds few supersessions. It relates records in batches that keep each
-document whole, and two documents on the same subject written months apart often
-land in different batches, which is exactly where a supersession lives. Record
-those by hand as you meet them.
+Construct finds few supersessions. It groups records into batches that keep
+each document whole. An earlier decision and its replacement may be in separate
+documents and end up in different batches. Record missed supersessions by hand
+as you find them.
 
-Commit messages are not read by default. Nobody has measured what they yield.
+Construct does not read commit messages by default. Their usefulness as input
+has not been measured.
 
 ## Costs
 

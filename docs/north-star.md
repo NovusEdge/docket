@@ -50,9 +50,9 @@ Each schema 2 record contains:
 - `ts`, `session`, `author`, `branch`, and `pinned`: provenance and retrieval
   fields.
 
-Some of that machinery is exercised and some is provisional. The distinction
-matters to a reader deciding what to reach for. Counts below are from this
-repository's own ledger at 119 records.
+Some fields have seen regular use; others have little evidence from project
+work. The counts below describe a snapshot of this repository's ledger at
+119 records.
 
 | Field | State on this ledger |
 |---|---|
@@ -62,8 +62,8 @@ repository's own ledger at 119 records.
 | `applicable`, `blocked_by` | derived on every read, never yet true |
 | `cost_if_wrong` | empty on 15 of 111 claims and decisions, and free text that nothing scores (c60) |
 
-A field with no records behind it is a shape the schema reserves, not a
-workflow the project has proven. d93 settled that they stay in the schema.
+Fields with no usage examples remain in the schema under decision d93.
+Their presence alone does not establish that they work well in practice.
 
 Type, recorded state, and currentness are separate. A claim can be `accepted`
 without being true. A decision can be `adopted` without being correct.
@@ -192,8 +192,8 @@ Each stage depends on the preceding stages:
   there. Too few catches little. Too many produces rubber-stamping, which the
   human-factors literature reports as the normal outcome (2502.10036,
   2109.05067).
-- A clean ledger resembles evidence. The reasoning that produced an entry often
-  fails to reflect the computation behind it (2503.08679, 2606.13603). The
+- A ledger can appear better supported than it is. The reasoning recorded in an
+  entry often fails to reflect the computation behind it (2503.08679, 2606.13603). The
   ledger records declared rationale, grounds, and evidence; it does not
   establish faithfulness of the internal computation.
 - The ledger only grows. Every surprise adds an entry, and nobody deletes one.

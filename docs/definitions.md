@@ -240,7 +240,7 @@ line remains in the current view. These dimensions are independent.
 | Type | Representation | Recorded states |
 | --- | --- | --- |
 | **Claim** | A proposition in `text` | `unassessed`, `accepted`, `disputed`, `rejected` |
-| **Decision** | A commitment in `text`, with a required `choice` and the `alternatives` it beat | `adopted`, `revoked` |
+| **Decision** | A commitment in `text`, with a required `choice` and the `alternatives` considered | `adopted`, `revoked` |
 | **Question** | An unresolved inquiry in `text` | `open` |
 
 Acceptance is a workflow judgment. It does not establish truth, validate its
@@ -329,7 +329,7 @@ the corresponding CLI options are omitted:
 These fields have empty defaults except `pinned`. Decisions also have:
 
 - `choice`: the selected option.
-- `alternatives`: the options the choice beat, empty when nothing contended.
+- `alternatives`: options considered but not chosen; empty when there were none.
   Recording refuses a list that only repeats the choice; a ledger written before
   that rule still reads, because validation on read checks structure alone.
 - `decided_by`: optional attribution of the commitment, separate from the

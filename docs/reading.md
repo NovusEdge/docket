@@ -86,7 +86,7 @@ Use `--no-interactive` to request text output directly.
 
 ## Export the graph
 
-`docket graph --format` exports the relation graph in three shapes.
+`docket graph --format` exports the relation graph in three formats.
 
 | Format | Viewer | Install | Output |
 |---|---|---|---|
@@ -94,11 +94,10 @@ Use `--no-interactive` to request text output directly.
 | `dot` | `dot -Tsvg`, and any graphviz front end | graphviz | stdout |
 | `csv` | Gephi, or anything reading a node and edge table | Gephi | two files |
 
-Mermaid pastes into a fenced `mermaid` block and renders where this project's
-docs already live. DOT lays out a large graph better and gives real SVG, PDF
-and PNG, and the reader needs graphviz for any of it. CSV is for a tool that
-measures the graph rather than drawing it: centrality, clustering, a filter
-over node attributes.
+Paste Mermaid output into a fenced `mermaid` block in GitHub, GitLab, or
+GitBook. Use DOT with Graphviz to lay out larger graphs and generate SVG, PDF,
+or PNG files. Import CSV into an analysis tool to measure centrality, find
+clusters, or filter by node attributes.
 
 ```sh
 docket graph --format mermaid --find installer
@@ -119,8 +118,8 @@ edge table separately. Name the directory with `--out`.
 docket graph --format csv --out gephi/
 ```
 
-In Gephi, use **File > Import spreadsheet**, take `nodes.csv` as a node table,
-then `edges.csv` as an edge table into the same workspace.
+In Gephi, use **File > Import spreadsheet** to import `nodes.csv` as a node
+table, then `edges.csv` as an edge table into the same workspace.
 
 `nodes.csv` carries `Id` and `Label` for Gephi itself, then `kind`, `state`,
 `retired`, `scope` and the full `text` as node attributes. Partition by `kind`
@@ -131,15 +130,15 @@ drop the retired records after importing them.
 relation: `supports`, `depends_on`, `answers` or `supersedes`. Every edge is
 directed. Filter on `Label` to see one relation at a time.
 
-A record with more than one support set gets a `set` join node, the same way
-the drawn formats do, so the graph never reads as needing every premise at
-once. Those nodes carry `kind` `set`, which a partition separates from the
-records.
+A record with more than one support set gets a `set` join node for each set,
+as in the other formats. This preserves the distinction between alternative
+sets and premises required together. These nodes have `kind` set to `set`,
+so a partition can distinguish them from records.
 
 ### A worked example
 
-`docket graph --format mermaid --find installer` on this project's own ledger
-prints seven nodes and five edges:
+This example of `docket graph --format mermaid --find installer`, taken from
+the project's ledger, has seven nodes and five edges:
 
 ```mermaid
 flowchart LR
@@ -161,30 +160,28 @@ Read it as: d34 is the premise d41, d42 and d88 rest on, and two decisions
 answer q75. Pipe the same selection through `dot -Tsvg` for a file you can
 attach to a ticket.
 
-The `--kind`, `--state` and `--find` filters the viewer takes narrow the
-export, and a filtered graph is the readable one. This project's whole ledger
-draws 72 nodes and 57 edges; `--find installer` draws 7 and 5.
+Use the viewer's `--kind`, `--state`, and `--find` filters to narrow an export.
+In the ledger used for this example, filtering by `installer` reduces 72 nodes
+and 57 edges to seven nodes and five edges.
 
 | Option | Effect |
 |---|---|
-| `--superseded` | Include retired records and the retire edges. Roughly doubles the edges. |
+| `--superseded` | Include retired records and the edges that retire them. |
 | `--detail N` | Characters of record text per node, default 40. Use `0` for IDs alone. |
 | `--direction` | `LR` by default, or `TD`, `RL`, `BT`. |
 
-Each relation reads apart without a legend. In mermaid: `-->` supports, `-.->`
-depends on, `==>` answers, and a labelled arrow for retires. In DOT the same
-four separate on line style and arrowhead, with no colour, so a printed graph
-stays readable. A decision draws as a rectangle, a claim as a stadium or
-ellipse, a question as a hexagon. Retired records are greyed.
+Mermaid uses `-->` for support, `-.->` for prerequisites, `==>` for answers,
+and a labelled arrow for retirement. DOT distinguishes the same four relations
+by line style and arrowhead, without relying on colour. Decisions appear as
+rectangles, claims as stadiums or ellipses, and questions as hexagons. Retired
+records are greyed.
 
-A record with no relation is left out, because a node alone on the canvas says
-less than a list line does. A record with more than one support set gets a
-join node per set, so the diagram does not draw it as needing every premise
-when it needs one complete set.
+A record with no relation is left out. Use `docket list` to include these
+records. A record with more than one support set gets a join node per set,
+showing that it needs one complete set rather than every premise.
 
-DOT wraps a label over several lines. A hexagon or an ellipse grows sideways
-to hold its text, and one long line turns a question node into a lozenge wider
-than the rest of the graph.
+DOT wraps labels across several lines to keep long text from stretching
+hexagonal or elliptical nodes across the graph.
 
 ## Read the briefing for a task
 

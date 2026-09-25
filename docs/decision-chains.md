@@ -224,8 +224,8 @@ into questions for an LLM. This decomposition is not a novel claim here.
 - The `open` rate must stay in a narrow band, and nothing holds it there. A low
   rate catches little. A high rate produces rubber-stamping, which the
   human-factors literature reports as the normal outcome.
-- The trace resembles evidence. Given the faithfulness results, a clean log of
-  eight predicates can document a wrong answer in high resolution.
+- A detailed trace can document a wrong answer. The faithfulness results also
+  limit its use as evidence of how the model reached that answer.
 - Composed predicates can each be locally correct while the assembled decision
   is globally wrong (2605.30335). That paper offers a computable residual and a
   runtime repair, providing one cited example of an evaluated mitigation.
@@ -251,6 +251,6 @@ into questions for an LLM. This decomposition is not a novel claim here.
 ## Verification limits
 
 Several citations came from search summaries rather than direct paper reads.
-Check any citation before it carries weight. The two most quotable numbers need
-this most: the 40 to 50 percent question-selection result (2503.22674) and the
-abstention degradation finding (2506.09038).
+Verify citations against the papers before relying on them, especially the
+40 to 50 percent question-selection result (2503.22674) and the abstention
+degradation finding (2506.09038).

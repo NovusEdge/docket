@@ -118,7 +118,7 @@ For the hook formats and instruction files, see
 [Agent setup reference](integrations.md). For how a briefing is selected, see
 [Bounded context](ledger.md#bounded-context).
 
-## Two skills, two moments
+## Recording and feature skills
 
 `skills/docket/SKILL.md` covers recording: claims, decisions, and questions.
 `skills/docket-feature/SKILL.md` covers a piece of work in flight: starting
