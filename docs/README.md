@@ -20,6 +20,8 @@ settled is there from the start.
 
 The records are one file in your project, shared through Git.
 
+Read [Why Docket?](why.md) for the problems it addresses and when a simpler set of notes may be enough.
+
 ## Start here
 
 <table data-view="cards">

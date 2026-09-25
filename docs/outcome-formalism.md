@@ -154,16 +154,16 @@ complete section transformations commute.
 
 When transformations do not commute, each section can be locally correct while
 the composition changes with the schedule. This is compositional incoherence
-(2605.30335).
+([2605.30335](https://arxiv.org/abs/2605.30335)).
 
 One result argues against wide parallelism. A single long chain can search an
 exponentially larger space than the same compute spent on many short parallel
-chains (2505.21825). The paper must address this result.
+chains ([2505.21825](https://arxiv.org/abs/2505.21825)). The paper must address this result.
 
 ## Prior art the paper must cite
 
 **Intention.** Ward, MacDermott, Belardinelli, Toni, and Everitt, “The Reasons
-that Agents Act: Intention and Instrumental Goals” (2402.07221, AAMAS 2024)
+that Agents Act: Intention and Instrumental Goals” ([2402.07221](https://arxiv.org/abs/2402.07221), AAMAS 2024)
 defines intention formally in structural causal influence models. It separates
 intended outcomes from foreseen but unintended ones by a counterfactual
 criterion. Read it in full. If this definition does not mechanically diverge
@@ -176,18 +176,18 @@ of Double Effect” (IJCAI 2017) gives a computational treatment.
 **Side effects.** Impact-measure research provides related prior art for
 studying the effects of an agent's actions. Compare its definitions directly
 with the direct/indirect and intentional/unintentional classifications here.
-See Krakovna et al. on stepwise relative reachability (1806.01186) and future
-tasks (2010.07877), and Turner et al. on attainable utility preservation
-(1902.09725). The critique is 2101.12509.
+See Krakovna et al. on stepwise relative reachability ([1806.01186](https://arxiv.org/abs/1806.01186)) and future
+tasks ([2010.07877](https://arxiv.org/abs/2010.07877)), and Turner et al. on attainable utility preservation
+([1902.09725](https://arxiv.org/abs/1902.09725)). The critique is [2101.12509](https://arxiv.org/abs/2101.12509).
 
 Review how these impact measures have already been applied to LLM and
 tool-using agents before claiming a contribution in that setting. The current
 source review leaves that question open.
 
-**Outcome multiplicity.** Self-consistency (2203.11171) exploits many-to-one as
+**Outcome multiplicity.** Self-consistency ([2203.11171](https://arxiv.org/abs/2203.11171)) exploits many-to-one as
 a confidence signal and is the paper a reviewer is likely to raise first.
 Argumentation theory calls the structure convergent arguments and argument
-accrual. Classical planning calls it top-k and top-quality planning (2404.01503),
+accrual. Classical planning calls it top-k and top-quality planning ([2404.01503](https://arxiv.org/abs/2404.01503)),
 with plan equivalence as the formal apparatus. Whether prior work treats
 multiplicity as a named taxonomic axis remains an open literature question.
 Any novelty claim requires citing and distinguishing self-consistency.
@@ -198,7 +198,7 @@ footnote so readers do not conflate them.
 
 **Evaluation precedent.** Agent benchmark surveys already separate outcome-level
 success from step-level process metrics, and some score trajectory harms
-alongside task success (2507.21504, 2605.16282). This is the applied form of
+alongside task success ([2507.21504](https://arxiv.org/abs/2507.21504), [2605.16282](https://arxiv.org/abs/2605.16282)). This is the applied form of
 the taxonomy, implemented as two scores rather than stated as a formalism.
 
 ## Open problems
@@ -213,17 +213,17 @@ The formalism leaves these questions open:
    ```
 
    Real systems do not always satisfy this condition. Option order changes some
-   benchmark results by up to 75 percent (2308.11483), and premise order changes
-   results on deductive tasks (2502.04134).
+   benchmark results by up to 75 percent ([2308.11483](https://arxiv.org/abs/2308.11483)), and premise order changes
+   results on deductive tasks ([2502.04134](https://arxiv.org/abs/2502.04134)).
 2. Deciding that a claim is atomic is itself a reasoning step and can be wrong.
    There is no ground truth for self-evidence.
 3. A visible chain often fails to reflect the computation that produced the
-   answer (2503.08679, 2606.13603). A formalism over stated chains therefore
+   answer ([2503.08679](https://arxiv.org/abs/2503.08679), [2606.13603](https://arxiv.org/abs/2606.13603)). A formalism over stated chains therefore
    describes what the system reports; the underlying computation remains
    unverified.
 
 ## Verification limits
 
 Several citations came from search summaries rather than direct paper reads.
-Check each citation before it carries weight. Read 2402.07221 directly because
+Check each citation before it carries weight. Read [2402.07221](https://arxiv.org/abs/2402.07221) directly because
 the intention-section novelty claim depends on its exact definition.

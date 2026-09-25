@@ -102,8 +102,8 @@ Outcome tracking and an action gate remain separate future features.
 ### Reasoning traces
 
 The visible reasoning chain can differ from the computation that produced the
-answer (2503.08679; Anthropic 2025). Other work reports that a model can select
-an answer before emitting reasoning tokens (2606.13603, 2603.26410).
+answer ([2503.08679](https://arxiv.org/abs/2503.08679); Anthropic 2025). Other work reports that a model can select
+an answer before emitting reasoning tokens ([2606.13603](https://arxiv.org/abs/2606.13603), [2603.26410](https://arxiv.org/abs/2603.26410)).
 
 A trace records the stated commitment. It provides no proof of the internal
 computation.
@@ -111,19 +111,19 @@ computation.
 ### Search structure
 
 At a fixed token budget, some studies report elaborate topologies with results
-comparable to repeated sampling (2507.14419, 2506.04210). Tree-of-Thoughts also
+comparable to repeated sampling ([2507.14419](https://arxiv.org/abs/2507.14419), [2506.04210](https://arxiv.org/abs/2506.04210)). Tree-of-Thoughts also
 depends on selecting useful branches; one study reports weaker selection outside
-curated puzzle benchmarks (2410.17820).
+curated puzzle benchmarks ([2410.17820](https://arxiv.org/abs/2410.17820)).
 
 Some studies report similar results from reasoning models without an external
-scaffold (2504.09858, 2510.19176). Other studies report that imposed structure
-can reduce performance (2412.21187, 2501.18585). External structure is useful
+scaffold ([2504.09858](https://arxiv.org/abs/2504.09858), [2510.19176](https://arxiv.org/abs/2510.19176)). Other studies report that imposed structure
+can reduce performance ([2412.21187](https://arxiv.org/abs/2412.21187), [2501.18585](https://arxiv.org/abs/2501.18585)). External structure is useful
 for operations that require persistent or verifiable state.
 
 ### Consistency and correctness
 
 Several benchmarks measure agents contradicting earlier conclusions
-(2606.22936, 2602.11619, 2608.08160). Hidden-state convergence at an early step
+([2606.22936](https://arxiv.org/abs/2606.22936), [2602.11619](https://arxiv.org/abs/2602.11619), [2608.08160](https://arxiv.org/abs/2608.08160)). Hidden-state convergence at an early step
 predicts later behavioral consistency, but it does not predict correctness.
 Committed-wrong and committed-correct trajectories are not separable in
 activation space. Consistency therefore does not establish correctness.
@@ -131,42 +131,42 @@ activation space. Consistency therefore does not establish correctness.
 ### Deferral and abstention
 
 Mozannar and Sontag show that a basic confidence-threshold rejector is
-inconsistent (2006.01862). Optimal deferral also depends on the expert's error
+inconsistent ([2006.01862](https://arxiv.org/abs/2006.01862)). Optimal deferral also depends on the expert's error
 probability for the same instance. An uncertainty proxy does not preserve this
 guarantee.
 
-AbstentionBench tested 20 frontier models on 20 datasets (2506.09038).
+AbstentionBench tested 20 frontier models on 20 datasets ([2506.09038](https://arxiv.org/abs/2506.09038)).
 Reasoning fine-tuning degraded abstention, and the models became more
 confidently wrong. Scale did not correct this.
 
 ### Question selection
 
 QuestBench asked models to name the single missing variable that makes a problem
-solvable (2503.22674). They scored 40 to 50 percent, while solving the fully
+solvable ([2503.22674](https://arxiv.org/abs/2503.22674)). They scored 40 to 50 percent, while solving the fully
 specified versions. Models also detect ambiguity and answer without asking for
-the missing information (2605.25284).
+the missing information ([2605.25284](https://arxiv.org/abs/2605.25284)).
 
 ### Schema and pipeline structure
 
-A schema during reasoning costs 10 to 30 percent on hard prompts (2603.13351,
-2606.09410). Constrained decoding forces schema-legal tokens before reasoning
+A schema during reasoning costs 10 to 30 percent on hard prompts ([2603.13351](https://arxiv.org/abs/2603.13351),
+[2606.09410](https://arxiv.org/abs/2606.09410)). Constrained decoding forces schema-legal tokens before reasoning
 completes. A second pass that formats free-text reasoning recovers most of the
 loss by removing the interleaving.
 
-Convergent and divergent reasoning are separable capabilities (2510.26490,
-2607.01433). Pipelines that keep them as separate stages outperform pipelines
-that force both into one pass (2506.05128).
+Convergent and divergent reasoning are separable capabilities ([2510.26490](https://arxiv.org/abs/2510.26490),
+[2607.01433](https://arxiv.org/abs/2607.01433)). Pipelines that keep them as separate stages outperform pipelines
+that force both into one pass ([2506.05128](https://arxiv.org/abs/2506.05128)).
 
 ### Ordering and autonomy
 
 Some benchmarks report answer changes of up to 75 percent after option reordering
-(2308.11483). Premise order also changes results on deductive tasks (2502.04134).
+([2308.11483](https://arxiv.org/abs/2308.11483)). Premise order also changes results on deductive tasks ([2502.04134](https://arxiv.org/abs/2502.04134)).
 Commuting answer transformations remove this sensitivity, while real updates do
 not always commute.
 
 Full automation is not the safe default for this design. Mixed-initiative
 autonomy outperforms both extremes on robotics navigation tasks and reduces
-operator workload (1911.04848, 2211.14095).
+operator workload ([1911.04848](https://arxiv.org/abs/1911.04848), [2211.14095](https://arxiv.org/abs/2211.14095)).
 
 ## Design choices
 
@@ -184,26 +184,26 @@ operator workload (1911.04848, 2211.14095).
 
 ### Reversibility and deferral
 
-Several sources treat reversibility as a decision variable (2608.07440,
-2606.16465, 2506.23844). Deferral theory includes a cost-of-error parameter.
+Several sources treat reversibility as a decision variable ([2608.07440](https://arxiv.org/abs/2608.07440),
+[2606.16465](https://arxiv.org/abs/2606.16465), [2506.23844](https://arxiv.org/abs/2506.23844)). Deferral theory includes a cost-of-error parameter.
 Further review must determine whether prior work maps operational impact to this
 parameter.
 
 Many models use a fixed human error rate. Human-factors studies report weaker
-review at high throughput (2502.10036, 2109.05067). Further review must identify
+review at high throughput ([2502.10036](https://arxiv.org/abs/2502.10036), [2109.05067](https://arxiv.org/abs/2109.05067)). Further review must identify
 models in which the expert's error rate depends on the deferral rate.
 
 ### Value of information
 
 A question is relevant when a different answer can change the final action.
 Classical decision theory calls this value of information. The cited agent work
-uses related tests without this term (2503.22674, 2410.13788).
+uses related tests without this term ([2503.22674](https://arxiv.org/abs/2503.22674), [2410.13788](https://arxiv.org/abs/2410.13788)).
 
 ### Truth maintenance
 
 Truth maintenance systems record justifications and retract dependents after
 premise withdrawal (Doyle 1979). ReTree applies dependency retraction to search
-trees (2608.10676). Further review must identify measured agent systems that use
+trees ([2608.10676](https://arxiv.org/abs/2608.10676)). Further review must identify measured agent systems that use
 a complete JTMS.
 
 Holding a claim while any one of several justifications survives is the
@@ -227,7 +227,7 @@ into questions for an LLM. This decomposition is not a novel claim here.
 - A detailed trace can document a wrong answer. The faithfulness results also
   limit its use as evidence of how the model reached that answer.
 - Composed predicates can each be locally correct while the assembled decision
-  is globally wrong (2605.30335). That paper offers a computable residual and a
+  is globally wrong ([2605.30335](https://arxiv.org/abs/2605.30335)). That paper offers a computable residual and a
   runtime repair, providing one cited example of an evaluated mitigation.
 - Alternative justifications increase label size. An ATMS stores every minimal
   environment that supports a node (de Kleer 1986). The number of environments
@@ -252,5 +252,5 @@ into questions for an LLM. This decomposition is not a novel claim here.
 
 Several citations came from search summaries rather than direct paper reads.
 Verify citations against the papers before relying on them, especially the
-40 to 50 percent question-selection result (2503.22674) and the abstention
-degradation finding (2506.09038).
+40 to 50 percent question-selection result ([2503.22674](https://arxiv.org/abs/2503.22674)) and the abstention
+degradation finding ([2506.09038](https://arxiv.org/abs/2506.09038)).

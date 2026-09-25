@@ -164,6 +164,7 @@ records, reports what was omitted, and includes a command to retrieve more.
 
 ## Learn more
 
+- [Why Docket?](docs/why.md): what the structure buys you and when simpler notes are enough.
 - [Your first decision](docs/quickstart.md): create a project ledger and try it.
 - [Recording decisions](docs/recording.md): save choices, answer questions, and change your mind.
 - [Reading your ledger](docs/reading.md): find records and browse their connections.

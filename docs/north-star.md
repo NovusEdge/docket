@@ -13,7 +13,7 @@ The execution ledger handles convergent work. It records decisions, treats them
 as binding, and reports what the work changed.
 
 The tasks need different structures. Convergent and divergent reasoning are
-separable capabilities (2510.26490, 2506.05128), and the cited studies report
+separable capabilities ([2510.26490](https://arxiv.org/abs/2510.26490), [2506.05128](https://arxiv.org/abs/2506.05128)), and the cited studies report
 better results when pipelines separate them. Approval marks the handoff:
 brainstorming ends and the ledger starts.
 
@@ -79,7 +79,7 @@ entries to `.docket/ledger.jsonl` and makes the project ledger active.
 
 The ledger loads at session start and survives compaction. Summarization
 flattens causal structure and destroys the links that record which conclusions
-depend on which claims (2602.06052, 2606.11213).
+depend on which claims ([2602.06052](https://arxiv.org/abs/2602.06052), [2606.11213](https://arxiv.org/abs/2606.11213)).
 
 ### 2. Supersession and retraction
 
@@ -113,7 +113,7 @@ outcomes. For chain `c`, the proposed sets are:
 ```
 
 Report the unintentional set. Impact-measure research on reinforcement learning
-agents provides related prior art (1806.01186, 1902.09725). Its relationship to
+agents provides related prior art ([1806.01186](https://arxiv.org/abs/1806.01186), [1902.09725](https://arxiv.org/abs/1902.09725)). Its relationship to
 this intent-based classification needs a direct comparison. Establishing what
 already applies to tool-using agents remains a research task.
 
@@ -123,10 +123,10 @@ Before asking a question, test whether a different answer changes the plan. Drop
 the question when every answer leaves the final action unchanged.
 
 Classical decision theory calls this value of information. One study measured a
-related weakness (2503.22674). Models identified the necessary missing variable
+related weakness ([2503.22674](https://arxiv.org/abs/2503.22674)). Models identified the necessary missing variable
 in 40 to 50 percent of tests while solving the fully specified versions. Models
 can also detect ambiguity and answer without asking for the missing information
-(2605.25284).
+([2605.25284](https://arxiv.org/abs/2605.25284)).
 
 ### 5. Parallel validity
 
@@ -143,7 +143,7 @@ transformations of sections `A` and `B`. Step-level commutativity is sufficient:
 ```
 
 A wrong independence claim causes compositional incoherence. Each section can be
-locally correct while their composition changes with the schedule (2605.30335).
+locally correct while their composition changes with the schedule ([2605.30335](https://arxiv.org/abs/2605.30335)).
 
 ### 6. Action gate
 
@@ -156,7 +156,7 @@ The proposed escalation threshold is reversibility. An action whose mistake
 costs a five-line edit can proceed with a logged ruling. An action that deletes
 data or writes to a shared branch waits for a human. Confidence alone is not a
 sufficient threshold; optimal deferral also depends on the expert's error rate
-(2006.01862).
+([2006.01862](https://arxiv.org/abs/2006.01862)).
 
 ### 7. Replay and evaluation mining
 
@@ -190,10 +190,10 @@ Each stage depends on the preceding stages:
   individually harmless actions.
 - The rate of open questions must stay in a narrow band, and nothing holds it
   there. Too few catches little. Too many produces rubber-stamping, which the
-  human-factors literature reports as the normal outcome (2502.10036,
-  2109.05067).
+  human-factors literature reports as the normal outcome ([2502.10036](https://arxiv.org/abs/2502.10036),
+  [2109.05067](https://arxiv.org/abs/2109.05067)).
 - A ledger can appear better supported than it is. The reasoning recorded in an
-  entry often fails to reflect the computation behind it (2503.08679, 2606.13603). The
+  entry often fails to reflect the computation behind it ([2503.08679](https://arxiv.org/abs/2503.08679), [2606.13603](https://arxiv.org/abs/2606.13603)). The
   ledger records declared rationale, grounds, and evidence; it does not
   establish faithfulness of the internal computation.
 - The ledger only grows. Every surprise adds an entry, and nobody deletes one.

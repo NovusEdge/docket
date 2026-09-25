@@ -1,6 +1,7 @@
 # Table of contents
 
 * [Docket](README.md)
+* [Why Docket?](why.md)
 
 ## Getting started
 
