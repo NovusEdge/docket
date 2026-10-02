@@ -1,8 +1,9 @@
 """Review lines: a reader's acknowledgment that a flagged record still stands.
 
-A review pins each flagged ground to the head it resolved to when reviewed. The
-flag clears only while that head is still the head, so a later revision of the
-same chain raises it again.
+A review pins each ground the record itself owes, to the head it resolved to
+when reviewed. The flag clears only while that head is still the head, so a
+later revision of the same chain raises it again. A flag inherited from a
+flagged or blocked ground is never pinned; it clears when that ground does.
 """
 
 from __future__ import annotations
@@ -10,6 +11,8 @@ from __future__ import annotations
 import copy
 import re
 from typing import Any
+
+from docket.support import INHERITED
 
 KIND = "review"
 REVIEW_RE = re.compile(r"([cdq](?:0|[1-9][0-9]*))\.r([1-9][0-9]*)")
@@ -136,4 +139,12 @@ def refuse(entries: list[dict[str, Any]], review: dict[str, Any]) -> None:
     owed = target.get("review_owed") or []
     if not owed:
         raise _error(review["id"], "nothing to review: the record owes no review")
-    review["grounds"] = {item["ground"]: item["head"] for item in owed}
+    own = [item for item in owed if item["because"] not in INHERITED]
+    if not own:
+        grounds = ", ".join(dict.fromkeys(item["ground"] for item in owed))
+        raise _error(
+            review["id"],
+            f"nothing to review on {review['reviews']}: its flags come from {grounds}; "
+            "review or fix those",
+        )
+    review["grounds"] = {item["ground"]: item["head"] for item in own}

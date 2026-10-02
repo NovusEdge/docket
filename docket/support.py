@@ -17,6 +17,7 @@ DEFAULT_REASON = "revise"
 
 UNSUPPORTED, FLAGGED, CLEAN = 0, 1, 2
 NAMES = {UNSUPPORTED: "unsupported", FLAGGED: "flagged", CLEAN: "clean"}
+INHERITED = ("flagged", "blocked")
 _SURFACED_STATES = ("accepted", "adopted")
 
 
@@ -79,7 +80,10 @@ def evaluate(
         ):
             if applies and to < value:
                 value, because = to, why
-        if value == FLAGGED and (cited, head) in pins[owner]:
+        # A flag inherited from the ground's own flag or block lives at the
+        # ground, and a ground that was never superseded has a head that never
+        # moves, so a pin there would waive every later cause for good.
+        if value == FLAGGED and because not in INHERITED and (cited, head) in pins[owner]:
             value, because = CLEAN, ""
         return value, head, because
 

@@ -77,7 +77,7 @@ show ID.N` prints one correction with the values it replaced.
 
 `docket review ID [--note TEXT]`
 
-Record that you checked a claim or decision whose grounds changed. It appends a review line pinning each ground the record owes review for to that ground's current head. The command refuses with "nothing to review" when no ground is owed. A later revision of the same chain raises the flag again. See [review lines](ledger.md#review-lines).
+Record that you checked a claim or decision whose grounds changed. It appends a review line pinning each of the record's own revised, unassessed, disputed or circular grounds to that ground's current head. A flag inherited from a flagged or blocked ground is not pinned; it clears by reviewing or fixing that ground, so review the frontier first. The command refuses with "nothing to review" when no ground is owed, and with "its flags come from ..." when only inherited flags remain. A later revision of the same chain raises the flag again. See [review lines](ledger.md#review-lines).
 
 ## Reading
 

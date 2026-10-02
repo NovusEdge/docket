@@ -98,6 +98,46 @@ class SupersedeReasonCommandTests(unittest.TestCase):
         self.assertIn("nothing to review", out.stderr)
         self.assertEqual(ledger_path.read_text().count("\n"), lines)
 
+    def ledger_path(self):
+        return next((Path(self.cwd) / "global").rglob("ledger.jsonl"))
+
+    def test_a_record_owing_only_flagged_grounds_is_refused(self):
+        run(self.cwd, "claim", "The service is safe.", "--state", "accepted", "--supports", "c2")
+        self.supersede()
+        path = self.ledger_path()
+        before = path.read_text()
+        out = run(self.cwd, "review", "c3")
+        self.assertEqual(out.returncode, 1)
+        self.assertIn(
+            "nothing to review on c3: its flags come from c2; review or fix those", out.stderr
+        )
+        self.assertEqual(path.read_text(), before)
+
+    def test_review_pins_only_the_grounds_the_record_owns(self):
+        run(self.cwd, "claim", "Replication is on.", "--state", "accepted")
+        run(self.cwd, "claim", "The service is safe.", "--state", "accepted", "--supports", "c2")
+        out = run(
+            self.cwd, "claim", "Failover works.", "--state", "accepted", "--supports", "c3,c4"
+        )
+        self.assertEqual(out.returncode, 0, out.stderr)
+        out = run(
+            self.cwd,
+            "claim",
+            "Replication is on in two regions.",
+            "--state",
+            "accepted",
+            "--supersedes",
+            "c3",
+            "--supersede-reason",
+            "revise",
+        )
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.supersede()
+        out = run(self.cwd, "review", "c5")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        line = json.loads(self.ledger_path().read_text().splitlines()[-1])
+        self.assertEqual(line["grounds"], {"c3": "c6"})
+
     def test_review_of_an_unknown_id_is_refused(self):
         out = run(self.cwd, "review", "c9")
         self.assertEqual(out.returncode, 1)

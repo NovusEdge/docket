@@ -103,7 +103,7 @@ unknown, later, or self references. It enforces relation target kinds. Duplicate
 record IDs, cross-kind supersession, and supersession of an already retired
 record are rejected.
 
-When superseding, pass `--supersede-reason restate` for wording or link changes, `revise` for a change of substance, and `reverse` when the old record was wrong. Records that cite the retired one follow it to the new head, and the reason decides whether they stay clean, owe review, or lose the ground. After you check a record listed by `docket list --where is:flagged`, run `docket review ID`.
+When superseding, pass `--supersede-reason restate` for wording or link changes, `revise` for a change of substance, and `reverse` when the old record was wrong. Records that cite the retired one follow it to the new head, and the reason decides whether they stay clean, owe review, or lose the ground. After you check a record listed by `docket list --where is:flagged`, run `docket review ID`. Review the frontier first: records whose `review_owed` items are not `because: flagged` or `blocked`. A review acknowledges only the record's own revised, unassessed, disputed or circular grounds; a flag inherited from a flagged or blocked ground clears when you review or fix that ground, and `docket review` refuses those records.
 
 The common options are `--scope` (repeatable), `--rationale`, `--supports`,
 `--depends-on`, `--answers`, `--supersedes`, `--evidence` (repeatable),

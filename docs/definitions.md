@@ -279,11 +279,13 @@ their history. Supersession does not revoke dependents automatically.
 | `revise` | the substance changed | holds through the head and is flagged for review |
 | `reverse` | the retired record was wrong | loses that ground, and holds only through another complete justification set |
 
-A cited record's state counts too: `unassessed`, `disputed`, or a blocked decision flags the citing record; `rejected` or `revoked` removes the ground. `docket review ID` clears a flag for the head it was reviewed against.
+A cited record's state counts too: `unassessed`, `disputed`, or a blocked decision flags the citing record; `rejected` or `revoked` removes the ground. `docket review ID` acknowledges the record's own revised, unassessed, disputed or circular grounds, each against the head it resolved to.
 
-A record whose support is circular and never grounded is flagged with `because: circular`. Forward resolution can create such a cycle: the least fixed point says the record does not hold, and the greatest fixed point says nothing withdrew it. A reversal, rejection or revocation inside the cycle still removes the ground. `docket review ID` clears a circular flag like any other, and records that cite the cleared one become clean with it.
+A record whose support is circular and never grounded is flagged with `because: circular`. Forward resolution can create such a cycle: the least fixed point says the record does not hold, and the greatest fixed point says nothing withdrew it. A reversal, rejection or revocation inside the cycle still removes the ground. `docket review ID` clears a circular flag, and records that cite the cleared one become clean with it.
 
-A review pins a ground to the head it resolved to. A flag on a ground that is itself a flagged record clears when that record is reviewed, and comes back only if the chain head the review pinned moves.
+A flag inherited from a ground that is itself flagged (`because: flagged`) or blocked (`because: blocked`) describes a problem at that ground. It clears when that ground is reviewed or fixed, never by a review of the citing record, and a stored pin naming such a ground is ignored. A review of a record's own ground comes back only if the chain head the review pinned moves.
+
+A prerequisite cycle created by forward resolution blocks the decision (least fixed point), unlike a `supports` cycle, which is flagged `circular`.
 
 A missing reason reads as `revise`, so omitting it costs a review flag and never hides one. Use `docket correct` instead when the record's id should stay and nothing but a correctable field changes. The Lean proofs check these three outcomes and show that they reduce to the plain retention rule when nothing is superseded.
 

@@ -139,6 +139,34 @@ class PropagationTests(unittest.TestCase):
             record["review_owed"], [{"ground": "c1", "head": "c5", "because": "revise"}]
         )
 
+    def test_a_review_from_above_never_waives_a_later_flag_of_the_ground(self):
+        entries = [
+            *self.transitive(),
+            review("c3.r1", "c3", {"c2": "c2"}),
+            review("c2.r1", "c2", {"c1": "c4"}),
+            claim("c5", supersedes=["c4"], supersede_reason="revise"),
+        ]
+        c2, c3 = at(entries, "c2"), at(entries, "c3")
+        self.assertEqual(c2["review_owed"], [{"ground": "c1", "head": "c5", "because": "revise"}])
+        self.assertEqual(c3["support"], "flagged")
+        self.assertEqual(c3["review_owed"], [{"ground": "c2", "head": "c2", "because": "flagged"}])
+
+    def test_a_review_from_above_never_waives_a_later_block_of_the_ground(self):
+        entries = [
+            claim("c1"),
+            claim("c2"),
+            decision("d3", depends_on=["c2"], supports=[["c1"]]),
+            claim("c4", supports=[["d3"]]),
+            claim("c5", supersedes=["c1"], supersede_reason="revise"),
+            review("c4.r1", "c4", {"d3": "d3"}),
+            review("d3.r1", "d3", {"c1": "c5"}),
+            claim("c6", supersedes=["c2"], supersede_reason="reverse"),
+        ]
+        self.assertFalse(at(entries, "d3")["applicable"])
+        c4 = at(entries, "c4")
+        self.assertEqual(c4["support"], "flagged")
+        self.assertEqual(c4["review_owed"], [{"ground": "d3", "head": "d3", "because": "blocked"}])
+
     def cycle(self, reason):
         return [
             claim("c1"),

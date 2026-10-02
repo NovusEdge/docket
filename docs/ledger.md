@@ -150,7 +150,7 @@ containing a correction line.
 
 ## Review lines
 
-A review line records that someone checked a record against the current head of each ground it cites. It clears the flag for exactly those heads, so a later revision of the same chain raises the flag again.
+A review line records that someone checked a record against the current head of each ground it owns a flag for: a revised, unassessed, disputed or circular ground. It clears the flag for exactly those heads, so a later revision of the same chain raises the flag again. A flag inherited from a ground that is itself flagged or blocked is not the reviewed record's to clear; it clears by reviewing or fixing that ground, and a stored pin that names such a ground is ignored.
 
     {"schema":2,"kind":"review","id":"d72.r1","reviews":"d72",
      "grounds":{"d21":"d93"},
@@ -164,9 +164,9 @@ A review line records that someone checked a record against the current head of 
 | `grounds` | a non-empty object from each reviewed ground id to the head id it resolved to when reviewed; both must be earlier records |
 | `note` | what the reviewer concluded; may be empty |
 
-A review line carries no other keys, no `supersedes`, and nothing may point at it. `docket review` refuses a record that owes nothing. Reading checks only shape and references, so a review stays readable after the ledger moves on. Commands fold review lines into each record as a derived `reviews` list.
+A review line carries no other keys, no `supersedes`, and nothing may point at it. `docket review` refuses a record that owes nothing, or owes only inherited flags. Reading checks only shape and references, so a review stays readable after the ledger moves on. Commands fold review lines into each record as a derived `reviews` list.
 
-Docket releases from before reviews were introduced cannot read a ledger containing a review line.
+Docket 0.20.x and older cannot read a ledger that contains a `supersede_reason`, a correction of one, or a review line. Upgrade every machine and plugin cache that reads the ledger before the first such line is written.
 
 ## Relations
 
