@@ -27,8 +27,10 @@ def entry(
     cost_if_wrong="",
     decided_by="",
     supersedes=(),
+    supersede_reason=None,
 ):
     kwargs = dict(
+        supersede_reason=supersede_reason,
         state=state,
         scope=list(scope),
         rationale=rationale,
@@ -549,7 +551,14 @@ class ContextTests(unittest.TestCase):
     def test_blocking_path_names_retirement_rather_than_recorded_state(self):
         records = [
             entry("c1", "claim", "Superseded premise", state="accepted"),
-            entry("c2", "claim", "Replacement", state="accepted", supersedes=("c1",)),
+            entry(
+                "c2",
+                "claim",
+                "Replacement",
+                state="accepted",
+                supersedes=("c1",),
+                supersede_reason="reverse",
+            ),
             entry(
                 "d3",
                 "decision",
@@ -561,8 +570,8 @@ class ContextTests(unittest.TestCase):
         ]
         rendered = build_context(projected(records), files=("lib/cache.py",), ledger="repo")
         # c1's effective state is still "accepted"; the reason it cannot be used
-        # is that c2 retired it.
-        self.assertIn("blocked: c1 retired", rendered)
+        # is that c2 reversed it.
+        self.assertIn("blocked: c1 reversed", rendered)
 
     def test_blocking_path_stops_on_a_cycle(self):
         records = [
@@ -866,7 +875,14 @@ class DeltaTests(unittest.TestCase):
         records = [
             entry("c1", "claim", "The cache is reliable", state="accepted"),
             entry("d2", "decision", "Serve from the cache", choice="serve", depends_on=("c1",)),
-            entry("c3", "claim", "Replace the premise", state="accepted", supersedes=("c1",)),
+            entry(
+                "c3",
+                "claim",
+                "Replace the premise",
+                state="accepted",
+                supersedes=("c1",),
+                supersede_reason="reverse",
+            ),
         ]
         delta = build_delta(
             projected(records), since="d2", baseline=projected(records[:2]), ledger="repo"
@@ -972,7 +988,14 @@ class DeltaTests(unittest.TestCase):
         raw = [
             entry("c1", "claim", "A premise", state="accepted"),
             entry("d2", "decision", "Serve from the cache", choice="serve", depends_on=("c1",)),
-            entry("c3", "claim", "Replace the premise", state="accepted", supersedes=("c1",)),
+            entry(
+                "c3",
+                "claim",
+                "Replace the premise",
+                state="accepted",
+                supersedes=("c1",),
+                supersede_reason="reverse",
+            ),
             self.correction("c1.1", "c1", {"rationale": "Measured."}),
             self.correction("c3.1", "c3", {"rationale": "Measured."}),
         ]

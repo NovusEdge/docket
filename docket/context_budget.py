@@ -42,6 +42,7 @@ class Admission:
         no_match: bool,
         blocking_cache: dict[str, list[list[str]]],
         verify: bool = False,
+        owed_count: int = 0,
     ) -> None:
         self.by_id = by_id
         self.current_ids = current_ids
@@ -54,6 +55,7 @@ class Admission:
         self.soft_limit = soft_limit
         self.hard_limit = hard_limit
         self.retired_count = retired_count
+        self.owed_count = owed_count
         self.no_match = no_match
         self.blocking_cache = blocking_cache
         self.verify = verify
@@ -107,6 +109,7 @@ class Admission:
             related_count,
             missing_count,
             retired_count=self.retired_count,
+            owed_count=self.owed_count,
             no_match=self.no_match,
         )
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from docket import support
 from docket.context_model import (
     _effective_state,
     _id,
@@ -130,7 +131,7 @@ def _available(entry: Mapping[str, Any]) -> bool:
     return False
 
 
-def _unavailable_reason(entry: Mapping[str, Any]) -> str:
+def _unavailable_reason(entry: Mapping[str, Any], by_id: Mapping[str, Mapping[str, Any]]) -> str:
     """Why a record cannot serve as current support.
 
     The effective state does not say this. A retired claim still reads
@@ -139,10 +140,30 @@ def _unavailable_reason(entry: Mapping[str, Any]) -> str:
     """
 
     if _is_retired(entry):
-        return "retired"
+        _, crossed = _resolve(_id(entry), by_id)
+        return "reversed" if "reverse" in crossed else "retired"
     if _text(entry.get("kind")).casefold() == "decision" and entry.get("applicable") is False:
         return "blocked"
     return _effective_state(entry)
+
+
+def _resolve(ident: str, by_id: Mapping[str, Mapping[str, Any]]) -> tuple[str, list[str]]:
+    """Follow supersessions to the head, as the support evaluation does.
+
+    The maps are built only for a retired record, so the common case of a live
+    prerequisite costs nothing.
+    """
+
+    if not _is_retired(by_id.get(ident, {})):
+        return ident, []
+    retired = {
+        _id(item): _text(item.get("retired_by")) for item in by_id.values() if _is_retired(item)
+    }
+    reason_of = {
+        _id(item): _text(item.get("supersede_reason")) or support.DEFAULT_REASON
+        for item in by_id.values()
+    }
+    return support.head_of(ident, retired, reason_of)
 
 
 def _blocking_paths(
@@ -179,11 +200,15 @@ def _blocking_paths(
             target_id = _text(target)
             if not target_id or target_id in trail or target_id not in by_id:
                 continue
-            if _available(by_id[target_id]):
+            head, crossed = _resolve(target_id, by_id)
+            if "reverse" in crossed:
+                paths.append(list(trail[1:]) + [target_id])
                 continue
-            step = trail + (target_id,)
+            if head in trail or head not in by_id or _available(by_id[head]):
+                continue
+            step = trail + (head,)
             before = len(paths)
-            walk(target_id, step)
+            walk(head, step)
             if len(paths) == before:
                 paths.append(list(step[1:]))
 

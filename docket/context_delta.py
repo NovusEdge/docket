@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+from docket import support
 from docket.config import DEFAULTS as _SETTINGS_DEFAULTS
 from docket.context_model import _clip_metadata, _id, _revision, positions
 from docket.context_render import _index_line, _render_record
@@ -52,7 +53,11 @@ def build_delta(
     if expected and _revision(baseline) != expected:
         # A rebase renumbers the tail, so this ID now covers different history.
         return None
-    was_available = {_id(item) for item in baseline if _available(item)}
+    was_available = {
+        _id(item)
+        for item in baseline
+        if _available(item) and not support.surfaced(item, "unsupported")
+    }
     cfg = settings if settings is not None else _SETTINGS_DEFAULTS
     limit = max_chars if max_chars is not None else cfg["budget"]["target"]
     corrected_ids = {
@@ -69,8 +74,19 @@ def build_delta(
         for item in history
         if at[_id(item)] <= cutoff
         and _id(item) in was_available
-        and not _available(item)
+        and (not _available(item) or support.surfaced(item, "unsupported"))
         and _id(item) not in corrected_ids
+    ]
+    changed_ids = {_id(item) for item in changed}
+    was_flagged = {_id(item) for item in baseline if support.surfaced(item, "flagged")}
+    newly_flagged = [
+        item
+        for item in history
+        if at[_id(item)] <= cutoff
+        and support.surfaced(item, "flagged")
+        and _id(item) not in was_flagged
+        and _id(item) not in corrected_ids
+        and _id(item) not in changed_ids
     ]
     latest = _id(lines[-1]) if lines else ""
     revision = _revision(history)
@@ -80,13 +96,13 @@ def build_delta(
                 f"# docket: {_clip_metadata(ledger or 'ledger', 180)} | revision: {revision}"
                 f" | latest: {latest}@{revision} | since: {since}",
                 f"# changed: {len(added)} added, {len(corrected)} corrected, "
-                f"{len(changed)} no longer available.",
+                f"{len(changed)} no longer available, {len(newly_flagged)} newly owe review.",
             ]
         )
         + "\n\n"
     )
     blocks: list[str] = []
-    for item in added + corrected + changed:
+    for item in added + corrected + changed + newly_flagged:
         block = _render_record(item, "changed", "", by_id)
         if len(head) + len("\n\n".join(blocks + [block])) > limit:
             block = _index_line(item, cfg["index"]["detail_min"])

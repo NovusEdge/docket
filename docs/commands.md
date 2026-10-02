@@ -41,14 +41,16 @@ Ledger commands use the file that `docket where` reports. Run
 | `--depends-on IDS` | decision | Claims or decisions required for this decision to apply |
 | `--answers IDS` | claim, decision | Questions this record settles |
 | `--supersedes IDS` | all | Same-kind records this one retires |
+| `--supersede-reason R` | all | `restate`, `revise`, or `reverse`. Refused without `--supersedes`. Omitting it with `--supersedes` prints a hint and reads as `revise`. |
 | `--pin` | all | Add a ranking bonus in briefings; inclusion is not guaranteed |
 
 Every ID flag takes a comma-separated list. Repeat `--supports` for alternative
 sets of grounds: `--supports c1,c2 --supports c3` means `(c1 AND c2) OR c3`.
 Repeat `--scope`, `--evidence`, or `--alternative` for more than one value.
 
-A decision prerequisite must be current, adopted, and applicable. A claim
-prerequisite must be current and accepted. A decision with missing prerequisites
+A prerequisite is followed through restatements and revisions to the head of
+its chain. That head must be adopted and applicable for a decision, or accepted
+for a claim. A reversal, or a rejected or revoked head, blocks. A decision with missing prerequisites
 remains recorded as adopted but reports that it is blocked. See the
 [relationship reference](ledger.md#relations).
 
@@ -64,6 +66,7 @@ remains recorded as adopted but reports that it is blocked. See the
 | `--alternative A` | Decision only. Replace the alternatives list. Repeat for more. |
 | `--decided-by WHO` | Decision only. Replace who made the call. |
 | `--clear scope\|evidence\|alternatives` | Empty a list instead of replacing it. Repeat for more than one field. |
+| `--supersede-reason R` | Relabel a supersession as `restate`, `revise`, or `reverse`. The record must have `supersedes`. |
 | `--reason R` | Why the record was wrong |
 
 Correct a record's wording or metadata. The record keeps its ID, and a
@@ -71,6 +74,10 @@ repeated flag replaces the whole list it names. The command refuses
 `--choice`, `--state`, and the relation flags; supersede the record instead
 to change those. `docket show ID` lists a record's corrections, and `docket
 show ID.N` prints one correction with the values it replaced.
+
+`docket review ID [--note TEXT]`
+
+Record that you checked a claim or decision whose grounds changed. It appends a review line pinning each of the record's own revised, unassessed, disputed or circular grounds to that ground's current head. A flag inherited from a flagged or blocked ground is not pinned; it clears by reviewing or fixing that ground, so review the frontier first. The command refuses with "nothing to review" when no ground is owed, and with "its flags come from ..." when only inherited flags remain. A later revision of the same chain raises the flag again. See [review lines](ledger.md#review-lines).
 
 ## Reading
 
@@ -109,6 +116,18 @@ show ID.N` prints one correction with the values it replaced.
 | `--detail N` | With `--format`, characters of text per node. Default 40, `0` for IDs alone. |
 | `--direction LR\|TD\|RL\|BT` | With `--format mermaid` or `dot`, the layout direction. Default `LR`. |
 
+Claims and decisions carry three derived fields in `--json` output and in `show`:
+
+| Field | Meaning |
+|---|---|
+| `support` | `clean`, `flagged` (a ground changed or is unsettled and the record has not been reviewed against it), or `unsupported` (no complete set of grounds survives) |
+| `review_owed` | a list of `{ground, head, because}`, one per ground to review; `docket review` clears them |
+| `lost_grounds` | a list of `{ground, because}` for grounds an unsupported record lost |
+
+`context` prints `review_owed:` and `lost:` lines under an affected record and ends with `# owe review: N; docket list --where is:flagged`. `context --since` adds ", N newly owe review" to its summary and counts a newly unsupported record as no longer available. `show` prints "Review owed" and "Lost grounds" sections, and the text `graph` marks records `? review` or `! lost`.
+
+A decision's `depends_on` follows restatements and revisions to the head of the chain. A reversal, or a rejected or revoked head, blocks the decision; a revised prerequisite flags it. An unsupported prerequisite does not block.
+
 ### Query language
 
 `--where` takes one query. The graph viewer's `/` input takes the same one.
@@ -123,6 +142,7 @@ show ID.N` prints one correction with the values it replaced.
 | `scope:PATH` | a scope entry governs the file PATH, as `docket context --file` scores it |
 | `scope:DIR/` | a scope entry starts with `DIR/`, or governs the directory |
 | `is:pinned`, `is:corrected`, `is:retired`, `is:blocked` | the record is pinned, corrected, or retired, or is a blocked decision |
+| `is:flagged`, `is:unsupported` | the record is a current accepted claim or adopted decision whose derived `support` is `flagged` or `unsupported` |
 | `author:A`, `branch:B` | the author or the branch contains the value |
 | `after:D`, `before:D` | the record's UTC date is on or after D, or before D; D is `YYYY-MM-DD` |
 

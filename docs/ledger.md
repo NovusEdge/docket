@@ -98,6 +98,9 @@ when their CLI options are omitted, and sets `pinned` to `false`:
   resolves its target only when the source is current and is either an
   accepted claim or an applicable adopted decision.
 - `supersedes`: same-kind records retired by this record.
+- `supersede_reason`: optional, `restate`, `revise`, or `reverse`; valid only
+  with `supersedes`. Absent reads as `revise`. See
+  [Supersession reason](definitions.md).
 - `evidence`: provenance objects attached to the record.
 - `revisit`: a note about when or why to revisit the record.
 - `cost_if_wrong`: the stated cost if the record is wrong.
@@ -145,6 +148,26 @@ corrections in file order; `docket show ID --json` carries `corrections` and
 Docket releases from before corrections were introduced cannot read a ledger
 containing a correction line.
 
+## Review lines
+
+A review line records that someone checked a record against the current head of each ground it owns a flag for: a revised, unassessed, disputed or circular ground. It clears the flag for exactly those heads, so a later revision of the same chain raises the flag again. A flag inherited from a ground that is itself flagged or blocked is not the reviewed record's to clear; it clears by reviewing or fixing that ground, and a stored pin that names such a ground is ignored.
+
+    {"schema":2,"kind":"review","id":"d72.r1","reviews":"d72",
+     "grounds":{"d21":"d93"},
+     "note":"d93 tightened the refusal rules; the docs-style choice still stands",
+     "ts":"...","author":"...","session":"...","branch":"..."}
+
+| Field | Meaning |
+|---|---|
+| `id` | `<record id>.r<n>`; `n` counts that record's reviews from 1 and must increase, gaps allowed |
+| `reviews` | the record id; must equal the id's base and name an earlier record |
+| `grounds` | a non-empty object from each reviewed ground id to the head id it resolved to when reviewed; both must be earlier records |
+| `note` | what the reviewer concluded; may be empty |
+
+A review line carries no other keys, no `supersedes`, and nothing may point at it. `docket review` refuses a record that owes nothing, or owes only inherited flags. Reading checks only shape and references, so a review stays readable after the ledger moves on. Commands fold review lines into each record as a derived `reviews` list.
+
+Docket 0.20.x and older cannot read a ledger that contains a `supersede_reason`, a correction of one, or a review line. Upgrade every machine and plugin cache that reads the ledger before the first such line is written.
+
 ## Relations
 
 ### Supports
@@ -165,12 +188,12 @@ Only claims and decisions can be support targets.
 `depends_on` is an operational relation for decisions. Its targets are claims
 or decisions, and it has no OR interpretation.
 
-A current adopted decision is applicable when all of these conditions hold:
+A prerequisite is followed through restatements and revisions to the head of its chain. A current adopted decision is applicable when all of these conditions hold:
 
-- claim prerequisites are accepted and current;
-- decision prerequisites are adopted, current, and applicable.
+- the head of each claim prerequisite is accepted;
+- the head of each decision prerequisite is adopted and applicable.
 
-Otherwise the projected record contains `applicable: false` and `blocked_by`
+A reversal, or a rejected or revoked head, blocks the decision. Otherwise the projected record contains `applicable: false` and `blocked_by`
 with the unavailable prerequisites. Its recorded choice remains adopted, and a
 blocked decision does not resolve a question.
 
@@ -190,7 +213,8 @@ The validator preserves the original record. `project` adds:
 - `recorded_state`;
 - effective `state` for resolved questions;
 - `retired_by` and `resolved_by`;
-- `applicable` and `blocked_by` for decisions.
+- `applicable` and `blocked_by` for decisions;
+- `support`, `review_owed`, `lost_grounds` and `reviews` for claims and decisions.
 
 Retiring a record preserves its recorded state and the recorded states of
 dependent decisions. Their applicability is recalculated, and any older

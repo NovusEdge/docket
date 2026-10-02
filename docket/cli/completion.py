@@ -21,6 +21,8 @@ _COMPLETION_FLAGS = (
     "--depends-on",
     "--answers",
     "--supersedes",
+    "--supersede-reason",
+    "--note",
     "--evidence",
     "--revisit",
     "--cost",
@@ -54,6 +56,7 @@ _COMPLETION_CMDS = (
     "decision",
     "question",
     "correct",
+    "review",
     "list",
     "show",
     "graph",
@@ -120,7 +123,8 @@ _docket() {{
     fi
     case "$prev" in
         --state) COMPREPLY=($(compgen -W "unassessed accepted disputed rejected adopted revoked open resolved" -- "$cur")); return ;;
-        --supports|--depends-on|--answers|--supersedes|show)
+        --supersede-reason) COMPREPLY=($(compgen -W "restate revise reverse" -- "$cur")); return ;;
+        --supports|--depends-on|--answers|--supersedes|show|review)
             COMPREPLY=($(compgen -W "$(docket list --oneline 2>/dev/null | awk '{{print $1}}')" -- "$cur")); return ;;
         completion) COMPREPLY=($(compgen -W "bash zsh fish" -- "$cur")); return ;;
     esac
@@ -146,7 +150,7 @@ _arguments -C \\
     '*::arg:->args'
 
 case $words[1] in
-    show) _docket_ids ;;
+    show|review) _docket_ids ;;
     completion) _values 'shell' bash zsh fish ;;
     feature)
         case $words[2] in
@@ -171,6 +175,7 @@ case $words[1] in
             '--depends-on[decision prerequisites]:id:_docket_ids' \\
             '--answers[question ids]:id:_docket_ids' \\
             '--supersedes[retired ids]:id:_docket_ids' \\
+            '--supersede-reason[why it supersedes]:reason:(restate revise reverse)' \\
             '--cost[cost if wrong]:cost:'
         ;;
 esac
@@ -179,7 +184,9 @@ esac
 _FISH_COMPLETION = f"""\
 set -l docket_cmds {" ".join(_COMPLETION_CMDS)}
 complete -c docket -n "not __fish_seen_subcommand_from $docket_cmds" -a "$docket_cmds"
-complete -c docket -n "__fish_seen_subcommand_from show" -a "(docket list --oneline 2>/dev/null | awk '{{print \\$1}}')"
+complete -c docket -n "__fish_seen_subcommand_from claim decision question correct" -l supersede-reason -a "restate revise reverse"
+complete -c docket -n "__fish_seen_subcommand_from review" -l note -r
+complete -c docket -n "__fish_seen_subcommand_from show review" -a "(docket list --oneline 2>/dev/null | awk '{{print \\$1}}')"
 complete -c docket -n "__fish_seen_subcommand_from claim decision question" -l supports -a "(docket list --oneline 2>/dev/null | awk '{{print \\$1}}')"
 complete -c docket -n "__fish_seen_subcommand_from claim decision question" -l supersedes -a "(docket list --oneline 2>/dev/null | awk '{{print \\$1}}')"
 complete -c docket -n "__fish_seen_subcommand_from claim decision" -l state -a "unassessed accepted disputed rejected adopted revoked"

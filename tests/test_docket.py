@@ -600,6 +600,39 @@ class ContextDeltaTests(unittest.TestCase):
         self.assertIn("### c8 ", stdout)
         self.assertIn("1 added, 0 corrected, 1 no longer available", stdout)
 
+    def test_a_record_that_changed_and_newly_owes_review_prints_once(self):
+        with tempfile.TemporaryDirectory() as home:
+            for args in (
+                ("claim", "Ground claim one holds", "--state", "accepted"),
+                ("claim", "Prerequisite claim two holds", "--state", "accepted"),
+                (
+                    "decision",
+                    "We commit to option three for the stated reasons",
+                    "--choice",
+                    "opt three",
+                    "--supports",
+                    "c1",
+                    "--depends-on",
+                    "c2",
+                    "--rationale",
+                    "r",
+                ),
+            ):
+                self.assertEqual(run(home, *args).returncode, 0)
+            first = run(home, "context", "--all").stdout.splitlines()[0]
+            token = first.split("latest: ")[1].split()[0]
+            for args in (
+                ("claim", "Prerequisite claim two was wrong", "--state", "accepted")
+                + ("--supersedes", "c2", "--supersede-reason", "reverse"),
+                ("claim", "Ground claim one changed", "--state", "accepted")
+                + ("--supersedes", "c1", "--supersede-reason", "revise"),
+            ):
+                self.assertEqual(run(home, *args).returncode, 0)
+            result = run(home, "context", "--since", token)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.count("### d3 "), 1)
+        self.assertIn("3 no longer available, 0 newly owe review", result.stdout)
+
 
 class InitTests(unittest.TestCase):
     def test_init_ignores_the_lock_file(self):

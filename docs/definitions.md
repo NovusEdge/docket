@@ -271,13 +271,21 @@ predecessor.
 those records permanently in derived current views without deleting or rewriting
 their history. Supersession does not revoke dependents automatically.
 
-**Supersession reason.** Specified, not yet implemented. Each supersession carries a reason, and the reason decides what a record that cites the retired one keeps. A citation resolves forward to the head of the supersession chain, which is unique because a retired record cannot be superseded again.
+**Supersession reason.** Each supersession carries a reason, and the reason decides what a record that cites the retired one keeps. A citation resolves forward to the head of the supersession chain, which is unique because a retired record cannot be superseded again.
 
 | Reason | Use it when | A dependent that cites the retired record |
 | --- | --- | --- |
 | `restate` | the commitment is unchanged and only its wording or links change | holds through the head with no review owed |
 | `revise` | the substance changed | holds through the head and is flagged for review |
 | `reverse` | the retired record was wrong | loses that ground, and holds only through another complete justification set |
+
+A cited record's state counts too: `unassessed`, `disputed`, or a blocked decision flags the citing record; `rejected` or `revoked` removes the ground. `docket review ID` acknowledges the record's own revised, unassessed, disputed or circular grounds, each against the head it resolved to.
+
+A record whose support is circular and never grounded is flagged with `because: circular`. Forward resolution can create such a cycle: the least fixed point says the record does not hold, and the greatest fixed point says nothing withdrew it. A reversal, rejection or revocation inside the cycle still removes the ground. `docket review ID` clears a circular flag, and records that cite the cleared one become clean with it.
+
+A flag inherited from a ground that is itself flagged (`because: flagged`) or blocked (`because: blocked`) describes a problem at that ground. It clears when that ground is reviewed or fixed, never by a review of the citing record, and a stored pin naming such a ground is ignored. A review of a record's own ground comes back only if the chain head the review pinned moves.
+
+A prerequisite cycle created by forward resolution blocks the decision (least fixed point), unlike a `supports` cycle, which is flagged `circular`.
 
 A missing reason reads as `revise`, so omitting it costs a review flag and never hides one. Use `docket correct` instead when the record's id should stay and nothing but a correctable field changes. The Lean proofs check these three outcomes and show that they reduce to the plain retention rule when nothing is superseded.
 
@@ -287,9 +295,10 @@ The action gate described in the research documents is future behavior. The
 ledger records typed states and relationships; it does not enforce an
 `allow`/`deny`/`ask` mapping.
 
-An adopted decision is **applicable** when its `depends_on` claims are accepted
-and current and its `depends_on` decisions are adopted, current, and themselves
-applicable. Otherwise a derived view exposes the unavailable prerequisite IDs
+An adopted decision is **applicable** when each of its prerequisites, followed
+through restatements and revisions to the head of its chain, resolves to an
+accepted claim or an adopted, applicable decision. A reversal, or a rejected or
+revoked head, blocks. Otherwise a derived view exposes the unavailable prerequisite IDs
 in `blocked_by`. This is a derived usability result. It does not revoke the
 recorded choice or propagate truth.
 

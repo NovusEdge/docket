@@ -83,9 +83,10 @@ This records `(c1 AND c2) OR c3`. It is not a verified implication and does not
 propagate truth. References must name earlier claim or decision records.
 
 Use `--depends-on` only on decisions for operational prerequisites. It is
-separate from support alternatives. An adopted decision is applicable when its
-claim prerequisites are accepted and current and its decision prerequisites are
-adopted, current, and applicable. A derived decision can remain recorded as
+separate from support alternatives. A prerequisite is followed through
+restatements and revisions to the head of its chain; the head must be accepted
+(claim) or adopted and applicable (decision), and a reversal, or a rejected or
+revoked head, blocks. A derived decision can remain recorded as
 `adopted` while reporting `blocked_by`; a blocked decision does not answer a
 question.
 
@@ -101,6 +102,8 @@ question. Use `--supersedes` to replace a same-kind record. Docket rejects
 unknown, later, or self references. It enforces relation target kinds. Duplicate
 record IDs, cross-kind supersession, and supersession of an already retired
 record are rejected.
+
+When superseding, pass `--supersede-reason restate` for wording or link changes, `revise` for a change of substance, and `reverse` when the old record was wrong. Records that cite the retired one follow it to the new head, and the reason decides whether they stay clean, owe review, or lose the ground. After you check a record listed by `docket list --where is:flagged`, run `docket review ID`. Review the frontier first: records whose `review_owed` items are not `because: flagged` or `blocked`. A review acknowledges only the record's own revised, unassessed, disputed or circular grounds; a flag inherited from a flagged or blocked ground clears when you review or fix that ground, and `docket review` refuses those records.
 
 The common options are `--scope` (repeatable), `--rationale`, `--supports`,
 `--depends-on`, `--answers`, `--supersedes`, `--evidence` (repeatable),

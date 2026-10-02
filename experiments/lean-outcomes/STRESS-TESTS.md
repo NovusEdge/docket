@@ -161,6 +161,8 @@ One model checks each reason on a dependent that cites a superseded premise. Und
 
 The reason is self-reported, so a real change recorded as `restate` passes without review. Docket therefore treats a missing reason as `revise`: omitting it costs a flag and never hides one.
 
+The Lean readings are least fixed points, so circular support is never clean, and the proofs check that. Forward resolution can create such cycles in a real ledger, and the implementation reports the difference between the least and greatest fixed points as flagged rather than lost: a record that no ground supports and nothing withdrew owes review instead of vanishing.
+
 ## Implications for the paper
 
 The central reduction survives as a clean representation result. The claims

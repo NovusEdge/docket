@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-from docket import corrections
+from docket import corrections, reviews, support
 
 SCHEMA = 2
 KINDS = ("claim", "decision", "question")
@@ -44,7 +44,7 @@ COMMON_FIELDS = frozenset(
 )
 DECISION_FIELDS = frozenset({"choice", "alternatives", "decided_by"})
 AUDIT_FIELDS = frozenset({"legacy"})
-ALLOWED_FIELDS = COMMON_FIELDS | DECISION_FIELDS | AUDIT_FIELDS
+ALLOWED_FIELDS = COMMON_FIELDS | DECISION_FIELDS | AUDIT_FIELDS | {"supersede_reason"}
 
 
 class LedgerError(ValueError):
@@ -184,6 +184,7 @@ def make_record(
     depends_on: list[str] | None = None,
     answers: list[str] | None = None,
     supersedes: list[str] | None = None,
+    supersede_reason: str | None = None,
     evidence: list[dict[str, str]] | None = None,
     revisit: str = "",
     cost_if_wrong: str = "",
@@ -223,6 +224,8 @@ def make_record(
         "cost_if_wrong": cost_if_wrong,
         "pinned": pinned,
     }
+    if supersede_reason is not None:
+        record["supersede_reason"] = supersede_reason
     _reject_question_text(record)
     if kind == "decision":
         if alternatives is not None and not isinstance(alternatives, list):
@@ -259,17 +262,22 @@ class _Prefix:
     that validates in order updates one of these instead.
     """
 
-    __slots__ = ("by_id", "max_number", "retired", "corrections")
+    __slots__ = ("by_id", "max_number", "retired", "corrections", "reviews")
 
     def __init__(self, entries: list[dict[str, Any]]) -> None:
         self.by_id: dict[str, dict[str, Any]] = {}
         self.max_number = 0
         self.retired: dict[str, str] = {}
         self.corrections: dict[str, int] = {}
+        self.reviews: dict[str, int] = {}
         for entry in entries:
             self.add(entry)
 
     def add(self, entry: dict[str, Any]) -> None:
+        if entry.get("kind") == reviews.KIND:
+            target, number = reviews.parts_of(entry["id"])
+            self.reviews[target] = max(self.reviews.get(target, 0), number)
+            return
         # A correction is no relation target and carries no supersedes.
         if entry.get("kind") == corrections.KIND:
             target, number = corrections.parts_of(entry["id"])
@@ -301,6 +309,12 @@ def validate_record(
         if prefix is None and previous is not None:
             prefix = _Prefix(previous)
         return corrections.validate(record, prefix)
+    if record.get("kind") == reviews.KIND:
+        if prefix is not None and previous is not None:
+            raise _error("record", "pass previous or prefix, not both")
+        if prefix is None and previous is not None:
+            prefix = _Prefix(previous)
+        return reviews.validate(record, prefix)
     if record.get("schema") in (None, 1):
         raise _error(
             "schema", "legacy format is unsupported; run 'docket migrate' to convert it to schema 2"
@@ -413,6 +427,11 @@ def validate_record(
         raise _error(record_id, "questions cannot answer other questions")
     if kind != "decision" and record["depends_on"]:
         raise _error(record_id, "only decisions may have depends_on")
+    if "supersede_reason" in record:
+        if record["supersede_reason"] not in support.REASONS:
+            raise _error(record_id, f"supersede_reason must be one of {', '.join(support.REASONS)}")
+        if not record["supersedes"]:
+            raise _error(record_id, "supersede_reason needs supersedes")
 
     if prefix is not None and previous is not None:
         raise _error(record_id, "pass previous or prefix, not both")
@@ -561,14 +580,28 @@ def _decision_applicability(
     by_id = {entry["id"]: entry for entry in entries}
     applicable: dict[str, bool] = {}
     blocked: dict[str, list[str]] = {}
+    reason_of = {
+        entry["id"]: entry.get("supersede_reason", support.DEFAULT_REASON) for entry in entries
+    }
 
     # Validation refuses a reference to a later id, so a validated ledger is
     # acyclic. project(validated=True) skips that check, and a cycle there would
     # otherwise recurse until the stack ends. One shared set costs nothing.
     visiting: set[str] = set()
+    hops = 0
+
+    class _ForwardCycle(Exception):
+        pass
 
     def check(entry_id: str) -> tuple[bool, list[str]]:
         if entry_id in visiting:
+            # A cycle in the recorded depends_on graph is a corrupt ledger. One
+            # that closes only through a supersession hop is valid, because every
+            # record cites earlier ids; there the prerequisite rests on itself and
+            # holds nothing, so the decision is blocked (least fixed point). A
+            # `supports` cycle is flagged circular instead.
+            if hops:
+                raise _ForwardCycle
             raise _error(entry_id, "depends_on forms a cycle")
         visiting.add(entry_id)
         try:
@@ -592,7 +625,20 @@ def _decision_applicability(
         blockers: list[str] = []
         seen: set[str] = set()
         for dependency in entry["depends_on"]:
-            ok, reasons = check(dependency)
+            head, crossed = support.head_of(dependency, retired, reason_of)
+            if "reverse" in crossed:
+                ok, reasons = False, [head]
+            elif head == dependency:
+                ok, reasons = check(head)
+            else:
+                nonlocal hops
+                hops += 1
+                try:
+                    ok, reasons = check(head)
+                except _ForwardCycle:
+                    ok, reasons = False, [head]
+                finally:
+                    hops -= 1
             if not ok:
                 for reason in [dependency, *reasons]:
                     if reason not in seen:
@@ -618,9 +664,11 @@ def project(entries: list[dict[str, Any]], *, validated: bool = False) -> list[d
     if not validated:
         entries = validate_entries(entries)
     entries = corrections.fold(entries)
+    entries = reviews.fold(entries)
     retired = retired_by(entries)
     answers = resolved_by(entries)
     applicability, blocked = _decision_applicability(entries, retired)
+    statuses = support.evaluate(entries, retired, applicability)
     result = []
     for entry in entries:
         # Shallow by design. Only top-level keys are added below, and the two
@@ -636,6 +684,8 @@ def project(entries: list[dict[str, Any]], *, validated: bool = False) -> list[d
         if entry["kind"] == "decision":
             projected["applicable"] = applicability.get(entry["id"], False)
             projected["blocked_by"] = list(blocked.get(entry["id"], []))
+        if entry["id"] in statuses:
+            projected.update(statuses[entry["id"]])
         result.append(projected)
     return result
 
@@ -731,6 +781,13 @@ def append(path: Path | str, record: dict[str, Any]) -> dict[str, Any]:
             validate_record(candidate, previous=entries)
             if from_cli:
                 corrections.refuse(entries, candidate)
+        elif candidate.get("kind") == reviews.KIND:
+            if not candidate.get("id"):
+                candidate["id"] = reviews.allocate(entries, str(candidate.get("reviews", "")))
+                # Grounds are what the record owes under this lock, not what the
+                # caller saw before it.
+                reviews.refuse(entries, candidate)
+            validate_record(candidate, previous=entries)
         else:
             if not candidate.get("id"):
                 kind = candidate.get("kind") or ""

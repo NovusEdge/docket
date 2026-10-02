@@ -12,7 +12,7 @@ import shutil
 import sys
 import textwrap
 
-from docket import corrections, env, where
+from docket import corrections, env, support, where
 from docket.cli.term import _DIM, _STATE_COLOR, _c, _match, _use_color
 from docket.context_model import positions
 from docket.env import LEDGER, justification_sets, read, retired_by
@@ -169,6 +169,15 @@ def cmd_show(args: argparse.Namespace) -> int:
         field("Cost if wrong", e["cost_if_wrong"])
     if e.get("corrections"):
         field("Corrections", ", ".join(e["corrections"]))
+    if support.surfaced(e, "flagged"):
+        field(
+            "Review owed",
+            ", ".join(f"{o['ground']} -> {o['head']} ({o['because']})" for o in e["review_owed"]),
+        )
+    if support.surfaced(e, "unsupported"):
+        field(
+            "Lost grounds", ", ".join(f"{o['ground']} ({o['because']})" for o in e["lost_grounds"])
+        )
     field("Recorded state", e.get("recorded_state", e.get("state", "")))
     print(f"  Recorded: {e.get('ts', '')}")
     print(

@@ -3,6 +3,7 @@ import sys
 
 from docket import corrections, env
 from docket.ledger import ID_RE, LedgerError, append, parse_evidence
+from docket.support import REASONS
 
 # Flags that change what a record commits to. Accepted by the parser only so
 # the refusal can name supersession instead of argparse's generic error.
@@ -40,6 +41,8 @@ def _fields(args: argparse.Namespace) -> dict:
         fields["alternatives"] = args.alternative
     if args.decided_by is not None:
         fields["decided_by"] = args.decided_by
+    if args.supersede_reason is not None:
+        fields["supersede_reason"] = args.supersede_reason
     for name in args.clear:
         if name in fields:
             raise LedgerError(f"docket: --clear {name} and {CLEAR_FLAGS[name]} conflict")
@@ -95,6 +98,9 @@ def add_correct_parser(sub) -> None:
     pin.add_argument("--unpin", action="store_true")
     co.add_argument("--alternative", action="append", default=[])
     co.add_argument("--decided-by")
+    co.add_argument(
+        "--supersede-reason", choices=REASONS, help="relabel why this record superseded another"
+    )
     co.add_argument(
         "--clear", action="append", default=[], choices=CLEARABLE, help="set a list field to empty"
     )
