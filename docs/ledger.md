@@ -331,15 +331,13 @@ exclusive lock on `ledger.jsonl.lock`. This prevents concurrent writers on
 one host from allocating the same sequence number. Readers take a shared lock
 on the same file so they do not read a partially written line.
 
-Two branches that both record produce a git conflict on the ledger, because
-each branch appends different records after the same last line. Resolve the
-conflict with `docket rebase`, not by hand and not with a union merge driver. A
-union merge keeps both branches' lines, which leaves two records holding one ID.
-Every command then fails, including the session hook.
+Two branches that both record append different lines after the same last line. `docket init` adds `.docket/ledger.jsonl merge=docket` to `.gitattributes` and registers `docket merge-driver` in the clone's git config, after which `git merge`, `git rebase` and `git cherry-pick` merge the ledger themselves: records on both sides are kept, the other side's new records take fresh IDs, and references follow. Git invokes `merge-driver`; it is not a command you run.
 
-Before rebasing, recover each branch's complete ledger without conflict markers.
-The active ledger must contain a valid version from one branch. Keep the other
-branch's valid file separately, then run:
+The driver recognises a record it already merged, even under its new ID, so merging the same branches again in either direction adds nothing twice. An incoming record that is found in the common ancestor but is no longer on our side was removed or rewritten by us, so it stays out; this is why a cherry-pick brings only the picked commit's records.
+
+The driver needs `docket` on PATH. `init` registers nothing when it is absent and says so, and the session briefing prints a one-line notice in a clone where the attribute is set but the driver is not. Re-run `docket init` in a fresh clone to register it. A clone without the driver registered gets an ordinary git conflict on the ledger.
+
+When the driver cannot merge, git reports an ordinary conflict. This happens when both sides superseded one record, when a cherry-picked record cites one the target lacks, or when a file does not read. The driver always leaves conflict markers in the file and exits non-zero, falling back to one whole-file block when `git merge-file` cannot produce them. Resolve it with `docket rebase`, not by hand: recover each side's complete ledger without conflict markers. The active ledger must contain a valid version from one side. Keep the other side's valid file separately, then run:
 
 ```sh
 docket rebase ../other-branch/.docket/ledger.jsonl --dry-run
@@ -358,13 +356,15 @@ targets A's record. Validation passes because the target exists and has the
 right kind, even though it is not the record B cited. Use `docket rebase` to
 preserve these references.
 
+Never use a union merge driver on the ledger. It keeps both branches' tails, which leaves two records holding one ID, and every command then fails, including the session hook.
+
 When a ledger stops reading, run `docket check`. It reports every malformed,
 duplicate, out-of-order, and invalid record with its line number, where a normal
 read stops at the first fault.
 
 Docket does not merge divergent decision trees semantically. Two branches that
 decided the same question differently produce two adopted decisions after a
-rebase. A person resolves that by superseding one of them.
+rebase. A person resolves that by superseding one of them. Two branches that both correct one record keep both corrections, and the later-numbered one wins on any field both set.
 
 ## Migrating a schema-1 ledger
 

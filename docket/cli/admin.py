@@ -12,7 +12,7 @@ import json
 import sys
 from pathlib import Path
 
-from docket import env, feature_archive, feature_project, features
+from docket import env, feature_archive, feature_project, features, merge_setup
 from docket.ledger import ID_RE, LedgerError, _Prefix, append, validate_record
 
 
@@ -251,6 +251,8 @@ def cmd_init(args: argparse.Namespace) -> int:
         # The append lock is local state. A team that commits .docket/ would
         # otherwise commit it.
         ignore.write_text("*.lock\n", encoding="utf-8")
+    for message in merge_setup.setup(root):
+        print(message)
     if target.exists():
         print(f"docket: already project-local at {target}")
         return 0
@@ -279,4 +281,11 @@ def cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
-__all__ = ["cmd_check", "cmd_init", "cmd_migrate", "cmd_rebase"]
+def cmd_merge_driver(args: argparse.Namespace) -> int:
+    """Git merge driver entry point; see docket/merge_driver.py."""
+    from docket import merge_driver
+
+    return merge_driver.run(Path(args.base), Path(args.ours), Path(args.theirs))
+
+
+__all__ = ["cmd_check", "cmd_init", "cmd_merge_driver", "cmd_migrate", "cmd_rebase"]

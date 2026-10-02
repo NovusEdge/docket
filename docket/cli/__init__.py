@@ -4,7 +4,13 @@ import argparse
 import sys
 
 from docket import features, version
-from docket.cli.admin import cmd_check, cmd_init, cmd_migrate, cmd_rebase
+from docket.cli.admin import (
+    cmd_check,
+    cmd_init,
+    cmd_merge_driver,
+    cmd_migrate,
+    cmd_rebase,
+)
 from docket.cli.completion import cmd_completion
 from docket.cli.construct import cmd_construct
 from docket.cli.context_cmd import CONTEXT_ENVELOPES, cmd_context
@@ -190,6 +196,14 @@ def main(argv: list[str] | None = None) -> int:
     rb.add_argument("--dry-run", action="store_true", help="print the ID map and write nothing")
     rb.add_argument("--emit-map", metavar="PATH", help="write the old-to-new id map as JSON")
     rb.set_defaults(func=cmd_rebase)
+
+    # No help text and absent from the metavar list above: git calls this,
+    # people do not.
+    md = sub.add_parser("merge-driver")
+    md.add_argument("base")
+    md.add_argument("ours")
+    md.add_argument("theirs")
+    md.set_defaults(func=cmd_merge_driver)
 
     mg = sub.add_parser("migrate", help="convert a legacy ledger to the current schema")
     source = mg.add_mutually_exclusive_group()

@@ -272,6 +272,8 @@ procedure.
 
 ## Repair a shared ledger
 
+With the merge driver registered (`docket init`), git merges the ledger itself; `rebase` is for when the driver reports a conflict.
+
 ```sh
 docket check
 docket rebase ../other-branch/.docket/ledger.jsonl --dry-run
