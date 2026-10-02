@@ -1,6 +1,6 @@
 # Formalism stress tests
 
-These Lean checks test six claims from the outcome formalism. A successful Lean
+These Lean checks test seven claims from the outcome formalism. A successful Lean
 proof means the conclusion follows from the stated definitions and assumptions.
 It does not show that those assumptions describe real agents.
 
@@ -12,7 +12,7 @@ lean --run StressTests.lean
 ```
 
 The first command exits silently with code 0 when every proof is complete. The
-second prints the result summary. The source contains 33 checked theorems and no
+second prints the result summary. The source contains 45 checked theorems and no
 custom axioms or admitted goals.
 
 ## 1. Intended and unintended reduction: passes with a scope condition
@@ -142,6 +142,24 @@ With premises marked by `∅ ∈ j(γ)`, the classification becomes total. Every
 Withdrawing a premise removes `∅` from its justifications and changes nothing else. Lean checks a conclusion with two alternatives `{A}` and `{B}`: withdrawing `A` leaves it holding through `B`, and withdrawing both makes it fall. This repairs the flat-support counterexample in section 4.
 
 Lean also proves that two claims supporting only each other never hold. The least-fixed-point reading admits no circular support, so the regress ends at premises or at claims that do not hold. Docket's ledger enforces the same outcome syntactically, because every relation must point at an earlier record.
+
+## 7. Supersession: the reason decides what dependents keep
+
+Section 6 treats a retired record as withdrawn. On real ledgers, most retirements restate or refine their record rather than withdraw it, so that reading retracts sound dependents. Each record has at most one successor, because Docket refuses to supersede a retired record, so following successors from any record reaches a unique current head. Each supersession carries a reason: `restate`, `revise` or `reverse`.
+
+A citation resolves by following successors whose reasons a reading admits. The three readings differ only in what they admit:
+
+| Reading | Follows | Meaning |
+| --- | --- | --- |
+| Strict | nothing | a cited record must be current; the section 6 behavior with retirement as withdrawal |
+| Clean | `restate` | holds with no review owed |
+| Live | `restate`, `revise` | holds, possibly owing review |
+
+A claim is flagged when it is live but not clean. Lean proves strict ⊆ clean ⊆ live, and proves that all three equal the section 6 rule when nothing is superseded, so the readings only diverge where a supersession exists.
+
+One model checks each reason on a dependent that cites a superseded premise. Under `restate` the dependent is clean, while the strict reading would have retracted it. Under `revise` it is flagged. Under `reverse` it does not hold, and a second dependent with an independent alternative still holds through that alternative.
+
+The reason is self-reported, so a real change recorded as `restate` passes without review. Docket therefore treats a missing reason as `revise`: omitting it costs a flag and never hides one.
 
 ## Implications for the paper
 

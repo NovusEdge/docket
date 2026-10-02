@@ -593,6 +593,205 @@ end Circular
 
 end Justification
 
+namespace Supersession
+
+open Justification
+
+inductive Reason where
+  | restate
+  | revise
+  | reverse
+  deriving DecidableEq, Repr
+
+-- Docket refuses to supersede a retired record, so each record has at most one successor.
+abbrev Successor (Claim : Type) := Claim → Option (Claim × Reason)
+
+section Generic
+
+variable {Claim : Type}
+
+-- Following successors whose reasons `admits` accepts ends at the current record `head`.
+inductive Reaches (succ : Successor Claim) (admits : Reason → Prop) : Claim → Claim → Prop where
+  | current {claim : Claim} : succ claim = none → Reaches succ admits claim claim
+  | step {claim next head : Claim} {reason : Reason} :
+      succ claim = some (next, reason) → admits reason → Reaches succ admits next head →
+      Reaches succ admits claim head
+
+-- `head` picks where each cited record resolves; a function argument keeps the
+-- inductive strictly positive where an existential would not.
+inductive HoldsThrough (j : Justifications Claim) (succ : Successor Claim)
+    (admits : Reason → Prop) : Claim → Prop where
+  | intro {claim : Claim} (set : List Claim) (head : Claim → Claim) :
+      set ∈ j claim →
+      (∀ support ∈ set, Reaches succ admits support (head support)) →
+      (∀ support ∈ set, HoldsThrough j succ admits (head support)) →
+      HoldsThrough j succ admits claim
+
+def never : Reason → Prop := fun _ => False
+
+def restates : Reason → Prop
+  | .restate => True
+  | _ => False
+
+def forwards : Reason → Prop
+  | .reverse => False
+  | _ => True
+
+-- Retirement as withdrawal: a cited record must still be current.
+abbrev Strict (j : Justifications Claim) (succ : Successor Claim) := HoldsThrough j succ never
+
+-- Holds with no review owed: citations follow restatements only.
+abbrev Clean (j : Justifications Claim) (succ : Successor Claim) := HoldsThrough j succ restates
+
+-- Holds, possibly owing review: citations follow restatements and revisions.
+abbrev Live (j : Justifications Claim) (succ : Successor Claim) := HoldsThrough j succ forwards
+
+def Flagged (j : Justifications Claim) (succ : Successor Claim) (claim : Claim) : Prop :=
+  Live j succ claim ∧ ¬ Clean j succ claim
+
+theorem reaches_mono {succ : Successor Claim} {narrow wide : Reason → Prop}
+    (widens : ∀ reason, narrow reason → wide reason) {claim head : Claim} :
+    Reaches succ narrow claim head → Reaches succ wide claim head := by
+  intro reaches
+  induction reaches with
+  | current none => exact .current none
+  | step next admitted _ rest => exact .step next (widens _ admitted) rest
+
+theorem holds_mono {j : Justifications Claim} {succ : Successor Claim}
+    {narrow wide : Reason → Prop} (widens : ∀ reason, narrow reason → wide reason)
+    {claim : Claim} :
+    HoldsThrough j succ narrow claim → HoldsThrough j succ wide claim := by
+  intro holds
+  induction holds with
+  | intro set head member reaches _ supportsHold =>
+      exact .intro set head member (fun support inSet => reaches_mono widens (reaches support inSet))
+        supportsHold
+
+theorem strict_implies_clean {j : Justifications Claim} {succ : Successor Claim} {claim : Claim} :
+    Strict j succ claim → Clean j succ claim :=
+  holds_mono (fun _ impossible => impossible.elim)
+
+theorem clean_implies_live {j : Justifications Claim} {succ : Successor Claim} {claim : Claim} :
+    Clean j succ claim → Live j succ claim :=
+  holds_mono (fun reason restated => by cases reason <;> simp_all [restates, forwards])
+
+theorem premise_holds_through {j : Justifications Claim} {succ : Successor Claim}
+    {admits : Reason → Prop} {claim : Claim} (premise : IsPremise j claim) :
+    HoldsThrough j succ admits claim :=
+  .intro [] id premise (by intro _ member; cases member) (by intro _ member; cases member)
+
+theorem superseded_unreachable {succ : Successor Claim} {admits : Reason → Prop}
+    {claim next : Claim} {reason : Reason}
+    (superseded : succ claim = some (next, reason)) (refused : ¬ admits reason) (head : Claim) :
+    ¬ Reaches succ admits claim head := by
+  intro reaches
+  cases reaches with
+  | current none => rw [superseded] at none; cases none
+  | step successor admitted _ =>
+      rw [superseded] at successor
+      cases successor
+      exact refused admitted
+
+theorem single_ground_fails {j : Justifications Claim} {succ : Successor Claim}
+    {admits : Reason → Prop} {claim ground : Claim} (single : j claim = [[ground]])
+    (unreachable : ∀ head, ¬ Reaches succ admits ground head) :
+    ¬ HoldsThrough j succ admits claim := by
+  intro holds
+  cases holds with
+  | intro set head member reaches _ =>
+      rw [single] at member
+      simp at member
+      subst member
+      exact unreachable _ (reaches ground (by simp))
+
+-- With nothing superseded, every reading is the plain retention rule of section 6.
+theorem agrees_without_supersession {j : Justifications Claim} {succ : Successor Claim}
+    {admits : Reason → Prop} (nothingSuperseded : ∀ claim, succ claim = none) (claim : Claim) :
+    HoldsThrough j succ admits claim ↔ Holds j claim := by
+  have resolvesToItself : ∀ {support head : Claim},
+      Reaches succ admits support head → head = support := by
+    intro support head reaches
+    cases reaches with
+    | current _ => rfl
+    | step successor _ _ => rw [nothingSuperseded] at successor; cases successor
+  constructor
+  · intro holds
+    induction holds with
+    | intro set head member reaches _ supportsHold =>
+        refine Holds.intro set member ?_
+        intro support inSet
+        have resolved := supportsHold support inSet
+        rwa [resolvesToItself (reaches support inSet)] at resolved
+  · intro holds
+    induction holds with
+    | intro set member _ supportsHold =>
+        exact .intro set id member (fun support _ => .current (nothingSuperseded support))
+          supportsHold
+
+end Generic
+
+namespace Example
+
+inductive Claim where
+  | old
+  | new
+  | other
+  | dependent
+  | backed
+  deriving DecidableEq, Repr
+
+def j : Justifications Claim
+  | .old => [[]]
+  | .new => [[]]
+  | .other => [[]]
+  | .dependent => [[.old]]
+  | .backed => [[.old], [.other]]
+
+def succ (reason : Reason) : Successor Claim
+  | .old => some (.new, reason)
+  | _ => none
+
+theorem restate_keeps_dependent_clean :
+    Clean j (succ .restate) .dependent ∧ ¬ Strict j (succ .restate) .dependent := by
+  constructor
+  · refine .intro [.old] (fun _ => .new) (by simp [j]) ?_ ?_
+    · intro support inSet
+      simp at inSet
+      subst inSet
+      exact .step rfl True.intro (.current rfl)
+    · intro support _
+      exact premise_holds_through (by simp [IsPremise, j])
+  · exact single_ground_fails rfl (superseded_unreachable rfl id)
+
+theorem revise_flags_dependent : Flagged j (succ .revise) .dependent := by
+  constructor
+  · refine .intro [.old] (fun _ => .new) (by simp [j]) ?_ ?_
+    · intro support inSet
+      simp at inSet
+      subst inSet
+      exact .step rfl True.intro (.current rfl)
+    · intro support _
+      exact premise_holds_through (by simp [IsPremise, j])
+  · exact single_ground_fails rfl (superseded_unreachable rfl id)
+
+theorem reverse_retracts_dependent : ¬ Live j (succ .reverse) .dependent :=
+  single_ground_fails rfl (superseded_unreachable rfl id)
+
+theorem reverse_spares_an_alternative : Live j (succ .reverse) .backed := by
+  refine .intro [.other] id (by simp [j]) ?_ ?_
+  · intro support inSet
+    simp at inSet
+    subst inSet
+    exact .current rfl
+  · intro support inSet
+    simp at inSet
+    subst inSet
+    exact premise_holds_through (by simp [IsPremise, j])
+
+end Example
+
+end Supersession
+
 end Docket.StressTests
 
 def main : IO Unit := do
@@ -608,3 +807,5 @@ def main : IO Unit := do
   IO.println "6. PASS: premises as j(γ) ∋ ∅ need no separate retention rule and agree with the atomic-by-absence rule."
   IO.println "   PASS: a conclusion survives one withdrawn alternative and falls when every alternative is withdrawn."
   IO.println "   PASS: circular support never holds under the least-fixed-point reading."
+  IO.println "7. PASS: strict ⊆ clean ⊆ live, and all three equal section 6 when nothing is superseded."
+  IO.println "   PASS: restate keeps a dependent clean, revise flags it, reverse retracts it unless an alternative survives."
