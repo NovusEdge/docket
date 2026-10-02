@@ -167,6 +167,33 @@ class PropagationTests(unittest.TestCase):
         self.assertEqual(c4["support"], "flagged")
         self.assertEqual(c4["review_owed"], [{"ground": "d3", "head": "d3", "because": "blocked"}])
 
+    def test_a_pin_on_a_revised_ground_does_not_lift_the_flag_its_head_carries(self):
+        entries = [
+            claim("c1"),
+            claim("c2"),
+            claim("c3", supports=[["c2"]]),
+            claim("c4", supports=[["c1"]], supersedes=["c2"], supersede_reason="revise"),
+            review("c3.r1", "c3", {"c2": "c4"}),
+            claim("c5", supersedes=["c1"], supersede_reason="revise"),
+        ]
+        c3 = at(entries, "c3")
+        self.assertEqual(c3["support"], "flagged")
+        self.assertEqual(c3["review_owed"], [{"ground": "c2", "head": "c4", "because": "flagged"}])
+
+    def test_a_pin_on_a_revised_ground_does_not_lift_the_block_its_head_carries(self):
+        entries = [
+            claim("c1"),
+            decision("d2"),
+            claim("c3", supports=[["d2"]]),
+            decision("d4", depends_on=["c1"], supersedes=["d2"], supersede_reason="revise"),
+            review("c3.r1", "c3", {"d2": "d4"}),
+            claim("c5", supersedes=["c1"], supersede_reason="reverse"),
+        ]
+        self.assertFalse(at(entries, "d4")["applicable"])
+        c3 = at(entries, "c3")
+        self.assertEqual(c3["support"], "flagged")
+        self.assertEqual(c3["review_owed"], [{"ground": "d2", "head": "d4", "because": "blocked"}])
+
     def cycle(self, reason):
         return [
             claim("c1"),

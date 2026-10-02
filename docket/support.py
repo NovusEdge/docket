@@ -80,11 +80,17 @@ def evaluate(
         ):
             if applies and to < value:
                 value, because = to, why
-        # A flag inherited from the ground's own flag or block lives at the
-        # ground, and a ground that was never superseded has a head that never
-        # moves, so a pin there would waive every later cause for good.
-        if value == FLAGGED and because not in INHERITED and (cited, head) in pins[owner]:
+        # A flag inherited from the head's own flag or block lives at the head,
+        # and a head that was never superseded never moves, so a pin there
+        # would waive every later cause for good. `because` names only the
+        # first cause, so a pin lifts the owned causes and re-tests these two.
+        # A circular head sits at FLAGGED but is an owned cause, not inherited.
+        if value == FLAGGED and (cited, head) in pins[owner]:
             value, because = CLEAN, ""
+            if target["kind"] == "decision" and applicable.get(head) is False:
+                value, because = FLAGGED, "blocked"
+            elif level.get(head) == FLAGGED and head not in circular:
+                value, because = FLAGGED, "flagged"
         return value, head, because
 
     def prerequisites(entry: Mapping[str, Any]) -> list[tuple[str, str]]:
