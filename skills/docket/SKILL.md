@@ -83,9 +83,10 @@ This records `(c1 AND c2) OR c3`. It is not a verified implication and does not
 propagate truth. References must name earlier claim or decision records.
 
 Use `--depends-on` only on decisions for operational prerequisites. It is
-separate from support alternatives. An adopted decision is applicable when its
-claim prerequisites are accepted and current and its decision prerequisites are
-adopted, current, and applicable. A derived decision can remain recorded as
+separate from support alternatives. A prerequisite is followed through
+restatements and revisions to the head of its chain; the head must be accepted
+(claim) or adopted and applicable (decision), and a reversal, or a rejected or
+revoked head, blocks. A derived decision can remain recorded as
 `adopted` while reporting `blocked_by`; a blocked decision does not answer a
 question.
 

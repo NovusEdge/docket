@@ -283,6 +283,8 @@ A cited record's state counts too: `unassessed`, `disputed`, or a blocked decisi
 
 A record whose support is circular and never grounded is flagged with `because: circular`. Forward resolution can create such a cycle: the least fixed point says the record does not hold, and the greatest fixed point says nothing withdrew it. A reversal, rejection or revocation inside the cycle still removes the ground. `docket review ID` clears a circular flag like any other, and records that cite the cleared one become clean with it.
 
+A review pins a ground to the head it resolved to. A flag on a ground that is itself a flagged record clears when that record is reviewed, and comes back only if the chain head the review pinned moves.
+
 A missing reason reads as `revise`, so omitting it costs a review flag and never hides one. Use `docket correct` instead when the record's id should stay and nothing but a correctable field changes. The Lean proofs check these three outcomes and show that they reduce to the plain retention rule when nothing is superseded.
 
 ### Applicability and action gates
@@ -291,9 +293,10 @@ The action gate described in the research documents is future behavior. The
 ledger records typed states and relationships; it does not enforce an
 `allow`/`deny`/`ask` mapping.
 
-An adopted decision is **applicable** when its `depends_on` claims are accepted
-and current and its `depends_on` decisions are adopted, current, and themselves
-applicable. Otherwise a derived view exposes the unavailable prerequisite IDs
+An adopted decision is **applicable** when each of its prerequisites, followed
+through restatements and revisions to the head of its chain, resolves to an
+accepted claim or an adopted, applicable decision. A reversal, or a rejected or
+revoked head, blocks. Otherwise a derived view exposes the unavailable prerequisite IDs
 in `blocked_by`. This is a derived usability result. It does not revoke the
 recorded choice or propagate truth.
 

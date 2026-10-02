@@ -188,12 +188,12 @@ Only claims and decisions can be support targets.
 `depends_on` is an operational relation for decisions. Its targets are claims
 or decisions, and it has no OR interpretation.
 
-A current adopted decision is applicable when all of these conditions hold:
+A prerequisite is followed through restatements and revisions to the head of its chain. A current adopted decision is applicable when all of these conditions hold:
 
-- claim prerequisites are accepted and current;
-- decision prerequisites are adopted, current, and applicable.
+- the head of each claim prerequisite is accepted;
+- the head of each decision prerequisite is adopted and applicable.
 
-Otherwise the projected record contains `applicable: false` and `blocked_by`
+A reversal, or a rejected or revoked head, blocks the decision. Otherwise the projected record contains `applicable: false` and `blocked_by`
 with the unavailable prerequisites. Its recorded choice remains adopted, and a
 blocked decision does not resolve a question.
 
@@ -213,7 +213,8 @@ The validator preserves the original record. `project` adds:
 - `recorded_state`;
 - effective `state` for resolved questions;
 - `retired_by` and `resolved_by`;
-- `applicable` and `blocked_by` for decisions.
+- `applicable` and `blocked_by` for decisions;
+- `support`, `review_owed`, `lost_grounds` and `reviews` for claims and decisions.
 
 Retiring a record preserves its recorded state and the recorded states of
 dependent decisions. Their applicability is recalculated, and any older
