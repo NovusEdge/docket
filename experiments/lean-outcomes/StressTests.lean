@@ -439,6 +439,160 @@ end Counterexample
 
 end Order
 
+namespace Justification
+
+-- `j γ` lists alternative justification sets; each inner list is jointly required.
+abbrev Justifications (Claim : Type) := Claim → List (List Claim)
+
+section Generic
+
+variable {Claim : Type}
+
+-- Least fixed point, so a claim holds only through a finite, grounded derivation.
+inductive Holds (j : Justifications Claim) : Claim → Prop where
+  | intro {claim : Claim} (set : List Claim) :
+      set ∈ j claim → (∀ support ∈ set, Holds j support) → Holds j claim
+
+def IsPremise (j : Justifications Claim) (claim : Claim) : Prop :=
+  [] ∈ j claim
+
+def IsReasoned (j : Justifications Claim) (claim : Claim) : Prop :=
+  ∃ set ∈ j claim, set ≠ []
+
+def IsUnsupported (j : Justifications Claim) (claim : Claim) : Prop :=
+  j claim = []
+
+theorem premise_holds (j : Justifications Claim) (claim : Claim)
+    (premise : IsPremise j claim) : Holds j claim :=
+  Holds.intro [] premise (by intro _ member; cases member)
+
+theorem unsupported_never_holds (j : Justifications Claim) (claim : Claim)
+    (unsupported : IsUnsupported j claim) : ¬ Holds j claim := by
+  intro holds
+  cases holds with
+  | intro set member _ =>
+      rw [IsUnsupported] at unsupported
+      rw [unsupported] at member
+      cases member
+
+theorem classification_is_exhaustive (j : Justifications Claim) (claim : Claim) :
+    IsUnsupported j claim ∨ IsPremise j claim ∨ IsReasoned j claim := by
+  unfold IsUnsupported IsPremise IsReasoned
+  cases sets : j claim with
+  | nil => exact Or.inl rfl
+  | cons first rest =>
+      refine Or.inr ?_
+      by_cases empty : first = []
+      · exact Or.inl (by simp [empty])
+      · exact Or.inr ⟨first, by simp, empty⟩
+
+-- Withdrawing a premise removes only its empty justification; other sets remain.
+def withdraw [DecidableEq Claim] (j : Justifications Claim) (premise : Claim) :
+    Justifications Claim :=
+  fun claim => if claim = premise then (j claim).filter (!·.isEmpty) else j claim
+
+theorem withdrawn_is_not_premise [DecidableEq Claim]
+    (j : Justifications Claim) (premise : Claim) :
+    ¬ IsPremise (withdraw j premise) premise := by
+  simp [IsPremise, withdraw]
+
+theorem withdraw_leaves_others [DecidableEq Claim]
+    (j : Justifications Claim) (premise claim : Claim) (other : claim ≠ premise) :
+    withdraw j premise claim = j claim := by
+  simp [withdraw, other]
+
+-- The atomic-by-absence encoding: `j γ = ∅` marks a premise, retained by its own rule.
+inductive HoldsAtomic (j : Justifications Claim) : Claim → Prop where
+  | atomic {claim : Claim} : j claim = [] → HoldsAtomic j claim
+  | reasoned {claim : Claim} (set : List Claim) :
+      set ∈ j claim → (∀ support ∈ set, HoldsAtomic j support) → HoldsAtomic j claim
+
+def assertUnsupported (j : Justifications Claim) : Justifications Claim :=
+  fun claim => if (j claim).isEmpty then [[]] else j claim
+
+theorem encodings_agree (j : Justifications Claim) (claim : Claim) :
+    Holds (assertUnsupported j) claim ↔ HoldsAtomic j claim := by
+  constructor
+  · intro holds
+    induction holds with
+    | @intro claim set member _ supportsHold =>
+        by_cases empty : (j claim).isEmpty
+        · exact HoldsAtomic.atomic (List.isEmpty_iff.mp empty)
+        · simp only [assertUnsupported, empty] at member
+          exact HoldsAtomic.reasoned set member supportsHold
+  · intro holds
+    induction holds with
+    | @atomic claim unsupported =>
+        exact premise_holds _ _ (by simp [IsPremise, assertUnsupported, unsupported])
+    | @reasoned claim set member _ supportsHold =>
+        have nonempty : (j claim).isEmpty = false := by
+          cases sets : j claim with
+          | nil => rw [sets] at member; cases member
+          | cons _ _ => rfl
+        exact Holds.intro set (by simp [assertUnsupported, nonempty, member]) supportsHold
+
+end Generic
+
+namespace AlternativeSurvival
+
+inductive Claim where
+  | premiseA
+  | premiseB
+  | conclusion
+  deriving DecidableEq, Repr
+
+def j : Justifications Claim
+  | .premiseA => [[]]
+  | .premiseB => [[]]
+  | .conclusion => [[.premiseA], [.premiseB]]
+
+theorem conclusion_survives_withdrawing_premiseA :
+    ¬ Holds (withdraw j .premiseA) .premiseA ∧ Holds (withdraw j .premiseA) .conclusion := by
+  constructor
+  · exact unsupported_never_holds _ _ (by simp [IsUnsupported, withdraw, j])
+  · refine Holds.intro [.premiseB] (by decide) ?_
+    intro support member
+    simp at member
+    subst member
+    exact premise_holds _ _ (by simp [IsPremise, withdraw, j])
+
+theorem conclusion_falls_when_both_withdrawn :
+    ¬ Holds (withdraw (withdraw j .premiseA) .premiseB) .conclusion := by
+  intro holds
+  cases holds with
+  | intro set member supportsHold =>
+      have sets : set = [.premiseA] ∨ set = [.premiseB] := by
+        simpa [withdraw, j] using member
+      rcases sets with rfl | rfl
+      · exact unsupported_never_holds _ .premiseA (by simp [IsUnsupported, withdraw, j])
+          (supportsHold _ (by simp))
+      · exact unsupported_never_holds _ .premiseB (by simp [IsUnsupported, withdraw, j])
+          (supportsHold _ (by simp))
+
+end AlternativeSurvival
+
+namespace Circular
+
+inductive Claim where
+  | left
+  | right
+  deriving DecidableEq, Repr
+
+def j : Justifications Claim
+  | .left => [[.right]]
+  | .right => [[.left]]
+
+theorem circular_support_never_holds (claim : Claim) : ¬ Holds j claim := by
+  intro holds
+  induction holds with
+  | @intro claim set member _ supportsFail =>
+      cases claim <;> simp [j] at member <;> subst member <;>
+        exact supportsFail _ (List.mem_singleton_self _)
+
+end Circular
+
+end Justification
+
 end Docket.StressTests
 
 def main : IO Unit := do
@@ -451,3 +605,6 @@ def main : IO Unit := do
   IO.println "4. PASS WITH LIMIT: transitive retraction is sound for jointly required supports."
   IO.println "   FAIL: a flat support set over-retracts alternative justifications."
   IO.println "5. PASS: commuting answer updates are permutation-invariant; two-update invariance iff they commute."
+  IO.println "6. PASS: premises as j(γ) ∋ ∅ need no separate retention rule and agree with the atomic-by-absence rule."
+  IO.println "   PASS: a conclusion survives one withdrawn alternative and falls when every alternative is withdrawn."
+  IO.println "   PASS: circular support never holds under the least-fixed-point reading."

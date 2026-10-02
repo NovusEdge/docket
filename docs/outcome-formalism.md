@@ -98,24 +98,17 @@ j : \Gamma \to 2^{2^\Gamma}
 
 The claim classifications are:
 
-- A claim `γ` is **atomic** when `j(γ) = ∅`.
-- A claim `γ` is **reasoned** when it has at least one non-empty justification
-  set.
+- A claim `γ` is a **premise** (atomic) when `∅ ∈ j(γ)`.
+- A claim `γ` is **reasoned** when it has at least one non-empty justification set.
+- A claim `γ` is **unsupported** when `j(γ) = ∅`.
 
-These definitions leave the empty-support case
-$j(\gamma) = \{\varnothing\}$ unclassified.
+Every claim falls under at least one class, and a claim can be both a premise and reasoned.
 
-This structure extends a truth maintenance system with alternative support
-(Doyle 1979; de Kleer 1986). When an atomic premise becomes unavailable,
-propagate that change through the support relation. Retain a reasoned claim
-while one complete justification set survives. Retain other atomic claims until
-the work withdraws them explicitly.
+This structure extends a truth maintenance system with alternative support (Doyle 1979; de Kleer 1986), and follows its convention that a premise has a justification with no antecedents. One rule then decides every claim: `γ` holds when every member of some set in `j(γ)` holds, read as a least fixed point. Withdrawing a premise removes `∅` from its justifications, and the change propagates through the support relation. A reasoned claim is retained while one complete justification set survives.
 
-The regress problem remains. Every reasoned claim needs support, and that support
-needs support. The chain terminates at atomic claims, loops, or continues
-without end. Treating atomic claims as self-evident is foundationalism. It is an
-assumption that the formalism does not establish, and the paper should state it
-as one.
+An earlier draft marked atomic claims by `j(γ) = ∅` and retained them with a separate clause. Under the single rule such a claim never holds. Adding `{∅}` to every claim with no justification recovers exactly the claims the earlier rule retained, so the change removes the clause without changing any result. The Lean stress tests check this agreement.
+
+The regress problem remains in part. Every reasoned claim needs support, and that support needs support. The chain terminates at premises, loops, or continues without end. The least-fixed-point reading gives circular support no force, and a ledger whose relations point only at earlier records admits neither loops nor infinite chains. Treating premises as self-evident is still foundationalism. It is an assumption that the formalism does not establish, and the paper should state it as one.
 
 ## Decomposition
 
@@ -215,8 +208,8 @@ The formalism leaves these questions open:
    Real systems do not always satisfy this condition. Option order changes some
    benchmark results by up to 75 percent ([2308.11483](https://arxiv.org/abs/2308.11483)), and premise order changes
    results on deductive tasks ([2502.04134](https://arxiv.org/abs/2502.04134)).
-2. Deciding that a claim is atomic is itself a reasoning step and can be wrong.
-   There is no ground truth for self-evidence.
+2. Deciding that a claim is a premise is itself a reasoning step and can be wrong.
+   There is no ground truth for self-evidence. In practice premises rest on observation: across eleven project ledgers, 97 of 111 current accepted claims with no declared support carry evidence references. A premise may therefore be closer to an ATMS assumption, holding while its evidence check holds, than to a self-evident axiom.
 3. A visible chain often fails to reflect the computation that produced the
    answer ([2503.08679](https://arxiv.org/abs/2503.08679), [2606.13603](https://arxiv.org/abs/2606.13603)). A formalism over stated chains therefore
    describes what the system reports; the underlying computation remains

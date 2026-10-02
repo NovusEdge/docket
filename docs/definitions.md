@@ -142,35 +142,32 @@ Each inner set is one complete, independent support for the claim.
 ```math
 \begin{aligned}
 j &: \Gamma \to 2^{2^\Gamma} \\
-\gamma \text{ is atomic} &\iff j(\gamma) = \varnothing \\
-\gamma \text{ is reasoned} &\iff \exists A \in j(\gamma) : A \ne \varnothing
+\gamma \text{ is a premise} &\iff \varnothing \in j(\gamma) \\
+\gamma \text{ is reasoned} &\iff \exists A \in j(\gamma) : A \ne \varnothing \\
+\gamma \text{ is unsupported} &\iff j(\gamma) = \varnothing
 \end{aligned}
 ```
 
-An **atomic claim** is a premise that the work asserts. A **reasoned claim** has
-at least one non-empty justification set. A flat set of premises,
-$j(\gamma) = \{A\}$, uses the same rule with a single alternative.
+A **premise** (atomic claim) is one the work asserts: the empty set is among its justifications, and the empty set is trivially complete. A **reasoned claim** has at least one non-empty justification set. A claim can be both, in which case its reasons take over when the premise is withdrawn. An **unsupported claim** has no justification at all. Every claim falls under at least one of the three.
 
-These definitions leave the empty-support case
-$j(\gamma) = \{\varnothing\}$ unclassified.
+This follows the truth maintenance convention, where a premise has a justification with no antecedents and an ATMS premise holds in the empty environment. The convention matters because one rule then covers every claim:
 
-This structure extends a truth maintenance system with alternative support.
-Withdrawing an atomic premise makes that premise unavailable. The change can
-make reasoned claims unavailable in turn.
+```math
+\gamma \text{ holds} \iff \exists A \in j(\gamma) : \forall \alpha \in A,\ \alpha \text{ holds}
+```
 
-Retain a reasoned claim while one complete justification set survives. Retract
-the claim when no complete justification set survives. Retain other atomic
-claims unless the work withdraws them explicitly.
+Read the rule as a least fixed point, so a claim holds only through a finite derivation that ends at premises. Under it, a premise always holds, an unsupported claim never does, and claims that support only each other never do. Withdrawing a premise removes `∅` from its justifications and changes nothing else. The change can make reasoned claims unavailable in turn: retain a reasoned claim while one complete justification set survives, and retract it when none does.
 
-This `j` relation is the formal justification model. Schema 2 uses `supports` to
-record declared grounds; the field does not describe an automatic runtime
-retraction rule. Implemented `supports` can target a claim or a decision and
-carries no entailment or automatic truth-maintenance behavior.
+The earlier definition marked atomic claims by $j(\gamma) = \varnothing$ and kept them with a separate clause. Adding $\{\varnothing\}$ to every claim with no justification turns that definition into this one without changing which claims hold. The Lean proofs check this agreement, the alternative-survival case, and the circular case in `experiments/lean-outcomes/StressTests.lean`.
 
-Treating atomic claims as self-evident is foundationalism. It is an assumption,
+This `j` relation is the formal justification model. Schema 2 uses `supports` to record declared grounds; a record with empty `supports` reads as a premise, $j(\gamma) = \{\varnothing\}$, and a record with sets reads as those sets. The validator rejects an empty inner list, so the ledger cannot write $\{\varnothing\}$ directly. The field does not describe an automatic runtime retraction rule. Implemented `supports` can target a claim or a decision and carries no entailment or automatic truth-maintenance behavior.
+
+Treating premises as self-evident is foundationalism. It is an assumption,
 not a result. The regress it answers is real: every reasoned claim needs support,
 that support needs support, and the chain terminates, loops, or continues without
-end.
+end. The least-fixed-point reading rules out the loop, and the ledger rules out
+both the loop and the endless chain, because every relation points at an earlier
+record. What remains assumed is that the premises themselves are sound.
 
 ## Decomposition
 

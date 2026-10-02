@@ -1,6 +1,6 @@
 # Formalism stress tests
 
-These Lean checks test five claims from the outcome formalism. A successful Lean
+These Lean checks test six claims from the outcome formalism. A successful Lean
 proof means the conclusion follows from the stated definitions and assumptions.
 It does not show that those assumptions describe real agents.
 
@@ -12,7 +12,7 @@ lean --run StressTests.lean
 ```
 
 The first command exits silently with code 0 when every proof is complete. The
-second prints the result summary. The source contains 24 checked theorems and no
+second prints the result summary. The source contains 33 checked theorems and no
 custom axioms or admitted goals.
 
 ## 1. Intended and unintended reduction: passes with a scope condition
@@ -131,9 +131,22 @@ noninterference. Independence of the propositions alone says nothing about how
 their answers update shared state. Docket records this characterization as
 `d11`, depending on the parallel-composition result `d8`.
 
+## 6. Premises: one retention rule passes
+
+Model `j(γ)` as a list of alternative justification sets, and read "holds" as the least fixed point: `γ` holds when every member of one of its sets holds. Under this one rule, a claim with `j(γ) = ∅` never holds, and a claim with `∅ ∈ j(γ)` always holds because the empty set is trivially complete. This matches the TMS convention, where a premise has a justification with no antecedents (Doyle 1979) and an ATMS premise carries the label `{{}}` (de Kleer 1986).
+
+The earlier definition marked atomic claims by `j(γ) = ∅` and needed a separate clause to retain them. Lean proves the two encodings agree: putting `{∅}` on every claim with no justification, then applying the single rule, holds exactly the claims the atomic-by-absence rule holds. The change is conservative and removes the special clause.
+
+With premises marked by `∅ ∈ j(γ)`, the classification becomes total. Every claim is unsupported (`j(γ) = ∅`), a premise (`∅ ∈ j(γ)`), or reasoned (some nonempty set). A claim can be both a premise and reasoned; its reasons take over when the premise is withdrawn.
+
+Withdrawing a premise removes `∅` from its justifications and changes nothing else. Lean checks a conclusion with two alternatives `{A}` and `{B}`: withdrawing `A` leaves it holding through `B`, and withdrawing both makes it fall. This repairs the flat-support counterexample in section 4.
+
+Lean also proves that two claims supporting only each other never hold. The least-fixed-point reading admits no circular support, so the regress ends at premises or at claims that do not hold. Docket's ledger enforces the same outcome syntactically, because every relation must point at an earlier record.
+
 ## Implications for the paper
 
 The central reduction survives as a clean representation result. The claims
 about consequence operators and parallel validity need revision. The retraction
 claim needs an explicit conjunctive-support assumption, and order invariance
-needs commutative updates rather than an informal independence label.
+needs commutative updates rather than an informal independence label. Premises
+belong in `j` as the empty justification set, which makes retention one rule.
