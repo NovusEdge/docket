@@ -12,7 +12,7 @@ import json
 import sys
 from pathlib import Path
 
-from docket import env, feature_archive, feature_project, features
+from docket import env, feature_archive, feature_project, features, merge_setup
 from docket.ledger import ID_RE, LedgerError, _Prefix, append, validate_record
 
 
@@ -251,6 +251,8 @@ def cmd_init(args: argparse.Namespace) -> int:
         # The append lock is local state. A team that commits .docket/ would
         # otherwise commit it.
         ignore.write_text("*.lock\n", encoding="utf-8")
+    for message in merge_setup.setup(root):
+        print(message)
     if target.exists():
         print(f"docket: already project-local at {target}")
         return 0

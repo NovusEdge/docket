@@ -650,6 +650,15 @@ class InitTests(unittest.TestCase):
             run(home, "init")
             self.assertEqual(ignore.read_text(encoding="utf-8"), "# mine\n")
 
+    def test_init_twice_writes_the_merge_attribute_once(self):
+        with tempfile.TemporaryDirectory() as home:
+            subprocess.run(["git", "init", "-q"], cwd=home, check=True)
+            self.assertEqual(run(home, "init").returncode, 0)
+            second = run(home, "init")
+            self.assertEqual(second.returncode, 0, second.stderr)
+            lines = (Path(home) / ".gitattributes").read_text(encoding="utf-8").splitlines()
+            self.assertEqual(lines.count(".docket/ledger.jsonl merge=docket"), 1)
+
 
 class CheckTests(unittest.TestCase):
     def test_check_passes_on_a_good_ledger(self):

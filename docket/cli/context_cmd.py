@@ -50,6 +50,15 @@ def update_line() -> str | None:
         return None
 
 
+def _merge_notice() -> str | None:
+    from docket import merge_setup
+
+    try:
+        return merge_setup.notice(env.project_root())
+    except Exception:
+        return None
+
+
 def _print_context(text: str, args: argparse.Namespace, notice: str | None = None) -> int:
     body = f"{notice}\n{text}" if notice else text
     if not body:
@@ -120,7 +129,7 @@ def cmd_context(args: argparse.Namespace) -> int:
     except ConfigError as exc:
         print(f"docket: {exc}", file=sys.stderr)
         return 1
-    line = update_line()
+    line = "\n".join(filter(None, (update_line(), _merge_notice()))) or None
     # Validate against the loaded minimum, not a literal. A config that raises
     # budget.minimum would otherwise let a too-small value through and surface
     # as an uncaught ValueError from the renderer.
