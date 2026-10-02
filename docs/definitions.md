@@ -281,6 +281,8 @@ their history. Supersession does not revoke dependents automatically.
 
 A cited record's state counts too: `unassessed`, `disputed`, or a blocked decision flags the citing record; `rejected` or `revoked` removes the ground. `docket review ID` clears a flag for the head it was reviewed against.
 
+A record whose support is circular and never grounded is flagged with `because: circular`. Forward resolution can create such a cycle: the least fixed point says the record does not hold, and the greatest fixed point says nothing withdrew it. A reversal, rejection or revocation inside the cycle still removes the ground.
+
 A missing reason reads as `revise`, so omitting it costs a review flag and never hides one. Use `docket correct` instead when the record's id should stay and nothing but a correctable field changes. The Lean proofs check these three outcomes and show that they reduce to the plain retention rule when nothing is superseded.
 
 ### Applicability and action gates

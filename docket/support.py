@@ -53,7 +53,7 @@ def evaluate(
     by_id = {entry["id"]: entry for entry in entries}
     reason_of = {entry["id"]: entry.get("supersede_reason", DEFAULT_REASON) for entry in entries}
     graded = [entry for entry in entries if entry["kind"] in ("claim", "decision")]
-    level = {entry["id"]: UNSUPPORTED for entry in graded}
+    circular: set[str] = set()
     pins = {
         entry["id"]: {
             (ground, head)
@@ -63,7 +63,7 @@ def evaluate(
         for entry in graded
     }
 
-    def ground(owner: str, cited: str) -> tuple[int, str, str]:
+    def ground(owner: str, cited: str, level: Mapping[str, int]) -> tuple[int, str, str]:
         head, crossed = head_of(cited, retired, reason_of)
         target = by_id[head]
         value, because = CLEAN, ""
@@ -71,6 +71,7 @@ def evaluate(
             ("reverse" in crossed, UNSUPPORTED, "reverse"),
             (target["state"] in ("rejected", "revoked"), UNSUPPORTED, target["state"]),
             (level.get(head) == UNSUPPORTED, UNSUPPORTED, "unsupported"),
+            (head in circular, FLAGGED, "circular"),
             ("revise" in crossed, FLAGGED, "revise"),
             (target["state"] in ("unassessed", "disputed"), FLAGGED, target["state"]),
             (target["kind"] == "decision" and applicable.get(head) is False, FLAGGED, "blocked"),
@@ -95,26 +96,34 @@ def evaluate(
                 owed.append((cited, head))
         return owed
 
-    def record_level(entry: Mapping[str, Any]) -> int:
+    def record_level(entry: Mapping[str, Any], level: Mapping[str, int]) -> int:
         value = CLEAN
         if entry["supports"]:
             value = max(
-                min(ground(entry["id"], cited)[0] for cited in group) for group in entry["supports"]
+                min(ground(entry["id"], cited, level)[0] for cited in group)
+                for group in entry["supports"]
             )
         if prerequisites(entry):
             value = min(value, FLAGGED)
         return value
 
-    # Least fixed point from the bottom: every record starts unsupported and
-    # only rises, so a cycle through forward resolution supports nothing.
-    changed = True
-    while changed:
-        changed = False
-        for entry in graded:
-            new = record_level(entry)
-            if new != level[entry["id"]]:
-                level[entry["id"]] = new
-                changed = True
+    def fixed_point(start: int) -> dict[str, int]:
+        level = {entry["id"]: start for entry in graded}
+        changed = True
+        while changed:
+            changed = False
+            for entry in graded:
+                new = record_level(entry, level)
+                if new != level[entry["id"]]:
+                    level[entry["id"]] = new
+                    changed = True
+        return level
+
+    # Support that only the least fixed point denies is circular: nothing
+    # grounds it, but nothing withdrew it either, so it is flagged, not lost.
+    low, high = fixed_point(UNSUPPORTED), fixed_point(CLEAN)
+    circular.update(ident for ident in low if low[ident] != high[ident])
+    level = {ident: FLAGGED if ident in circular else low[ident] for ident in low}
 
     result: dict[str, dict[str, Any]] = {}
     for entry in graded:
@@ -122,7 +131,8 @@ def evaluate(
         owed: list[dict[str, str]] = []
         lost: list[dict[str, str]] = []
         sets = [
-            [(cited, *ground(entry["id"], cited)) for cited in group] for group in entry["supports"]
+            [(cited, *ground(entry["id"], cited, level)) for cited in group]
+            for group in entry["supports"]
         ]
         for values in sets:
             worst = min(value for _, value, _, _ in values)

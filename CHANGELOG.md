@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- A supersession can carry `--supersede-reason restate|revise|reverse`, and every claim and decision derives `support` (`clean`, `flagged` or `unsupported`) with `review_owed` and `lost_grounds`. A citation follows supersessions to the head of its chain: a restatement keeps the citing record clean, a revision flags it, a reversal removes the ground. `unassessed`, `disputed` and blocked grounds flag; `rejected` and `revoked` grounds are lost.
+- A supersession can carry `--supersede-reason restate|revise|reverse`, and every claim and decision derives `support` (`clean`, `flagged` or `unsupported`) with `review_owed` and `lost_grounds`. A citation follows supersessions to the head of its chain: a restatement keeps the citing record clean, a revision flags it, a reversal removes the ground. `unassessed`, `disputed` and blocked grounds flag; `rejected` and `revoked` grounds are lost. Support that is circular and never grounded is flagged with `because: circular` rather than lost.
 - `docket review ID [--note TEXT]` clears a record's flags for the heads it was reviewed against. A later revision of the same chain raises the flag again.
 - `docket correct ID --supersede-reason VALUE` relabels a supersession. `--where` takes `is:flagged` and `is:unsupported`.
 

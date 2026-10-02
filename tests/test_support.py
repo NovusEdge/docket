@@ -139,13 +139,36 @@ class PropagationTests(unittest.TestCase):
             record["review_owed"], [{"ground": "c1", "head": "c5", "because": "revise"}]
         )
 
-    def test_a_cycle_gives_itself_no_support(self):
-        entries = [
+    def cycle(self, reason):
+        return [
             claim("c1"),
             claim("c2", supports=[["c1"]]),
-            claim("c3", supports=[["c2"]], supersedes=["c1"], supersede_reason="restate"),
+            claim("c3", supports=[["c2"]], supersedes=["c1"], supersede_reason=reason),
         ]
-        self.assertEqual([at(entries, i)["support"] for i in ("c2", "c3")], ["unsupported"] * 2)
+
+    def test_an_ungrounded_cycle_is_flagged_circular(self):
+        entries = self.cycle("restate")
+        self.assertEqual([at(entries, i)["support"] for i in ("c2", "c3")], ["flagged"] * 2)
+        self.assertIn(
+            {"ground": "c1", "head": "c3", "because": "circular"}, at(entries, "c2")["review_owed"]
+        )
+
+    def test_the_repository_cycle_shape_is_flagged(self):
+        entries = [
+            claim("c1", state="disputed"),
+            claim("c2", state="unassessed", supports=[["c1"]]),
+            claim("c3", supports=[["c2"]], supersedes=["c1"]),
+            decision("d4", supports=[["c1"]]),
+        ]
+        c3, d4 = at(entries, "c3"), at(entries, "d4")
+        self.assertEqual((c3["support"], d4["support"]), ("flagged", "flagged"))
+        self.assertEqual(d4["review_owed"], [{"ground": "c1", "head": "c3", "because": "circular"}])
+        self.assertEqual((c3["lost_grounds"], d4["lost_grounds"]), ([], []))
+
+    def test_a_real_loss_inside_a_cycle_stays_unsupported(self):
+        record = at(self.cycle("reverse"), "c2")
+        self.assertEqual(record["support"], "unsupported")
+        self.assertEqual(record["lost_grounds"], [{"ground": "c1", "because": "reverse"}])
 
     def test_a_cycle_member_holds_through_another_set(self):
         entries = [
