@@ -551,7 +551,14 @@ class ContextTests(unittest.TestCase):
     def test_blocking_path_names_retirement_rather_than_recorded_state(self):
         records = [
             entry("c1", "claim", "Superseded premise", state="accepted"),
-            entry("c2", "claim", "Replacement", state="accepted", supersedes=("c1",)),
+            entry(
+                "c2",
+                "claim",
+                "Replacement",
+                state="accepted",
+                supersedes=("c1",),
+                supersede_reason="reverse",
+            ),
             entry(
                 "d3",
                 "decision",
@@ -563,8 +570,8 @@ class ContextTests(unittest.TestCase):
         ]
         rendered = build_context(projected(records), files=("lib/cache.py",), ledger="repo")
         # c1's effective state is still "accepted"; the reason it cannot be used
-        # is that c2 retired it.
-        self.assertIn("blocked: c1 retired", rendered)
+        # is that c2 reversed it.
+        self.assertIn("blocked: c1 reversed", rendered)
 
     def test_blocking_path_stops_on_a_cycle(self):
         records = [
