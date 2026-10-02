@@ -8,6 +8,137 @@ model and its proofs are in experiments/lean-outcomes/STRESS-TESTS.md, section 7
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 REASONS = ("restate", "revise", "reverse")
 # A missing reason costs a review flag and never hides one.
 DEFAULT_REASON = "revise"
+
+UNSUPPORTED, FLAGGED, CLEAN = 0, 1, 2
+NAMES = {UNSUPPORTED: "unsupported", FLAGGED: "flagged", CLEAN: "clean"}
+_SURFACED_STATES = ("accepted", "adopted")
+
+
+def head_of(
+    ident: str, retired: Mapping[str, str], reason_of: Mapping[str, str]
+) -> tuple[str, list[str]]:
+    """The current record a citation resolves to, and the reasons crossed on the way.
+
+    Docket refuses to supersede a retired record, so each record has at most one
+    successor and the walk ends.
+    """
+    crossed: list[str] = []
+    while ident in retired:
+        ident = retired[ident]
+        crossed.append(reason_of.get(ident, DEFAULT_REASON))
+    return ident, crossed
+
+
+def surfaced(entry: Mapping[str, Any], status: str) -> bool:
+    """Whether a projected record shows ``status`` to a reader."""
+    return (
+        entry.get("support") == status
+        and not entry.get("retired_by")
+        and entry.get("recorded_state", entry.get("state")) in _SURFACED_STATES
+    )
+
+
+def evaluate(
+    entries: list[dict[str, Any]],
+    retired: Mapping[str, str],
+    applicable: Mapping[str, bool],
+) -> dict[str, dict[str, Any]]:
+    """Support status for every claim and decision in folded ``entries``."""
+    by_id = {entry["id"]: entry for entry in entries}
+    reason_of = {entry["id"]: entry.get("supersede_reason", DEFAULT_REASON) for entry in entries}
+    graded = [entry for entry in entries if entry["kind"] in ("claim", "decision")]
+    level = {entry["id"]: UNSUPPORTED for entry in graded}
+    pins = {
+        entry["id"]: {
+            (ground, head)
+            for review in entry.get("reviews", [])
+            for ground, head in review["grounds"].items()
+        }
+        for entry in graded
+    }
+
+    def ground(owner: str, cited: str) -> tuple[int, str, str]:
+        head, crossed = head_of(cited, retired, reason_of)
+        target = by_id[head]
+        value, because = CLEAN, ""
+        for applies, to, why in (
+            ("reverse" in crossed, UNSUPPORTED, "reverse"),
+            (target["state"] in ("rejected", "revoked"), UNSUPPORTED, target["state"]),
+            (level.get(head) == UNSUPPORTED, UNSUPPORTED, "unsupported"),
+            ("revise" in crossed, FLAGGED, "revise"),
+            (target["state"] in ("unassessed", "disputed"), FLAGGED, target["state"]),
+            (target["kind"] == "decision" and applicable.get(head) is False, FLAGGED, "blocked"),
+            (level.get(head) == FLAGGED, FLAGGED, "flagged"),
+        ):
+            if applies and to < value:
+                value, because = to, why
+        if value == FLAGGED and (cited, head) in pins[owner]:
+            value, because = CLEAN, ""
+        return value, head, because
+
+    def prerequisites(entry: Mapping[str, Any]) -> list[tuple[str, str]]:
+        """Revised prerequisites the decision has not reviewed; reversals block instead."""
+        owed = []
+        for cited in entry.get("depends_on", []):
+            head, crossed = head_of(cited, retired, reason_of)
+            if (
+                "revise" in crossed
+                and "reverse" not in crossed
+                and (cited, head) not in pins[entry["id"]]
+            ):
+                owed.append((cited, head))
+        return owed
+
+    def record_level(entry: Mapping[str, Any]) -> int:
+        value = CLEAN
+        if entry["supports"]:
+            value = max(
+                min(ground(entry["id"], cited)[0] for cited in group) for group in entry["supports"]
+            )
+        if prerequisites(entry):
+            value = min(value, FLAGGED)
+        return value
+
+    # Least fixed point from the bottom: every record starts unsupported and
+    # only rises, so a cycle through forward resolution supports nothing.
+    changed = True
+    while changed:
+        changed = False
+        for entry in graded:
+            new = record_level(entry)
+            if new != level[entry["id"]]:
+                level[entry["id"]] = new
+                changed = True
+
+    result: dict[str, dict[str, Any]] = {}
+    for entry in graded:
+        status = level[entry["id"]]
+        owed: list[dict[str, str]] = []
+        lost: list[dict[str, str]] = []
+        sets = [
+            [(cited, *ground(entry["id"], cited)) for cited in group] for group in entry["supports"]
+        ]
+        for values in sets:
+            worst = min(value for _, value, _, _ in values)
+            for cited, value, head, because in values:
+                if status == FLAGGED and worst == FLAGGED and value == FLAGGED:
+                    item = {"ground": cited, "head": head, "because": because}
+                    if item not in owed:
+                        owed.append(item)
+                if status == UNSUPPORTED and value == UNSUPPORTED:
+                    item = {"ground": cited, "because": because}
+                    if item not in lost:
+                        lost.append(item)
+        if status == FLAGGED:
+            for cited, head in prerequisites(entry):
+                item = {"ground": cited, "head": head, "because": "revise"}
+                if item not in owed:
+                    owed.append(item)
+        result[entry["id"]] = {"support": NAMES[status], "review_owed": owed, "lost_grounds": lost}
+    return result

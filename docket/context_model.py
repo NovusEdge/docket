@@ -30,10 +30,14 @@ def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
 
 
+_DERIVED = frozenset({"support", "review_owed", "lost_grounds"})
+
+
 def _canonical_history(entries: list[Mapping[str, Any]]) -> str:
-    return json.dumps(
-        entries, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str
-    )
+    # Derived from the hashed history, so including them would change every
+    # digest whenever the evaluation code changes.
+    kept = [{k: v for k, v in entry.items() if k not in _DERIVED} for entry in entries]
+    return json.dumps(kept, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
 
 
 def _revision(entries: list[Mapping[str, Any]]) -> str:

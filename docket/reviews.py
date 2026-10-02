@@ -122,3 +122,18 @@ def make(
         "session": session,
         "branch": branch,
     }
+
+
+def refuse(entries: list[dict[str, Any]], review: dict[str, Any]) -> None:
+    """Fill ``grounds`` with what the record owes now, or refuse a review of nothing."""
+    from docket.ledger import _error, project
+
+    target = next(
+        (e for e in project(entries, validated=True) if e["id"] == review["reviews"]), None
+    )
+    if target is None or target["kind"] not in ("claim", "decision"):
+        raise _error(review["id"], f"no claim or decision {review['reviews']!r} to review")
+    owed = target.get("review_owed") or []
+    if not owed:
+        raise _error(review["id"], "nothing to review: the record owes no review")
+    review["grounds"] = {item["ground"]: item["head"] for item in owed}

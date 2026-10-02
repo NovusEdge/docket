@@ -580,6 +580,9 @@ def _decision_applicability(
     by_id = {entry["id"]: entry for entry in entries}
     applicable: dict[str, bool] = {}
     blocked: dict[str, list[str]] = {}
+    reason_of = {
+        entry["id"]: entry.get("supersede_reason", support.DEFAULT_REASON) for entry in entries
+    }
 
     # Validation refuses a reference to a later id, so a validated ledger is
     # acyclic. project(validated=True) skips that check, and a cycle there would
@@ -611,7 +614,11 @@ def _decision_applicability(
         blockers: list[str] = []
         seen: set[str] = set()
         for dependency in entry["depends_on"]:
-            ok, reasons = check(dependency)
+            head, crossed = support.head_of(dependency, retired, reason_of)
+            if "reverse" in crossed:
+                ok, reasons = False, [head]
+            else:
+                ok, reasons = check(head)
             if not ok:
                 for reason in [dependency, *reasons]:
                     if reason not in seen:
@@ -641,6 +648,7 @@ def project(entries: list[dict[str, Any]], *, validated: bool = False) -> list[d
     retired = retired_by(entries)
     answers = resolved_by(entries)
     applicability, blocked = _decision_applicability(entries, retired)
+    statuses = support.evaluate(entries, retired, applicability)
     result = []
     for entry in entries:
         # Shallow by design. Only top-level keys are added below, and the two
@@ -656,6 +664,8 @@ def project(entries: list[dict[str, Any]], *, validated: bool = False) -> list[d
         if entry["kind"] == "decision":
             projected["applicable"] = applicability.get(entry["id"], False)
             projected["blocked_by"] = list(blocked.get(entry["id"], []))
+        if entry["id"] in statuses:
+            projected.update(statuses[entry["id"]])
         result.append(projected)
     return result
 

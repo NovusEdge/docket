@@ -27,8 +27,10 @@ def entry(
     cost_if_wrong="",
     decided_by="",
     supersedes=(),
+    supersede_reason=None,
 ):
     kwargs = dict(
+        supersede_reason=supersede_reason,
         state=state,
         scope=list(scope),
         rationale=rationale,
@@ -866,7 +868,14 @@ class DeltaTests(unittest.TestCase):
         records = [
             entry("c1", "claim", "The cache is reliable", state="accepted"),
             entry("d2", "decision", "Serve from the cache", choice="serve", depends_on=("c1",)),
-            entry("c3", "claim", "Replace the premise", state="accepted", supersedes=("c1",)),
+            entry(
+                "c3",
+                "claim",
+                "Replace the premise",
+                state="accepted",
+                supersedes=("c1",),
+                supersede_reason="reverse",
+            ),
         ]
         delta = build_delta(
             projected(records), since="d2", baseline=projected(records[:2]), ledger="repo"
@@ -972,7 +981,14 @@ class DeltaTests(unittest.TestCase):
         raw = [
             entry("c1", "claim", "A premise", state="accepted"),
             entry("d2", "decision", "Serve from the cache", choice="serve", depends_on=("c1",)),
-            entry("c3", "claim", "Replace the premise", state="accepted", supersedes=("c1",)),
+            entry(
+                "c3",
+                "claim",
+                "Replace the premise",
+                state="accepted",
+                supersedes=("c1",),
+                supersede_reason="reverse",
+            ),
             self.correction("c1.1", "c1", {"rationale": "Measured."}),
             self.correction("c3.1", "c3", {"rationale": "Measured."}),
         ]
