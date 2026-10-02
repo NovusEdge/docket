@@ -34,10 +34,15 @@ READERS = re.compile(
 # rewrite a tracked ledger from history, `find -delete` removes it, `sort -o`
 # and `uniq in out` write over it. The name alone settles nothing for these, so
 # their arguments decide.
-GIT_READ_SUBCOMMANDS = frozenset(
+# add, stage and commit copy the file into the index and object store and leave
+# the working copy alone; committing the ledger with its work is the documented
+# workflow, so asking there trains people to approve the prompt blind.
+GIT_LEAVES_FILE = frozenset(
     {
+        "add",
         "blame",
         "cat-file",
+        "commit",
         "diff",
         "grep",
         "log",
@@ -47,6 +52,7 @@ GIT_READ_SUBCOMMANDS = frozenset(
         "rev-parse",
         "show",
         "shortlog",
+        "stage",
         "status",
     }
 )
@@ -74,7 +80,7 @@ def _git_writes(args: list[str]) -> bool:
             continue
         if arg.startswith("-"):
             continue
-        return arg not in GIT_READ_SUBCOMMANDS
+        return arg not in GIT_LEAVES_FILE
     return False
 
 
@@ -109,6 +115,20 @@ OPAQUE = re.compile(
     r"|\beval\b|\bexec\b"
     r"|base64\s+(?:-d|--decode)"
 )
+
+# A quoted delimiter makes the body literal: the shell expands nothing in it.
+# Commit tooling passes messages this way, through `-F -` or `-m "$(cat <<'EOF'
+# ...)"`, and a message about ledger work names the ledger and quotes backticks.
+# The body ends at the first line holding only the tag; matching trailing blanks
+# can only end it earlier than the shell does, which leaves more text to check.
+_QUOTED_HEREDOC = (
+    r"<<-?[ \t]*(?P<q>['\"])(?P<tag>\w+)(?P=q)(?P<rest>[^\n]*)\n"
+    r"(?:.*?\n)??[ \t]*(?P=tag)[ \t]*(?=\n|$)"
+)
+CAT_MESSAGE = re.compile(r"\$\(\s*cat\s+" + _QUOTED_HEREDOC + r"\s*\)", re.S)
+HEREDOC_MESSAGE = re.compile(_QUOTED_HEREDOC, re.S)
+
+SEGMENT_SPLIT = re.compile(r"\|\||&&|[;|&\n]")
 
 
 def global_root() -> Path:
@@ -164,14 +184,13 @@ def bash_targets_ledger(command: str, cwd: str) -> bool:
     words = re.findall(r"[^\s'\"<>|;&()]+", command)
     if not any(_names_ledger(word, cwd) for word in words):
         return False
+    command = _drop_git_messages(command)
     if OPAQUE.search(command):
         return True
     if ">" in command:
         return True
-    for segment in re.split(r"\|\||&&|[;|&\n]", command):
-        head = segment.strip().split()
-        while head and ("=" in head[0] and not head[0].startswith("-")):
-            head = head[1:]  # env assignments before the command
+    for segment in SEGMENT_SPLIT.split(command):
+        head = _command_words(segment)
         if not head:
             continue
         name = head[0]
@@ -183,6 +202,24 @@ def bash_targets_ledger(command: str, cwd: str) -> bool:
         if any(_names_ledger(word, cwd) for word in head):
             return True
     return False
+
+
+def _command_words(segment: str) -> list[str]:
+    words = segment.strip().split()
+    while words and ("=" in words[0] and not words[0].startswith("-")):
+        words = words[1:]  # env assignments before the command
+    return words
+
+
+def _drop_git_messages(command: str) -> str:
+    """Remove quoted-heredoc commit messages that feed a git command."""
+
+    def feeds_git(match: re.Match[str]) -> bool:
+        words = _command_words(SEGMENT_SPLIT.split(match.string[: match.start()])[-1])
+        return bool(words) and Path(words[0]).name == "git"
+
+    command = CAT_MESSAGE.sub(lambda m: "MESSAGE" if feeds_git(m) else m.group(0), command)
+    return HEREDOC_MESSAGE.sub(lambda m: m.group("rest") if feeds_git(m) else m.group(0), command)
 
 
 def targeted_path(payload: dict) -> str:

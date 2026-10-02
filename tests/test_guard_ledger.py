@@ -112,6 +112,34 @@ class BashTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual(bash(command), "allow")
 
+    def test_committing_a_ledger_passes(self):
+        for command in (
+            "git add .docket/ledger.jsonl",
+            "git add .docket/",
+            "git stage .docket/ledger.jsonl",
+            "git commit -m 'record decisions' .docket/ledger.jsonl",
+            "docket check && git add .docket/ledger.jsonl && git commit -m 'record decisions'",
+            "git add .docket/ledger.jsonl docs/a.md && git commit -s -F - <<'EOF'\n"
+            "formalism: mention `docket` and $(x) in .docket/ledger.jsonl\nEOF",
+            "git add .docket/ledger.jsonl && git commit -m \"$(cat <<'EOF'\n"
+            'msg with `ticks` > and .docket/ledger.jsonl\nEOF\n)"',
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(bash(command), "allow")
+
+    def test_a_commit_message_cannot_hide_a_write(self):
+        for command in (
+            # An unquoted delimiter expands the body, so the substitution runs.
+            "git commit -F - <<EOF\n$(rm .docket/ledger.jsonl)\nEOF",
+            "git commit -F - <<'EOF'\nmsg\nEOF\nrm .docket/ledger.jsonl",
+            "git add .docket/ledger.jsonl && python3 - <<'PY'\nopen('.docket/ledger.jsonl','a')\nPY",
+            "cat <<'EOF' > .docket/ledger.jsonl\n{}\nEOF",
+            "git rm .docket/ledger.jsonl",
+            "git checkout main -- . && cat .docket/ledger.jsonl",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(bash(command), "ask")
+
     def test_an_opaque_command_naming_a_ledger_asks(self):
         # None of these say what they do, which is the point of asking.
         for command in (

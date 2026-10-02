@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The ledger guard no longer asks before `git add`, `git stage` or `git commit` on a ledger, and no longer treats a quoted-heredoc commit message (`-F - <<'EOF'` or `-m "$(cat <<'EOF' ...)"`) as an opaque command. An unquoted heredoc, a command after the message, and every other git subcommand that rewrites the file still ask.
+
 ## [0.20.1] - 2026-09-24
 
 ### Added
