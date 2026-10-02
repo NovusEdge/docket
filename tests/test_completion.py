@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from docket.cli.completion import _BASH_COMPLETION
+from docket.cli.completion import _BASH_COMPLETION, _FISH_COMPLETION
 
 
 @unittest.skipUnless(shutil.which("bash"), "bash is not installed")
@@ -62,6 +62,14 @@ class BashCompletionTests(unittest.TestCase):
         offered = self.complete(["docket", ""], 1)
         self.assertIn("check", offered)
         self.assertIn("feature", offered)
+
+
+class FishCompletionTests(unittest.TestCase):
+    def test_every_condition_is_closed_before_the_next_option(self):
+        lines = [line for line in _FISH_COMPLETION.splitlines() if '-n "' in line]
+        self.assertTrue(lines)
+        for line in lines:
+            self.assertRegex(line, r'-n "[^"]*"(\s|$)')
 
 
 if __name__ == "__main__":
