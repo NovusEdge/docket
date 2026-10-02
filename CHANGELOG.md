@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-10-02
+
 ### Added
 
 - A supersession can carry `--supersede-reason restate|revise|reverse`, and every claim and decision derives `support` (`clean`, `flagged` or `unsupported`) with `review_owed` and `lost_grounds`. A citation follows supersessions to the head of its chain: a restatement keeps the citing record clean, a revision flags it, a reversal removes the ground. `unassessed`, `disputed` and blocked grounds flag; `rejected` and `revoked` grounds are lost. Support that is circular and never grounded is flagged with `because: circular` rather than lost.
@@ -644,7 +646,8 @@ the breaking-change notes before upgrading.
 
 Versions before 0.6.1 carry no git tag. Their history is in the commit log.
 
-[Unreleased]: https://github.com/NovusEdge/docket/compare/v0.20.2...HEAD
+[Unreleased]: https://github.com/NovusEdge/docket/compare/v0.21.0...HEAD
+[0.21.0]: https://github.com/NovusEdge/docket/compare/v0.20.2...v0.21.0
 [0.20.2]: https://github.com/NovusEdge/docket/compare/v0.20.1...v0.20.2
 [0.20.1]: https://github.com/NovusEdge/docket/compare/v0.20.0...v0.20.1
 [0.20.0]: https://github.com/NovusEdge/docket/compare/v0.19.0...v0.20.0
