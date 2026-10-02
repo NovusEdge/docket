@@ -279,4 +279,11 @@ def cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
-__all__ = ["cmd_check", "cmd_init", "cmd_migrate", "cmd_rebase"]
+def cmd_merge_driver(args: argparse.Namespace) -> int:
+    """Git merge driver entry point; see docket/merge_driver.py."""
+    from docket import merge_driver
+
+    return merge_driver.run(Path(args.base), Path(args.ours), Path(args.theirs))
+
+
+__all__ = ["cmd_check", "cmd_init", "cmd_merge_driver", "cmd_migrate", "cmd_rebase"]
