@@ -152,7 +152,7 @@ def cmd_check(args: argparse.Namespace) -> int:
         except json.JSONDecodeError as exc:
             faults.append(f"line {number}: invalid JSON: {exc.msg}")
             continue
-        if isinstance(record, dict) and record.get("kind") == "correction":
+        if isinstance(record, dict) and record.get("kind") in ("correction", "review"):
             correction_lines += 1
             # Kept out of seen: a feature that names a correction id names
             # nothing a brief can attach, and the feature check reports it.

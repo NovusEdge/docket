@@ -18,7 +18,7 @@ import copy
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from docket import corrections
+from docket import corrections, reviews
 from docket.ledger import ID_RE, allocate_id
 
 
@@ -88,6 +88,10 @@ def renumber(
             target = mapping.get(str(record.get("corrects")), str(record.get("corrects")))
             record["corrects"] = target
             new = corrections.allocate(allocated, target)
+        elif record.get("kind") == reviews.KIND:
+            target = mapping.get(str(record.get("reviews")), str(record.get("reviews")))
+            record["reviews"] = target
+            new = reviews.allocate(allocated, target)
         else:
             if not ID_RE.fullmatch(old):
                 raise RebaseError(f"malformed id {old!r} in the incoming tail")
@@ -97,6 +101,11 @@ def renumber(
         allocated.append(record)
 
     for record in tail:
+        if record.get("kind") == reviews.KIND:
+            record["grounds"] = {
+                mapping.get(str(g), str(g)): mapping.get(str(h), str(h))
+                for g, h in record["grounds"].items()
+            }
         for field in _REFERENCE_FIELDS:
             values = record.get(field)
             if values:

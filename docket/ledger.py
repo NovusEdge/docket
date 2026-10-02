@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-from docket import corrections, support
+from docket import corrections, reviews, support
 
 SCHEMA = 2
 KINDS = ("claim", "decision", "question")
@@ -262,17 +262,22 @@ class _Prefix:
     that validates in order updates one of these instead.
     """
 
-    __slots__ = ("by_id", "max_number", "retired", "corrections")
+    __slots__ = ("by_id", "max_number", "retired", "corrections", "reviews")
 
     def __init__(self, entries: list[dict[str, Any]]) -> None:
         self.by_id: dict[str, dict[str, Any]] = {}
         self.max_number = 0
         self.retired: dict[str, str] = {}
         self.corrections: dict[str, int] = {}
+        self.reviews: dict[str, int] = {}
         for entry in entries:
             self.add(entry)
 
     def add(self, entry: dict[str, Any]) -> None:
+        if entry.get("kind") == reviews.KIND:
+            target, number = reviews.parts_of(entry["id"])
+            self.reviews[target] = max(self.reviews.get(target, 0), number)
+            return
         # A correction is no relation target and carries no supersedes.
         if entry.get("kind") == corrections.KIND:
             target, number = corrections.parts_of(entry["id"])
@@ -304,6 +309,12 @@ def validate_record(
         if prefix is None and previous is not None:
             prefix = _Prefix(previous)
         return corrections.validate(record, prefix)
+    if record.get("kind") == reviews.KIND:
+        if prefix is not None and previous is not None:
+            raise _error("record", "pass previous or prefix, not both")
+        if prefix is None and previous is not None:
+            prefix = _Prefix(previous)
+        return reviews.validate(record, prefix)
     if record.get("schema") in (None, 1):
         raise _error(
             "schema", "legacy format is unsupported; run 'docket migrate' to convert it to schema 2"
@@ -626,6 +637,7 @@ def project(entries: list[dict[str, Any]], *, validated: bool = False) -> list[d
     if not validated:
         entries = validate_entries(entries)
     entries = corrections.fold(entries)
+    entries = reviews.fold(entries)
     retired = retired_by(entries)
     answers = resolved_by(entries)
     applicability, blocked = _decision_applicability(entries, retired)
@@ -739,6 +751,13 @@ def append(path: Path | str, record: dict[str, Any]) -> dict[str, Any]:
             validate_record(candidate, previous=entries)
             if from_cli:
                 corrections.refuse(entries, candidate)
+        elif candidate.get("kind") == reviews.KIND:
+            if not candidate.get("id"):
+                candidate["id"] = reviews.allocate(entries, str(candidate.get("reviews", "")))
+                # Grounds are what the record owes under this lock, not what the
+                # caller saw before it.
+                reviews.refuse(entries, candidate)
+            validate_record(candidate, previous=entries)
         else:
             if not candidate.get("id"):
                 kind = candidate.get("kind") or ""
