@@ -53,7 +53,11 @@ def build_delta(
     if expected and _revision(baseline) != expected:
         # A rebase renumbers the tail, so this ID now covers different history.
         return None
-    was_available = {_id(item) for item in baseline if _available(item)}
+    was_available = {
+        _id(item)
+        for item in baseline
+        if _available(item) and not support.surfaced(item, "unsupported")
+    }
     cfg = settings if settings is not None else _SETTINGS_DEFAULTS
     limit = max_chars if max_chars is not None else cfg["budget"]["target"]
     corrected_ids = {

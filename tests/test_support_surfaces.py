@@ -63,7 +63,58 @@ class BriefingTests(unittest.TestCase):
         self.assertNotIn("blocked:", text)
 
 
+def decision(ident, depends_on, **kwargs):
+    return ledger.make_record(
+        "decision",
+        "Ship it.",
+        author="test",
+        record_id=ident,
+        state="adopted",
+        choice="ship",
+        depends_on=depends_on,
+        **kwargs,
+    )
+
+
+class BlockedLineTests(unittest.TestCase):
+    def blocked(self, entries):
+        text = build_context(ledger.project(entries), all_records=True)
+        return [line for line in text.splitlines() if line.startswith("blocked:")]
+
+    def test_a_restated_prerequisite_is_followed_to_its_head(self):
+        entries = [
+            claim("c1"),
+            claim("c2", state="unassessed"),
+            claim("c3", supersedes=["c1"], supersede_reason="restate"),
+            decision("d4", ["c1", "c2"]),
+        ]
+        lines = self.blocked(entries)
+        self.assertEqual(lines, ["blocked: c2 unassessed"])
+
+    def test_a_revised_prerequisite_blocks_at_its_rejected_head(self):
+        entries = [
+            claim("c1"),
+            claim("c3", state="rejected", supersedes=["c1"], supersede_reason="revise"),
+            decision("d4", ["c1"]),
+        ]
+        self.assertEqual(self.blocked(entries), ["blocked: c3 rejected"])
+
+    def test_a_reversed_prerequisite_blocks_at_the_recorded_prerequisite(self):
+        entries = [
+            claim("c1"),
+            claim("c3", supersedes=["c1"], supersede_reason="reverse"),
+            decision("d4", ["c1"]),
+        ]
+        self.assertEqual(self.blocked(entries), ["blocked: c1 reversed"])
+
+
 class DeltaTests(unittest.TestCase):
+    def test_an_already_unsupported_record_is_not_reported_again(self):
+        entries = LOST + [claim("c4")]
+        baseline = ledger.project(LOST)
+        text = build_delta(ledger.project(entries), since="c3", baseline=baseline, raw=entries)
+        self.assertIn("0 no longer available", text)
+
     def test_newly_flagged_records_are_reported(self):
         history = ledger.project(FLAGGED)
         baseline = ledger.project(FLAGGED[:2])

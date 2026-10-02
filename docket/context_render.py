@@ -170,7 +170,7 @@ def _render_record(
         if by_id:
             for path in _blocking_paths(_id(entry), by_id, cache=blocking_cache):
                 terminal = by_id.get(path[-1], {})
-                lines.append(f"blocked: {' -> '.join(path)} {_unavailable_reason(terminal)}")
+                lines.append(f"blocked: {' -> '.join(path)} {_unavailable_reason(terminal, by_id)}")
         if _text(entry.get("decided_by")):
             lines.append(f"decided by: {_text(entry.get('decided_by'))}")
     for field in ("scope", "supports", "depends_on", "answers", "supersedes"):
