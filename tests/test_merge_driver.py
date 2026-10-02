@@ -59,6 +59,26 @@ class DriverTests(unittest.TestCase):
         self.assertEqual(merge_driver.run(self.base, self.ours, self.theirs), 1)
         self.assertIn("<<<<<<<", self.ours.read_text(encoding="utf-8"))
 
+    def test_a_refusal_leaves_markers_even_when_the_text_merges_cleanly(self):
+        records = [claim("c1", "One"), claim("c2", "Two"), claim("c3", "Three")]
+        write(self.base, records)
+        edited = [records[0], claim("c2", "Two, reworded"), records[2]]
+        write(self.ours, edited)
+        decision = make_record(
+            "decision",
+            "Build the cache layer on the second record",
+            state="adopted",
+            choice="Cache",
+            alternatives=["No cache"],
+            rationale="Reads dominate and the second record shows the cost",
+            author="t",
+            record_id="d1",
+            supports=[["c2"]],
+        )
+        write(self.theirs, records + [decision])
+        self.assertEqual(merge_driver.run(self.base, self.ours, self.theirs), 1)
+        self.assertIn("<<<<<<<", self.ours.read_text(encoding="utf-8"))
+
     def test_an_unreadable_theirs_leaves_conflict_markers(self):
         shared = [claim("c1", "Shared")]
         write(self.base, shared)
@@ -181,7 +201,9 @@ class GitTests(unittest.TestCase):
         self.assertEqual(self.texts(), ["Shared", "Main claim", "Topic two"])
 
     def test_without_the_config_git_reports_a_conflict(self):
-        self.git("config", "--unset", "merge.docket.driver")
+        # The whole section: a lone merge.docket.name makes git abort the merge
+        # ("lacks command line") instead of reporting a conflict.
+        self.git("config", "--remove-section", "merge.docket", check=False)
         self.git("checkout", "-qb", "topic")
         self.record("Topic claim", "topic")
         self.git("checkout", "-q", "main")

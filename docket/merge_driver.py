@@ -19,7 +19,13 @@ from docket import ledger, rebase
 
 def _conflict(base: Path, ours: Path, theirs: Path) -> None:
     try:
-        subprocess.run(
+        original = ours.read_bytes()
+        incoming = theirs.read_bytes()
+    except OSError:
+        return
+    status = None
+    try:
+        status = subprocess.run(
             [
                 "git",
                 "merge-file",
@@ -35,9 +41,24 @@ def _conflict(base: Path, ours: Path, theirs: Path) -> None:
             ],
             capture_output=True,
             timeout=30,
-        )
+        ).returncode
     except (OSError, subprocess.SubprocessError):
-        pass
+        print("docket: git merge-file could not run; wrote whole-file markers", file=sys.stderr)
+    # merge-file exits with the conflict count (1..127); 0 means it merged the
+    # text cleanly, which the driver's own refusal overrides, and anything else
+    # is a failure that may have left OURS untouched.
+    if status is not None and 0 < status < 128:
+        return
+    block = b"<<<<<<< ours\n" + _terminated(original) + b"=======\n"
+    block += _terminated(incoming) + b">>>>>>> theirs\n"
+    try:
+        ours.write_bytes(block)
+    except OSError as exc:
+        print(f"docket: cannot write conflict markers: {exc}", file=sys.stderr)
+
+
+def _terminated(data: bytes) -> bytes:
+    return data if not data or data.endswith(b"\n") else data + b"\n"
 
 
 def run(base: Path, ours: Path, theirs: Path) -> int:
@@ -54,13 +75,17 @@ def run(base: Path, ours: Path, theirs: Path) -> int:
         _conflict(base, ours, theirs)
         return 1
     if tail:
-        text = ours.read_text(encoding="utf-8")
-        if text and not text.endswith("\n"):
-            text += "\n"
-        text += "".join(
+        lines = "".join(
             json.dumps(r, ensure_ascii=False, separators=(",", ":")) + "\n" for r in tail
         )
-        ours.write_text(text, encoding="utf-8")
+        with ours.open("rb") as handle:
+            handle.seek(0, 2)
+            needs_newline = False
+            if handle.tell():
+                handle.seek(-1, 2)
+                needs_newline = handle.read(1) != b"\n"
+        with ours.open("a", encoding="utf-8", newline="") as handle:
+            handle.write(("\n" if needs_newline else "") + lines)
     for old_id, new_id in moved.items():
         if old_id != new_id:
             print(f"docket: {old_id} -> {new_id}", file=sys.stderr)
