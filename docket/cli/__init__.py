@@ -13,8 +13,10 @@ from docket.cli.feature_parser import add_feature_parser
 from docket.cli.graph import cmd_graph
 from docket.cli.query import cmd_filter_ids, cmd_list, cmd_show, cmd_where
 from docket.cli.record import cmd_claim, cmd_decision, cmd_question
+from docket.cli.review import add_review_parser
 from docket.cli.selfupdate import cmd_update, cmd_update_fetch
 from docket.ledger import KINDS, STATES, LedgerError
+from docket.support import REASONS
 from docket.where import WhereError
 
 
@@ -38,6 +40,7 @@ def _add_shared_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--depends-on", default="", metavar="CSV")
     p.add_argument("--answers", default="", metavar="CSV")
     p.add_argument("--supersedes", default="", metavar="CSV")
+    p.add_argument("--supersede-reason", choices=REASONS, help="restate, revise or reverse")
     p.add_argument("--evidence", action="append", default=[])
     p.add_argument("--revisit", default="")
     p.add_argument("--cost", default="")
@@ -55,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = p.add_subparsers(
         dest="cmd",
         metavar=(
-            "{claim,decision,question,correct,list,show,graph,context,where,check,"
+            "{claim,decision,question,correct,review,list,show,graph,context,where,check,"
             "rebase,migrate,init,feature,completion,update}"
         ),
     )
@@ -81,6 +84,7 @@ def main(argv: list[str] | None = None) -> int:
     qu.set_defaults(func=cmd_question)
 
     add_correct_parser(sub)
+    add_review_parser(sub)
 
     ls = sub.add_parser("list", help="list records")
     ls.add_argument("--kind", choices=KINDS)

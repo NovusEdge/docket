@@ -19,6 +19,7 @@ def _shared_fields(args: argparse.Namespace) -> dict:
         "depends_on": [ref.strip() for ref in (args.depends_on or "").split(",") if ref.strip()],
         "answers": [ref.strip() for ref in (args.answers or "").split(",") if ref.strip()],
         "supersedes": [ref.strip() for ref in (args.supersedes or "").split(",") if ref.strip()],
+        "supersede_reason": args.supersede_reason,
         "evidence": [parse_evidence(item) for item in (args.evidence or [])],
         "revisit": args.revisit or "",
         "cost_if_wrong": args.cost or "",
@@ -31,6 +32,8 @@ def _shared_fields(args: argparse.Namespace) -> dict:
 
 def _append_cli(kind: str, args: argparse.Namespace) -> int:
     try:
+        if args.supersede_reason and not (args.supersedes or "").strip():
+            raise LedgerError("docket: --supersede-reason needs --supersedes")
         fields = _shared_fields(args)
         if kind == "decision":
             fields.update(
@@ -53,6 +56,13 @@ def _append_cli(kind: str, args: argparse.Namespace) -> int:
     # Hints go to stderr so a caller piping the record line is unaffected.
     for hint in reasoning_hints(entry):
         print(f"docket: {entry['id']}: {hint}", file=sys.stderr)
+    if entry["supersedes"] and "supersede_reason" not in entry:
+        print(
+            f"docket: {entry['id']}: recorded as revise; records citing "
+            f"{', '.join(entry['supersedes'])} will owe review. Pass --supersede-reason "
+            "restate if only wording or links changed.",
+            file=sys.stderr,
+        )
     return 0
 
 
