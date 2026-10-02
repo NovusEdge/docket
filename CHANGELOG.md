@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.2] - 2026-10-02
+
 ### Fixed
 
 - The ledger guard no longer asks before `git add`, `git stage` or `git commit` on a ledger, and no longer treats a quoted-heredoc commit message (`-F - <<'EOF'` or `-m "$(cat <<'EOF' ...)"`) as an opaque command. An unquoted heredoc, a command after the message, and every other git subcommand that rewrites the file still ask.
@@ -630,7 +632,8 @@ the breaking-change notes before upgrading.
 
 Versions before 0.6.1 carry no git tag. Their history is in the commit log.
 
-[Unreleased]: https://github.com/NovusEdge/docket/compare/v0.20.1...HEAD
+[Unreleased]: https://github.com/NovusEdge/docket/compare/v0.20.2...HEAD
+[0.20.2]: https://github.com/NovusEdge/docket/compare/v0.20.1...v0.20.2
 [0.20.1]: https://github.com/NovusEdge/docket/compare/v0.20.0...v0.20.1
 [0.20.0]: https://github.com/NovusEdge/docket/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/NovusEdge/docket/compare/v0.18.0...v0.19.0
