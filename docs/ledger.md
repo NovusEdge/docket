@@ -333,11 +333,11 @@ on the same file so they do not read a partially written line.
 
 Two branches that both record append different lines after the same last line. `docket init` adds `.docket/ledger.jsonl merge=docket` to `.gitattributes` and registers `docket merge-driver` in the clone's git config, after which `git merge`, `git rebase` and `git cherry-pick` merge the ledger themselves: records on both sides are kept, the other side's new records take fresh IDs, and references follow. Git invokes `merge-driver`; it is not a command you run.
 
-The driver recognises a record it already merged, even under its new ID, so merging the same branches again in either direction adds nothing twice. It leaves out a record that exists only in the common ancestor, so a cherry-pick brings only the picked commit's records.
+The driver recognises a record it already merged, even under its new ID, so merging the same branches again in either direction adds nothing twice. An incoming record that is found in the common ancestor but is no longer on our side was removed or rewritten by us, so it stays out; this is why a cherry-pick brings only the picked commit's records.
 
-The driver needs `docket` on PATH. `init` registers nothing when it is absent and says so, and the session briefing prints a one-line notice in a clone where the attribute is set but the driver is not. Re-run `docket init` in a fresh clone to register it.
+The driver needs `docket` on PATH. `init` registers nothing when it is absent and says so, and the session briefing prints a one-line notice in a clone where the attribute is set but the driver is not. Re-run `docket init` in a fresh clone to register it. A clone without the driver registered gets an ordinary git conflict on the ledger.
 
-When the driver cannot merge, git reports an ordinary conflict. This happens when both sides superseded one record, when a cherry-picked record cites one the target lacks, or when a file does not read. The driver leaves standard conflict markers and exits non-zero. Resolve it with `docket rebase`, not by hand: recover each side's complete ledger without conflict markers. The active ledger must contain a valid version from one side. Keep the other side's valid file separately, then run:
+When the driver cannot merge, git reports an ordinary conflict. This happens when both sides superseded one record, when a cherry-picked record cites one the target lacks, or when a file does not read. The driver always leaves conflict markers in the file and exits non-zero, falling back to one whole-file block when `git merge-file` cannot produce them. Resolve it with `docket rebase`, not by hand: recover each side's complete ledger without conflict markers. The active ledger must contain a valid version from one side. Keep the other side's valid file separately, then run:
 
 ```sh
 docket rebase ../other-branch/.docket/ledger.jsonl --dry-run

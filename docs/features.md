@@ -157,7 +157,7 @@ Two active features on different branches may declare overlapping paths.
 the actual changes. The advisory does not change the exit code.
 
 `features.jsonl` stays on `merge=union`, which keeps every line from both sides; the ledger has its own merge driver (see [Sharing a ledger](ledger.md#sharing-a-ledger)). Two branches that both start a feature duplicate an `f` ID, and then the store does not read and `feature remap` refuses it until the duplicate is renumbered by hand.
-`docket feature remap MAPFILE` repoints `include` and `exclude` lists through the ID map `docket rebase --emit-map PATH` writes, one new `amend` event per feature that needs one. Remapping preserves the original `start` and `amend` lines.
+`docket feature remap MAPFILE` repoints `include` and `exclude` lists through the ID map `docket rebase --emit-map PATH` writes, one new `amend` event per feature that needs one. Remapping preserves the original `start` and `amend` lines. It applies after a manual `docket rebase`: the merge driver writes no map file and only prints `old -> new` pairs on stderr, so after a driver merge, `include` and `exclude` lists from the other branch that name renumbered records must be repointed by hand until the feature store gets its own driver.
 
 ## The briefing header
 
