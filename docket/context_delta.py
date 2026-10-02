@@ -70,7 +70,7 @@ def build_delta(
         for item in history
         if at[_id(item)] <= cutoff
         and _id(item) in was_available
-        and not _available(item)
+        and (not _available(item) or support.surfaced(item, "unsupported"))
         and _id(item) not in corrected_ids
     ]
     was_flagged = {_id(item) for item in baseline if support.surfaced(item, "flagged")}

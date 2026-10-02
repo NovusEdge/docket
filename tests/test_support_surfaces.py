@@ -46,6 +46,22 @@ class BriefingTests(unittest.TestCase):
         text = build_context(ledger.project(LOST), all_records=True)
         self.assertIn('lost: [{"because": "reverse", "ground": "c1"}]', text)
 
+    def test_an_unsupported_prerequisite_does_not_block_its_dependent(self):
+        entries = LOST + [
+            ledger.make_record(
+                "decision",
+                "Ship it.",
+                author="test",
+                record_id="d4",
+                state="adopted",
+                choice="ship",
+                depends_on=["c2"],
+            )
+        ]
+        text = build_context(ledger.project(entries), all_records=True)
+        self.assertIn("applicable: true", text)
+        self.assertNotIn("blocked:", text)
+
 
 class DeltaTests(unittest.TestCase):
     def test_newly_flagged_records_are_reported(self):
@@ -53,6 +69,13 @@ class DeltaTests(unittest.TestCase):
         baseline = ledger.project(FLAGGED[:2])
         text = build_delta(history, since="c2", baseline=baseline, raw=FLAGGED)
         self.assertIn("1 newly owe review", text)
+
+    def test_a_record_that_became_unsupported_is_no_longer_available(self):
+        history = ledger.project(LOST)
+        baseline = ledger.project(LOST[:2])
+        text = build_delta(history, since="c2", baseline=baseline, raw=LOST)
+        self.assertIn("2 no longer available", text)
+        self.assertIn("### c2 | claim | accepted [changed]", text)
 
     def test_a_stale_digest_falls_back(self):
         history = ledger.project(FLAGGED)
