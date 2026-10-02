@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `docket graph --format mermaid|dot` draws a flagged record with a dashed border and an unsupported one with a dotted border. The csv node table gains a `support` column.
+
 ## [0.21.0] - 2026-10-02
 
 ### Added

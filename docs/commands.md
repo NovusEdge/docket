@@ -124,7 +124,7 @@ Claims and decisions carry three derived fields in `--json` output and in `show`
 | `review_owed` | a list of `{ground, head, because}`, one per ground to review; `docket review` clears them |
 | `lost_grounds` | a list of `{ground, because}` for grounds an unsupported record lost |
 
-`context` prints `review_owed:` and `lost:` lines under an affected record and ends with `# owe review: N; docket list --where is:flagged`. `context --since` adds ", N newly owe review" to its summary and counts a newly unsupported record as no longer available. `show` prints "Review owed" and "Lost grounds" sections, and the text `graph` marks records `? review` or `! lost`.
+`context` prints `review_owed:` and `lost:` lines under an affected record and ends with `# owe review: N; docket list --where is:flagged`. `context --since` adds ", N newly owe review" to its summary and counts a newly unsupported record as no longer available. `show` prints "Review owed" and "Lost grounds" sections, and the text `graph` marks records `? review` or `! lost`. `graph --format` draws a flagged record with a dashed border and an unsupported one with a dotted border, and the csv node table carries a `support` column.
 
 A decision's `depends_on` follows restatements and revisions to the head of the chain. A reversal, or a rejected or revoked head, blocks the decision; a revised prerequisite flags it. An unsupported prerequisite does not block.
 

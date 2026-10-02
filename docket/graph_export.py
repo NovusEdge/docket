@@ -15,6 +15,8 @@ import textwrap
 from collections.abc import Mapping
 from typing import Any
 
+from docket import support
+
 # One arrow per relation, so the four read apart without a legend. supersedes
 # carries a label because a plain arrow between two decisions says nothing
 # about which one won.
@@ -75,6 +77,15 @@ def _edges(entries: list[dict[str, Any]]) -> list[tuple[str, str, str]]:
     return result
 
 
+def _support_mark(entry: Mapping[str, Any]) -> str:
+    """ "flagged" or "unsupported" when a reader of the record would see it."""
+
+    for status in ("unsupported", "flagged"):
+        if support.surfaced(entry, status):
+            return status
+    return ""
+
+
 def _join_nodes(edges: list[tuple[str, str, str]]) -> list[str]:
     ends = {a for a, _, _ in edges} | {b for _, b, _ in edges}
     return sorted(end for end in ends if "_set" in end)
@@ -128,7 +139,18 @@ def to_mermaid(
     if retired:
         lines.append("  classDef retired fill:#f3f3f3,stroke:#8a8a8a,color:#6a6a6a")
         lines.append(f"  class {','.join(retired)} retired")
+    for status, dashes in MERMAID_DASHES.items():
+        marked = [str(e["id"]) for e in drawn if _support_mark(e) == status]
+        if marked:
+            lines.append(f"  classDef {status} stroke-dasharray:{dashes}")
+            lines.append(f"  class {','.join(marked)} {status}")
     return "\n".join(lines)
+
+
+# The border carries support status in both formats, so it survives a black and
+# white print and leaves the fill free for the retired grey.
+MERMAID_DASHES = {"flagged": "6 3", "unsupported": "2 2"}
+DOT_BORDERS = {"flagged": "dashed", "unsupported": "dotted"}
 
 
 DOT_SHAPES = {
@@ -197,6 +219,8 @@ def to_dot(
         attrs = f'shape={shape}, label="{_dot_label(entry, detail)}"'
         if entry.get("retired_by"):
             attrs += ', style=filled, fillcolor="#f3f3f3", color="#8a8a8a", fontcolor="#6a6a6a"'
+        elif mark := _support_mark(entry):
+            attrs += f", style={DOT_BORDERS[mark]}"
         lines.append(f'  "{entry["id"]}" [{attrs}];')
     for join in _join_nodes(edges):
         lines.append(f'  "{join}" [shape=point, width=0.08, xlabel="set", fontsize=8];')
@@ -206,7 +230,7 @@ def to_dot(
     return "\n".join(lines)
 
 
-NODE_COLUMNS = ("Id", "Label", "kind", "state", "retired", "scope", "text")
+NODE_COLUMNS = ("Id", "Label", "kind", "state", "retired", "scope", "text", "support")
 EDGE_COLUMNS = ("Source", "Target", "Type", "Label", "Weight")
 
 
@@ -247,10 +271,11 @@ def to_csv(
                 "true" if entry.get("retired_by") else "false",
                 " ".join(str(s) for s in entry.get("scope") or []),
                 str(entry.get("text", "")),
+                _support_mark(entry),
             ]
         )
     for join in _join_nodes(edges):
-        writer.writerow([join, "set", "set", "", "false", "", ""])
+        writer.writerow([join, "set", "set", "", "false", "", "", ""])
 
     links = io.StringIO()
     writer = csv.writer(links, lineterminator="\n")

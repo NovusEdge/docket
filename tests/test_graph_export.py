@@ -314,6 +314,48 @@ class MermaidRendersTests(unittest.TestCase):
         self.render(to_mermaid(entries, superseded=True))
 
 
+class SupportMarkTests(unittest.TestCase):
+    def records(self):
+        return [
+            entry("c1", "claim", state="accepted", support="clean"),
+            entry("c2", "claim", state="accepted", support="flagged", supports=[["c1"]]),
+            entry("d3", "decision", state="adopted", support="unsupported", supports=[["c2"]]),
+            entry("c4", "claim", state="unassessed", support="flagged", supports=[["c1"]]),
+        ]
+
+    def test_mermaid_dashes_the_border_by_status(self):
+        out = to_mermaid(self.records())
+        self.assertIn("class c2 flagged", out)
+        self.assertIn("class d3 unsupported", out)
+        # Only accepted and adopted records show support status to a reader.
+        self.assertNotIn("c4 flagged", out)
+        self.assertNotIn("c1 flagged", out)
+
+    def test_dot_dashes_or_dots_the_border(self):
+        out = to_dot(self.records())
+        self.assertIn('"c2" [shape=ellipse, label="c2\\nt", style=dashed]', out)
+        self.assertIn('"d3" [shape=box, label="d3\\nt", style=dotted]', out)
+        self.assertNotIn('"c1" [shape=ellipse, label="c1\\nt", style=', out)
+
+    def test_a_retired_record_keeps_its_grey_fill_and_no_mark(self):
+        records = [
+            entry("c1", "claim", state="accepted", support="flagged", retired_by="c9"),
+            entry("d2", "decision", supports=[["c1"]]),
+        ]
+        self.assertNotIn("dashed", to_dot(records, superseded=True).split("->")[0])
+        self.assertNotIn("class c1 flagged", to_mermaid(records, superseded=True))
+
+    def test_csv_carries_a_support_column(self):
+        import csv
+        import io
+
+        nodes, _ = to_csv(self.records())
+        rows = {row["Id"]: row for row in csv.DictReader(io.StringIO(nodes))}
+        self.assertEqual(rows["c2"]["support"], "flagged")
+        self.assertEqual(rows["d3"]["support"], "unsupported")
+        self.assertEqual(rows["c1"]["support"], "")
+
+
 class FormatParityTests(unittest.TestCase):
     def records(self):
         return [
@@ -423,7 +465,8 @@ class CsvTests(unittest.TestCase):
         )
         rows = self.rows(nodes)
         self.assertTrue(all(len(row) == len(rows[0]) for row in rows))
-        self.assertIn('a premise, with a comma and a "quote"', [row[-1] for row in rows])
+        text = rows[0].index("text")
+        self.assertIn('a premise, with a comma and a "quote"', [row[text] for row in rows])
 
     def test_a_join_node_is_labelled_as_a_set(self):
         nodes, edges = to_csv(
