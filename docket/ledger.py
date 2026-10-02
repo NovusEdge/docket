@@ -598,7 +598,8 @@ def _decision_applicability(
             # A cycle in the recorded depends_on graph is a corrupt ledger. One
             # that closes only through a supersession hop is valid, because every
             # record cites earlier ids; there the prerequisite rests on itself and
-            # holds nothing, as in support.evaluate.
+            # holds nothing, so the decision is blocked (least fixed point). A
+            # `supports` cycle is flagged circular instead.
             if hops:
                 raise _ForwardCycle
             raise _error(entry_id, "depends_on forms a cycle")
