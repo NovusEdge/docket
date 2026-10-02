@@ -124,6 +124,17 @@ def evaluate(
     low, high = fixed_point(UNSUPPORTED), fixed_point(CLEAN)
     circular.update(ident for ident in low if low[ident] != high[ident])
     level = {ident: FLAGGED if ident in circular else low[ident] for ident in low}
+    # A review pin lifts a circular ground only when ground() sees it as
+    # FLAGGED, which the two fixed points cannot, so clear reviewed records
+    # from the frontier of the cycle upward.
+    changed = True
+    while changed:
+        changed = False
+        for entry in graded:
+            if entry["id"] in circular and record_level(entry, level) == CLEAN:
+                level[entry["id"]] = CLEAN
+                circular.discard(entry["id"])
+                changed = True
 
     result: dict[str, dict[str, Any]] = {}
     for entry in graded:

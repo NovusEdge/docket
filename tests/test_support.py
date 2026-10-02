@@ -153,6 +153,26 @@ class PropagationTests(unittest.TestCase):
             {"ground": "c1", "head": "c3", "because": "circular"}, at(entries, "c2")["review_owed"]
         )
 
+    def test_reviewing_the_cycle_frontier_clears_the_cycle(self):
+        entries = [*self.cycle("restate"), review("c2.r1", "c2", {"c1": "c3"})]
+        for ident in ("c2", "c3"):
+            record = at(entries, ident)
+            self.assertEqual((record["support"], record["review_owed"]), ("clean", []))
+
+    def test_a_partial_review_leaves_the_other_circular_ground_owed(self):
+        entries = [
+            claim("c1"),
+            claim("c2"),
+            claim("c3", supports=[["c1", "c2"]]),
+            claim("c4", supports=[["c3"]], supersedes=["c1", "c2"], supersede_reason="restate"),
+            review("c3.r1", "c3", {"c1": "c4"}),
+        ]
+        record = at(entries, "c3")
+        self.assertEqual(record["support"], "flagged")
+        self.assertEqual(
+            record["review_owed"], [{"ground": "c2", "head": "c4", "because": "circular"}]
+        )
+
     def test_the_repository_cycle_shape_is_flagged(self):
         entries = [
             claim("c1", state="disputed"),

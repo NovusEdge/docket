@@ -48,8 +48,9 @@ Every ID flag takes a comma-separated list. Repeat `--supports` for alternative
 sets of grounds: `--supports c1,c2 --supports c3` means `(c1 AND c2) OR c3`.
 Repeat `--scope`, `--evidence`, or `--alternative` for more than one value.
 
-A decision prerequisite must be current, adopted, and applicable. A claim
-prerequisite must be current and accepted. A decision with missing prerequisites
+A prerequisite is followed through restatements and revisions to the head of
+its chain. That head must be adopted and applicable for a decision, or accepted
+for a claim. A reversal, or a rejected or revoked head, blocks. A decision with missing prerequisites
 remains recorded as adopted but reports that it is blocked. See the
 [relationship reference](ledger.md#relations).
 
