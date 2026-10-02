@@ -77,6 +77,7 @@ def build_delta(
         and (not _available(item) or support.surfaced(item, "unsupported"))
         and _id(item) not in corrected_ids
     ]
+    changed_ids = {_id(item) for item in changed}
     was_flagged = {_id(item) for item in baseline if support.surfaced(item, "flagged")}
     newly_flagged = [
         item
@@ -85,6 +86,7 @@ def build_delta(
         and support.surfaced(item, "flagged")
         and _id(item) not in was_flagged
         and _id(item) not in corrected_ids
+        and _id(item) not in changed_ids
     ]
     latest = _id(lines[-1]) if lines else ""
     revision = _revision(history)
