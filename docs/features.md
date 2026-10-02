@@ -156,13 +156,8 @@ Two active features on different branches may declare overlapping paths.
 `done` prints an advisory when another open feature's declared paths overlap
 the actual changes. The advisory does not change the exit code.
 
-`.gitattributes` marks both `.docket/*.jsonl` stores `merge=union`, so a
-branch merge keeps every line from both sides instead of conflicting on
-append-only files. A union merge can duplicate `f` IDs and leave an `include`
-or `exclude` list naming a ledger ID a rebase renumbered.
-`docket feature remap MAPFILE` repoints those lists through the ID map
-`docket rebase --emit-map PATH` writes, one new `amend` event per feature that
-needs one. Remapping preserves the original `start` and `amend` lines.
+`features.jsonl` stays on `merge=union`, which keeps every line from both sides; the ledger has its own merge driver (see [Sharing a ledger](ledger.md#sharing-a-ledger)). Two branches that both start a feature duplicate an `f` ID, and then the store does not read and `feature remap` refuses it until the duplicate is renumbered by hand.
+`docket feature remap MAPFILE` repoints `include` and `exclude` lists through the ID map `docket rebase --emit-map PATH` writes, one new `amend` event per feature that needs one. Remapping preserves the original `start` and `amend` lines.
 
 ## The briefing header
 

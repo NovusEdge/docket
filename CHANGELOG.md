@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `docket graph --format mermaid|dot` draws a flagged record with a dashed border and an unsupported one with a dotted border. The csv node table gains a `support` column.
+- A git merge driver for `.docket/ledger.jsonl`. Branches that both recorded merge without a conflict: the other side's new records take fresh IDs, references follow, and a record already merged is not added twice. When it cannot merge it leaves conflict markers. `docket init` now adds `.docket/ledger.jsonl merge=docket` to `.gitattributes` and, when `docket` is on PATH, registers the driver in the clone's git config; re-run it in a fresh clone. The session briefing notes a clone where the attribute is set but the driver is not.
+
+### Fixed
+
+- This repository's `.gitattributes` no longer applies a union merge to the ledger, which produced duplicate IDs.
+- `docket rebase` no longer appends a tail it has already absorbed.
 
 ## [0.21.0] - 2026-10-02
 

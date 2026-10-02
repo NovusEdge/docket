@@ -1,4 +1,7 @@
-# Both stores are append-only JSONL, so a union merge is the right resolution:
-# it keeps every line from both sides. Duplicate ids that union produces are
-# renumbered afterwards by `docket rebase` and `docket feature remap`.
+# The ledger merges through `docket merge-driver`, which appends the other
+# side's new records under fresh ids. Each clone registers the driver with
+# `docket init`; without it git reports an ordinary conflict.
+# features.jsonl stays on union until it has a driver of its own: duplicate
+# feature ids after a union need renumbering by hand.
 .docket/*.jsonl merge=union
+.docket/ledger.jsonl merge=docket

@@ -16,7 +16,7 @@ Ledger commands use the file that `docket where` reports. Run
 | `docket where` | Print which ledger file is in use |
 | `docket check` | Report what makes the ledger unreadable |
 | `docket feature ...` | Track a piece of work in flight; see below |
-| `docket init` | Create a project ledger and copy any existing private records into it |
+| `docket init` | Create a project ledger and copy any existing private records into it. It also adds the ledger merge driver to `.gitattributes` and, when `docket` is on PATH, registers it in the clone's git config; git invokes the driver during merges. Re-running it repairs a fresh clone |
 | `docket migrate` | Convert a pre-0.8 ledger to the current schema |
 | `docket rebase` | Renumber another branch's records onto this ledger |
 | `docket update` | Update this Docket installation; `--check` reports without changing anything |
