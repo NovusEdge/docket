@@ -15,7 +15,16 @@ from typing import Any
 KIND = "correction"
 CORRECTION_RE = re.compile(r"([cdq](?:0|[1-9][0-9]*))\.([1-9][0-9]*)")
 _COMMON = frozenset(
-    {"text", "rationale", "scope", "cost_if_wrong", "evidence", "revisit", "pinned"}
+    {
+        "text",
+        "rationale",
+        "scope",
+        "cost_if_wrong",
+        "evidence",
+        "revisit",
+        "pinned",
+        "supersede_reason",
+    }
 )
 _DECISION_ONLY = frozenset({"alternatives", "decided_by"})
 _LINE_FIELDS = frozenset(

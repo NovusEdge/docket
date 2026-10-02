@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-from docket import corrections
+from docket import corrections, support
 
 SCHEMA = 2
 KINDS = ("claim", "decision", "question")
@@ -44,7 +44,7 @@ COMMON_FIELDS = frozenset(
 )
 DECISION_FIELDS = frozenset({"choice", "alternatives", "decided_by"})
 AUDIT_FIELDS = frozenset({"legacy"})
-ALLOWED_FIELDS = COMMON_FIELDS | DECISION_FIELDS | AUDIT_FIELDS
+ALLOWED_FIELDS = COMMON_FIELDS | DECISION_FIELDS | AUDIT_FIELDS | {"supersede_reason"}
 
 
 class LedgerError(ValueError):
@@ -184,6 +184,7 @@ def make_record(
     depends_on: list[str] | None = None,
     answers: list[str] | None = None,
     supersedes: list[str] | None = None,
+    supersede_reason: str | None = None,
     evidence: list[dict[str, str]] | None = None,
     revisit: str = "",
     cost_if_wrong: str = "",
@@ -223,6 +224,8 @@ def make_record(
         "cost_if_wrong": cost_if_wrong,
         "pinned": pinned,
     }
+    if supersede_reason is not None:
+        record["supersede_reason"] = supersede_reason
     _reject_question_text(record)
     if kind == "decision":
         if alternatives is not None and not isinstance(alternatives, list):
@@ -413,6 +416,11 @@ def validate_record(
         raise _error(record_id, "questions cannot answer other questions")
     if kind != "decision" and record["depends_on"]:
         raise _error(record_id, "only decisions may have depends_on")
+    if "supersede_reason" in record:
+        if record["supersede_reason"] not in support.REASONS:
+            raise _error(record_id, f"supersede_reason must be one of {', '.join(support.REASONS)}")
+        if not record["supersedes"]:
+            raise _error(record_id, "supersede_reason needs supersedes")
 
     if prefix is not None and previous is not None:
         raise _error(record_id, "pass previous or prefix, not both")
