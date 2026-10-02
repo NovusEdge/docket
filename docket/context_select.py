@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from docket import support
 from docket.context_model import (
     _effective_state,
     _id,
@@ -120,6 +121,8 @@ def _available(entry: Mapping[str, Any]) -> bool:
     """True when a record can serve as current support."""
 
     if _is_retired(entry):
+        return False
+    if support.surfaced(entry, "unsupported"):
         return False
     kind = _text(entry.get("kind")).casefold()
     state = _effective_state(entry).casefold()

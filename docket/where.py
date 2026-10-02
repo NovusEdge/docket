@@ -14,12 +14,13 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import Any
 
+from docket import support
 from docket.config import DEFAULTS
 from docket.context_model import _list, _normalize_path, scope_strength
 from docket.ledger import KINDS, STATES
 
 FIELDS = ("after", "author", "before", "branch", "is", "kind", "scope", "state")
-IS_VALUES = ("blocked", "corrected", "pinned", "retired")
+IS_VALUES = ("blocked", "corrected", "flagged", "pinned", "retired", "unsupported")
 STATE_VALUES = tuple(sorted({state for values in STATES.values() for state in values}))
 _TEXT_KEYS = ("id", "text", "choice", "rationale")
 _FIELD_RE = re.compile(r"[A-Za-z]+")
@@ -169,6 +170,8 @@ def _hit(term: Term, entry: Mapping[str, Any]) -> bool:
 
 
 def _is(value: str, entry: Mapping[str, Any]) -> bool:
+    if value in ("flagged", "unsupported"):
+        return support.surfaced(entry, value)
     if value == "pinned":
         return bool(entry.get("pinned"))
     if value == "corrected":

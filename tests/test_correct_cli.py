@@ -179,7 +179,10 @@ class ContextCmdTests(unittest.TestCase):
         token = re.search(r"latest: (d1\.1@[0-9a-f]+)", out.stdout).group(1)
         out = run(self.cwd, "context", "--no-auto-scope", "--since", token)
         self.assertEqual(out.returncode, 0, out.stderr)
-        self.assertIn("# changed: 0 added, 0 corrected, 0 no longer available.", out.stdout)
+        self.assertIn(
+            "# changed: 0 added, 0 corrected, 0 no longer available, 0 newly owe review.",
+            out.stdout,
+        )
 
 
 class CheckTests(unittest.TestCase):

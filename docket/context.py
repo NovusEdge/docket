@@ -18,6 +18,7 @@ from collections import Counter
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+from docket import support
 from docket.config import DEFAULTS as _SETTINGS_DEFAULTS
 from docket.context_budget import Admission
 from docket.context_degrade import degrade
@@ -194,6 +195,7 @@ def build_context(
         no_match=no_match,
         blocking_cache=blocking_cache,
         verify=_VERIFY_TRIAL,
+        owed_count=sum(support.surfaced(item, "flagged") for item in history),
     )
     budget.shrink_prefix(feature_prefix + short)
 

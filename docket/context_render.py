@@ -10,6 +10,7 @@ import hashlib
 from collections.abc import Mapping
 from typing import Any
 
+from docket import support
 from docket.context_model import (
     _clip_metadata,
     _effective_state,
@@ -93,6 +94,7 @@ def _footer(
     missing_count: int,
     *,
     retired_count: int,
+    owed_count: int = 0,
     no_match: bool,
 ) -> str:
     """The counts and the caveats that close every briefing."""
@@ -105,6 +107,8 @@ def _footer(
         lines.append(f"# Not listed: {deferred_count - shown}; reach them with docket list.")
     if related_count:
         lines.append(f"# Related records in index only: {related_count}; formulas remain complete.")
+    if owed_count:
+        lines.append(f"# owe review: {owed_count}; docket list --where is:flagged")
     # The measured set is the caller's own task matches plus their prerequisite
     # closure. The closure alone reads "covered" almost always, because a
     # blocking chain is admitted right after its root; the whole index reads
@@ -173,6 +177,10 @@ def _render_record(
         value = entry.get(field)
         if _list(value):
             lines.append(f"{field}: {_json(_list(value))}")
+    if support.surfaced(entry, "flagged"):
+        lines.append(f"review_owed: {_json(_list(entry.get('review_owed')))}")
+    elif support.surfaced(entry, "unsupported"):
+        lines.append(f"lost: {_json(_list(entry.get('lost_grounds')))}")
     for field in ("rationale", "revisit", "cost_if_wrong"):
         value = _text(entry.get(field))
         if value and not (

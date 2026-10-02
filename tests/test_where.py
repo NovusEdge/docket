@@ -222,7 +222,9 @@ class ErrorTests(unittest.TestCase):
         self.assertRefused("state:blocked", "use is:blocked")
 
     def test_an_unknown_is_value(self):
-        self.assertRefused("is:open", "is:open", "blocked, corrected, pinned, retired")
+        self.assertRefused(
+            "is:open", "is:open", "blocked, corrected, flagged, pinned, retired, unsupported"
+        )
 
     def test_a_malformed_date(self):
         for query in ("after:2026-9-1", "before:2026-13-01", "after:20260901", "after:yesterday"):

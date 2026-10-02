@@ -11,7 +11,7 @@ import textwrap
 from pathlib import Path
 from typing import Any
 
-from docket import ROOT, env, where
+from docket import ROOT, env, support, where
 from docket.cli.term import (
     _DIM,
     _GRAPH_GLYPHS,
@@ -68,6 +68,9 @@ def _node_info(e: dict, retired: dict[str, str]) -> dict:
         "applicable": e.get("applicable"),
         "blocked_by": e.get("blocked_by", []),
         "decided_by": e.get("decided_by", ""),
+        "support": e.get("support"),
+        "review_owed": e.get("review_owed", []),
+        "lost_grounds": e.get("lost_grounds", []),
     }
 
 
@@ -78,6 +81,10 @@ def _formula(sets: list[list[str]]) -> str:
 def _blocked_text(info: dict) -> str:
     if info.get("kind") == "decision" and info.get("applicable") is False:
         return "! blocked by " + (", ".join(info.get("blocked_by", [])) or "prerequisites")
+    if support.surfaced(info, "unsupported"):
+        return "! lost " + ", ".join(o["ground"] for o in info["lost_grounds"])
+    if support.surfaced(info, "flagged"):
+        return "? review " + ", ".join(o["ground"] for o in info["review_owed"])
     return ""
 
 
