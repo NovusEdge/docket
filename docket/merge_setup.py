@@ -44,24 +44,34 @@ def setup(root: Path) -> list[str]:
     if not _in_repository(root):
         return []
     messages: list[str] = []
-    if not _has_attribute(root):
-        path = root / ".gitattributes"
-        text = path.read_text(encoding="utf-8") if path.is_file() else ""
-        if text and not text.endswith("\n"):
-            text += "\n"
-        # Appended, not substituted: a later matching line overrides an earlier
-        # one, so a .docket/*.jsonl union line keeps covering features.jsonl.
-        path.write_text(text + ATTRIBUTE + "\n", encoding="utf-8")
-        messages.append(f"docket: added the ledger merge driver to {path}; commit it")
+    path = root / ".gitattributes"
+    try:
+        if not _has_attribute(root):
+            text = path.read_text(encoding="utf-8") if path.is_file() else ""
+            if text and not text.endswith("\n"):
+                text += "\n"
+            # Appended, not substituted: a later matching line overrides an earlier
+            # one, so a .docket/*.jsonl union line keeps covering features.jsonl.
+            path.write_text(text + ATTRIBUTE + "\n", encoding="utf-8")
+            messages.append(f"docket: added the ledger merge driver to {path}; commit it")
+    except (UnicodeError, OSError) as exc:
+        messages.append(f"docket: could not update {path}: {exc}")
     if shutil.which("docket") is None:
         messages.append(
             "docket: merge driver not registered: docket is not on PATH, so git could not run it. "
             "Put docket on PATH and run docket init again."
         )
         return messages
-    _git(root, "config", "--local", "merge.docket.name", "docket ledger merge")
-    _git(root, "config", "--local", "merge.docket.driver", DRIVER)
-    messages.append("docket: registered the ledger merge driver in this clone's git config")
+    # Only the driver key: git aborts every merge ("lacks command line") when
+    # merge.docket.name exists without merge.docket.driver, and needs no name.
+    result = _git(root, "config", "--local", "merge.docket.driver", DRIVER)
+    if result is not None and result.returncode == 0:
+        messages.append("docket: registered the ledger merge driver in this clone's git config")
+    else:
+        reason = result.stderr.strip() if result is not None else "git could not run"
+        messages.append(
+            f"docket: merge driver not registered: git config failed ({reason}); nothing was changed"
+        )
     return messages
 
 

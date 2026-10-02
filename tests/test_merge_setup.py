@@ -33,6 +33,38 @@ class SetupTests(unittest.TestCase):
         self.assertIn(merge_setup.ATTRIBUTE, self.attributes())
         self.assertEqual(self.config(), merge_setup.DRIVER)
 
+    def test_setup_writes_no_driver_name(self):
+        with mock.patch("shutil.which", return_value="/usr/bin/docket"):
+            merge_setup.setup(self.root)
+        r = subprocess.run(
+            ["git", "config", "--local", "--get", "merge.docket.name"],
+            cwd=self.root,
+            capture_output=True,
+            text=True,
+        )
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_a_failing_git_config_reports_failure_not_registration(self):
+        real = merge_setup._git
+        failed = subprocess.CompletedProcess([], 1, "", "error: could not lock config file")
+
+        def fake(root, *args):
+            return failed if args and args[0] == "config" else real(root, *args)
+
+        with (
+            mock.patch("shutil.which", return_value="/usr/bin/docket"),
+            mock.patch.object(merge_setup, "_git", fake),
+        ):
+            messages = merge_setup.setup(self.root)
+        self.assertFalse(any("registered the" in m for m in messages), messages)
+        self.assertTrue(any("not registered" in m and "could not lock" in m for m in messages))
+
+    def test_a_non_utf8_gitattributes_does_not_raise(self):
+        (self.root / ".gitattributes").write_bytes(b"\xff\xfe\x00bad\n")
+        with mock.patch("shutil.which", return_value="/usr/bin/docket"):
+            messages = merge_setup.setup(self.root)
+        self.assertTrue(any(".gitattributes" in m for m in messages), messages)
+
     def test_running_setup_twice_leaves_one_attribute_line(self):
         with mock.patch("shutil.which", return_value="/usr/bin/docket"):
             merge_setup.setup(self.root)

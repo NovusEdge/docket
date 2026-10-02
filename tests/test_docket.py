@@ -5,6 +5,7 @@ import contextlib
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -658,6 +659,18 @@ class InitTests(unittest.TestCase):
             self.assertEqual(second.returncode, 0, second.stderr)
             lines = (Path(home) / ".gitattributes").read_text(encoding="utf-8").splitlines()
             self.assertEqual(lines.count(".docket/ledger.jsonl merge=docket"), 1)
+
+            def config(key):
+                return subprocess.run(
+                    ["git", "config", "--local", "--get", key],
+                    cwd=home,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip()
+
+            expected = "docket merge-driver %O %A %B" if shutil.which("docket") else ""
+            self.assertEqual(config("merge.docket.driver"), expected)
+            self.assertEqual(config("merge.docket.name"), "")
 
 
 class CheckTests(unittest.TestCase):
