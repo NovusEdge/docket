@@ -271,13 +271,15 @@ predecessor.
 those records permanently in derived current views without deleting or rewriting
 their history. Supersession does not revoke dependents automatically.
 
-**Supersession reason.** Specified, not yet implemented. Each supersession carries a reason, and the reason decides what a record that cites the retired one keeps. A citation resolves forward to the head of the supersession chain, which is unique because a retired record cannot be superseded again.
+**Supersession reason.** Each supersession carries a reason, and the reason decides what a record that cites the retired one keeps. A citation resolves forward to the head of the supersession chain, which is unique because a retired record cannot be superseded again.
 
 | Reason | Use it when | A dependent that cites the retired record |
 | --- | --- | --- |
 | `restate` | the commitment is unchanged and only its wording or links change | holds through the head with no review owed |
 | `revise` | the substance changed | holds through the head and is flagged for review |
 | `reverse` | the retired record was wrong | loses that ground, and holds only through another complete justification set |
+
+A cited record's state counts too: `unassessed`, `disputed`, or a blocked decision flags the citing record; `rejected` or `revoked` removes the ground. `docket review ID` clears a flag for the head it was reviewed against.
 
 A missing reason reads as `revise`, so omitting it costs a review flag and never hides one. Use `docket correct` instead when the record's id should stay and nothing but a correctable field changes. The Lean proofs check these three outcomes and show that they reduce to the plain retention rule when nothing is superseded.
 
