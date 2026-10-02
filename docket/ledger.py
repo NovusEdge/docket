@@ -588,9 +588,19 @@ def _decision_applicability(
     # acyclic. project(validated=True) skips that check, and a cycle there would
     # otherwise recurse until the stack ends. One shared set costs nothing.
     visiting: set[str] = set()
+    hops = 0
+
+    class _ForwardCycle(Exception):
+        pass
 
     def check(entry_id: str) -> tuple[bool, list[str]]:
         if entry_id in visiting:
+            # A cycle in the recorded depends_on graph is a corrupt ledger. One
+            # that closes only through a supersession hop is valid, because every
+            # record cites earlier ids; there the prerequisite rests on itself and
+            # holds nothing, as in support.evaluate.
+            if hops:
+                raise _ForwardCycle
             raise _error(entry_id, "depends_on forms a cycle")
         visiting.add(entry_id)
         try:
@@ -617,8 +627,17 @@ def _decision_applicability(
             head, crossed = support.head_of(dependency, retired, reason_of)
             if "reverse" in crossed:
                 ok, reasons = False, [head]
-            else:
+            elif head == dependency:
                 ok, reasons = check(head)
+            else:
+                nonlocal hops
+                hops += 1
+                try:
+                    ok, reasons = check(head)
+                except _ForwardCycle:
+                    ok, reasons = False, [head]
+                finally:
+                    hops -= 1
             if not ok:
                 for reason in [dependency, *reasons]:
                     if reason not in seen:

@@ -193,6 +193,19 @@ class PrerequisiteTests(unittest.TestCase):
         self.assertIn("c1", record["blocked_by"])
 
 
+class ForwardCycleTests(unittest.TestCase):
+    def test_a_prerequisite_that_resolves_back_onto_its_dependent_blocks(self):
+        entries = [
+            decision("d1"),
+            decision("d2", depends_on=["d1"]),
+            decision("d3", depends_on=["d2"], supersedes=["d1"], supersede_reason="restate"),
+        ]
+        d2, d3 = at(entries, "d2"), at(entries, "d3")
+        self.assertEqual((d2["applicable"], d3["applicable"]), (False, False))
+        self.assertIn("d1", d2["blocked_by"])
+        self.assertEqual((d2["support"], d3["support"]), ("clean", "clean"))
+
+
 class RevisionTests(unittest.TestCase):
     def test_derived_support_fields_stay_out_of_the_revision(self):
         from docket.context_model import _revision
