@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-10-02
+
 ### Added
 
 - `docket graph --format mermaid|dot` draws a flagged record with a dashed border and an unsupported one with a dotted border. The csv node table gains a `support` column.
@@ -656,7 +658,8 @@ the breaking-change notes before upgrading.
 
 Versions before 0.6.1 carry no git tag. Their history is in the commit log.
 
-[Unreleased]: https://github.com/NovusEdge/docket/compare/v0.21.0...HEAD
+[Unreleased]: https://github.com/NovusEdge/docket/compare/v0.22.0...HEAD
+[0.22.0]: https://github.com/NovusEdge/docket/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/NovusEdge/docket/compare/v0.20.2...v0.21.0
 [0.20.2]: https://github.com/NovusEdge/docket/compare/v0.20.1...v0.20.2
 [0.20.1]: https://github.com/NovusEdge/docket/compare/v0.20.0...v0.20.1
