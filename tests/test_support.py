@@ -1,3 +1,4 @@
+import random
 import sys
 import unittest
 from pathlib import Path
@@ -194,6 +195,22 @@ class PropagationTests(unittest.TestCase):
         self.assertEqual(c3["support"], "flagged")
         self.assertEqual(c3["review_owed"], [{"ground": "d2", "head": "d4", "because": "blocked"}])
 
+    def test_a_pin_on_a_circular_head_does_not_lift_a_block_the_head_also_carries(self):
+        entries = [
+            claim("c1"),
+            claim("c2"),
+            decision("d3", depends_on=["c2"]),
+            claim("c4", supports=[["c1", "d3"]], supersedes=["c1"], supersede_reason="restate"),
+            decision("d5", supports=[["c1"]]),
+            claim("c6", state="unassessed"),
+            claim("c7", supports=[["d5"], ["c6"]]),
+            review("d5.r1", "d5", {"c1": "c4"}),
+            claim("c8", supersedes=["c2"], supersede_reason="reverse"),
+        ]
+        d5 = at(entries, "d5")
+        self.assertEqual(d5["support"], "flagged")
+        self.assertEqual(d5["review_owed"], [{"ground": "c1", "head": "c4", "because": "flagged"}])
+
     def cycle(self, reason):
         return [
             claim("c1"),
@@ -302,6 +319,68 @@ class ForwardCycleTests(unittest.TestCase):
         self.assertEqual((d2["applicable"], d3["applicable"]), (False, False))
         self.assertIn("d1", d2["blocked_by"])
         self.assertEqual((d2["support"], d3["support"]), ("clean", "clean"))
+
+
+def random_ledger(rng):
+    entries, retired = [], set()
+    for number in range(1, rng.randint(3, 12) + 1):
+        kind = rng.choice(["claim", "decision"])
+        ident = f"{kind[0]}{number}"
+        earlier = [e["id"] for e in entries]
+        extra = {}
+        if earlier:
+            extra["supports"] = [
+                sorted({rng.choice(earlier) for _ in range(rng.randint(1, 2))})
+                for _ in range(rng.choice([0, 1, 1, 2]))
+            ]
+        if kind == "decision" and earlier and rng.random() < 0.3:
+            extra["depends_on"] = [rng.choice(earlier)]
+        open_same = [e["id"] for e in entries if e["kind"] == kind and e["id"] not in retired]
+        if open_same and rng.random() < 0.35:
+            target = rng.choice(open_same)
+            extra["supersedes"] = [target]
+            extra["supersede_reason"] = rng.choice(["restate", "revise", "reverse"])
+        if kind == "claim":
+            extra["state"] = rng.choice(
+                ["accepted", "accepted", "unassessed", "disputed", "rejected"]
+            )
+            record = claim(ident, **extra)
+        else:
+            extra["state"] = rng.choice(["adopted", "adopted", "revoked"])
+            record = decision(ident, **extra)
+        try:
+            ledger.project([*entries, record])
+        except ledger.LedgerError:
+            continue
+        entries.append(record)
+        retired.update(extra.get("supersedes", []))
+    return entries
+
+
+class InvariantTests(unittest.TestCase):
+    def test_random_ledgers_keep_support_consistent_with_its_evidence(self):
+        for seed in range(300):
+            rng = random.Random(seed)
+            entries = random_ledger(rng)
+            for round_ in range(rng.randint(0, 3)):
+                for record in ledger.project(entries):
+                    if "review_owed" in record and record["review_owed"] and rng.random() < 0.5:
+                        owed = {o["ground"]: o["head"] for o in record["review_owed"]}
+                        number = sum(1 for e in entries if e["id"].startswith(record["id"] + ".r"))
+                        entries.append(review(f"{record['id']}.r{number + 1}", record["id"], owed))
+            with self.subTest(seed=seed):
+                projected = ledger.project(entries)
+                for record in projected:
+                    if "support" not in record:
+                        continue
+                    owed, lost = record["review_owed"], record["lost_grounds"]
+                    expected = {
+                        "flagged": (True, False),
+                        "unsupported": (False, True),
+                        "clean": (False, False),
+                    }[record["support"]]
+                    self.assertEqual((bool(owed), bool(lost)), expected, record["id"])
+                self.assertEqual(ledger.project(entries), projected)
 
 
 class RevisionTests(unittest.TestCase):

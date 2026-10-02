@@ -84,12 +84,14 @@ def evaluate(
         # and a head that was never superseded never moves, so a pin there
         # would waive every later cause for good. `because` names only the
         # first cause, so a pin lifts the owned causes and re-tests these two.
-        # A circular head sits at FLAGGED but is an owned cause, not inherited.
+        # A circular head sits at FLAGGED as an owned cause, but is inherited
+        # when the greatest fixed point also flags it. `high` exists whenever
+        # `circular` is non-empty.
         if value == FLAGGED and (cited, head) in pins[owner]:
             value, because = CLEAN, ""
             if target["kind"] == "decision" and applicable.get(head) is False:
                 value, because = FLAGGED, "blocked"
-            elif level.get(head) == FLAGGED and head not in circular:
+            elif level.get(head) == FLAGGED and (head not in circular or high[head] == FLAGGED):
                 value, because = FLAGGED, "flagged"
         return value, head, because
 
