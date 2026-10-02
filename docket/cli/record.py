@@ -56,7 +56,7 @@ def _append_cli(kind: str, args: argparse.Namespace) -> int:
     # Hints go to stderr so a caller piping the record line is unaffected.
     for hint in reasoning_hints(entry):
         print(f"docket: {entry['id']}: {hint}", file=sys.stderr)
-    if entry["supersedes"] and "supersede_reason" not in entry:
+    if entry["supersedes"] and "supersede_reason" not in entry and entry["kind"] != "question":
         print(
             f"docket: {entry['id']}: recorded as revise; records citing "
             f"{', '.join(entry['supersedes'])} will owe review. Pass --supersede-reason "

@@ -12,8 +12,8 @@ LEDGER = Path(__file__).parent.parent / ".docket" / "ledger.jsonl"
 class RepositoryLedgerTests(unittest.TestCase):
     @unittest.skipUnless(LEDGER.exists(), "no project ledger in this checkout")
     def test_no_current_record_loses_its_grounds(self):
-        # This ledger records no rejection, revocation or reversal, so every
-        # supersession reads as a revision at worst and nothing can be lost.
+        # This ledger records no rejection, revocation or reversal, so nothing
+        # is lost to one; cycles built by forward resolution are flagged, not lost.
         projected = ledger.project(ledger.read(LEDGER), validated=True)
         lost = {e["id"]: e["lost_grounds"] for e in projected if support.surfaced(e, "unsupported")}
         self.assertEqual(lost, {})

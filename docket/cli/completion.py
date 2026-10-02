@@ -22,6 +22,7 @@ _COMPLETION_FLAGS = (
     "--answers",
     "--supersedes",
     "--supersede-reason",
+    "--note",
     "--evidence",
     "--revisit",
     "--cost",
@@ -183,7 +184,8 @@ esac
 _FISH_COMPLETION = f"""\
 set -l docket_cmds {" ".join(_COMPLETION_CMDS)}
 complete -c docket -n "not __fish_seen_subcommand_from $docket_cmds" -a "$docket_cmds"
-complete -c docket -n "__fish_seen_subcommand_from claim decision question" -l supersede-reason -a "restate revise reverse"
+complete -c docket -n "__fish_seen_subcommand_from claim decision question correct" -l supersede-reason -a "restate revise reverse"
+complete -c docket -n "__fish_seen_subcommand_from review" -l note -r
 complete -c docket -n "__fish_seen_subcommand_from show review" -a "(docket list --oneline 2>/dev/null | awk '{{print \\$1}}')"
 complete -c docket -n "__fish_seen_subcommand_from claim decision question" -l supports -a "(docket list --oneline 2>/dev/null | awk '{{print \\$1}}')"
 complete -c docket -n "__fish_seen_subcommand_from claim decision question" -l supersedes -a "(docket list --oneline 2>/dev/null | awk '{{print \\$1}}')"

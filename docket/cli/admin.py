@@ -144,6 +144,7 @@ def cmd_check(args: argparse.Namespace) -> int:
     highest = 0
     records = 0
     correction_lines = 0
+    review_lines = 0
     for number, line in enumerate(lines, 1):
         if not line.strip():
             continue
@@ -153,7 +154,10 @@ def cmd_check(args: argparse.Namespace) -> int:
             faults.append(f"line {number}: invalid JSON: {exc.msg}")
             continue
         if isinstance(record, dict) and record.get("kind") in ("correction", "review"):
-            correction_lines += 1
+            if record["kind"] == "review":
+                review_lines += 1
+            else:
+                correction_lines += 1
             # Kept out of seen: a feature that names a correction id names
             # nothing a brief can attach, and the feature check reports it.
             try:
@@ -195,6 +199,8 @@ def cmd_check(args: argparse.Namespace) -> int:
         summary = f"{records} record{'s' if records != 1 else ''}"
         if correction_lines:
             summary += f" and {correction_lines} correction{'s' if correction_lines != 1 else ''}"
+        if review_lines:
+            summary += f" and {review_lines} review{'s' if review_lines != 1 else ''}"
         print(f"docket: {path} reads cleanly, {summary}")
     else:
         print(f"docket: {path} has {len(faults)} fault{'s' if len(faults) != 1 else ''}")

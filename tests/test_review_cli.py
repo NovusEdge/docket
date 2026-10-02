@@ -63,6 +63,12 @@ class SupersedeReasonCommandTests(unittest.TestCase):
         self.assertIn("recorded as revise", out.stderr)
         self.assertEqual(self.show("c2")["support"], "flagged")
 
+    def test_a_superseding_question_gets_no_hint(self):
+        self.assertEqual(run(self.cwd, "question", "Is it durable?").returncode, 0)
+        out = run(self.cwd, "question", "Is it durable on ext4?", "--supersedes", "q3")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertNotIn("recorded as revise", out.stderr)
+
     def test_a_reason_without_supersedes_is_refused(self):
         out = run(self.cwd, "claim", "Another claim.", "--supersede-reason", "restate")
         self.assertEqual(out.returncode, 1)
@@ -74,6 +80,14 @@ class SupersedeReasonCommandTests(unittest.TestCase):
         self.assertEqual(out.returncode, 0, out.stderr)
         self.assertIn("c2.r1", out.stdout)
         self.assertEqual(self.show("c2")["support"], "clean")
+
+    def test_check_counts_reviews_apart_from_corrections(self):
+        self.supersede()
+        run(self.cwd, "review", "c2")
+        out = run(self.cwd, "check")
+        self.assertEqual(out.returncode, 0, out.stdout)
+        self.assertIn("3 records and 1 review", out.stdout)
+        self.assertNotIn("correction", out.stdout)
 
     def test_review_of_nothing_is_refused(self):
         before = (Path(self.cwd) / "global").rglob("ledger.jsonl")
