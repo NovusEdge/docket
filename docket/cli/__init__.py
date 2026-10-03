@@ -22,6 +22,7 @@ from docket.cli.query import cmd_filter_ids, cmd_list, cmd_show, cmd_where
 from docket.cli.record import cmd_claim, cmd_decision, cmd_question
 from docket.cli.review import add_review_parser
 from docket.cli.selfupdate import cmd_update, cmd_update_fetch
+from docket.cli.web import port_arg, web_conflict
 from docket.ledger import KINDS, STATES, LedgerError
 from docket.support import REASONS
 from docket.where import WhereError
@@ -61,12 +62,6 @@ def _add_filter_args(p: argparse.ArgumentParser) -> None:
     )
     p.add_argument("--find", help="match question or answer text")
     p.add_argument("--where", metavar="QUERY", help="filter with the query language")
-
-
-def _port(text: str) -> int:
-    if not text.isdigit() or int(text) > 65535:
-        raise argparse.ArgumentTypeError(f"{text!r} is not a port, 0 to 65535")
-    return int(text)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -134,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
         "--no-interactive", action="store_true", help="force the static text renderer"
     )
     gr.add_argument("--web", action="store_true", help="serve the graph to a browser, live")
-    gr.add_argument("--port", type=_port, help="port for --web, default 7347")
+    gr.add_argument("--port", type=port_arg, help="port for --web, default 7347")
     gr.set_defaults(func=cmd_graph)
 
     ex = sub.add_parser("export", help="write the relation graph as mermaid, DOT or Gephi CSV")
@@ -281,15 +276,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"docket {version()}")
         print(p.format_help(), end="")
         return 0
-    if args.cmd == "graph" and args.web:
-        for flag, on in (
-            ("--interactive", args.interactive),
-            ("--no-interactive", args.no_interactive),
-            ("--plain", args.plain),
-            ("--style", args.style is not None),
-        ):
-            if on:
-                p.error(f"graph --web conflicts with {flag}")
+    if args.cmd == "graph" and (flag := web_conflict(args)):
+        p.error(f"graph --web conflicts with {flag}")
     if args.cmd == "graph" and args.interactive:
         if args.plain:
             p.error("graph --interactive conflicts with --plain")

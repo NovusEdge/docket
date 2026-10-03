@@ -1,4 +1,5 @@
 import http.client
+import io
 import json
 import os
 import subprocess
@@ -6,6 +7,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -83,13 +85,16 @@ class ServerTests(unittest.TestCase):
         server = make_server(boom, 0)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         port = server.server_address[1]
+        err = io.StringIO()
         try:
-            for _ in range(2):
-                conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
-                conn.request("GET", "/api/graph")
-                resp = conn.getresponse()
-                self.assertEqual(resp.status, 500)
-                self.assertIn(b"ledger unreadable", resp.read())
+            with redirect_stderr(err):
+                for _ in range(2):
+                    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+                    conn.request("GET", "/api/graph")
+                    resp = conn.getresponse()
+                    self.assertEqual(resp.status, 500)
+                    self.assertIn(b"ledger unreadable", resp.read())
+            self.assertIn("docket: web: ledger unreadable", err.getvalue())
         finally:
             server.shutdown()
             server.server_close()
@@ -112,7 +117,6 @@ class WebCliTests(unittest.TestCase):
                 proc.kill()
             proc.wait(timeout=5)
             proc.stdout.close()
-            proc.stderr.close()
         self.tmp.cleanup()
 
     def start(self, port=0):
@@ -126,7 +130,7 @@ class WebCliTests(unittest.TestCase):
         if port is not None:
             argv += ["--port", str(port)]
         proc = subprocess.Popen(
-            argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=self.root
+            argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env, cwd=self.root
         )
         self.procs.append(proc)
         return proc
@@ -158,4 +162,6 @@ class WebCliTests(unittest.TestCase):
         a = self.first_line(first)
         second = self.start(port=None)
         b = self.first_line(second)
+        for line in (a, b):
+            self.assertRegex(line, r"^http://127\.0\.0\.1:\d+/\n$")
         self.assertNotEqual(a, b)

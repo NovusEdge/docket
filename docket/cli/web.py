@@ -23,6 +23,27 @@ def web_command() -> list[str]:
     return [sys.executable, str(ROOT / "bin" / "docket"), "graph", "--web"]
 
 
+def port_arg(text: str) -> int:
+    if not text.isdigit() or int(text) > 65535:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a port, 0 to 65535")
+    return int(text)
+
+
+def web_conflict(args: argparse.Namespace) -> str | None:
+    """The first terminal-only flag given with --web, or None."""
+    if not args.web:
+        return None
+    for flag, on in (
+        ("--interactive", args.interactive),
+        ("--no-interactive", args.no_interactive),
+        ("--plain", args.plain),
+        ("--style", args.style is not None),
+    ):
+        if on:
+            return flag
+    return None
+
+
 def _payload(args: argparse.Namespace) -> bytes:
     # Read on every request: the page polls, and a ledger of a few hundred
     # records reads and renders in milliseconds.
@@ -54,10 +75,10 @@ def cmd_graph_web(args: argparse.Namespace) -> int:
     # flush: the terminal viewer reads this line through a pipe.
     print(url, flush=True)
     try:
-        webbrowser.open(url)
-    except Exception:
-        pass
-    try:
+        try:
+            webbrowser.open(url)
+        except Exception:
+            pass
         server.serve_forever()
     except KeyboardInterrupt:
         pass
