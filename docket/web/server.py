@@ -28,7 +28,7 @@ class _Server(ThreadingHTTPServer):
 def make_server(payload: Callable[[], bytes], port: int) -> ThreadingHTTPServer:
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
-            bound = self.server.server_address[1]
+            bound = self.connection.getsockname()[1]
             # A page on another origin can rebind its own hostname to
             # 127.0.0.1; the Host header is what still names that origin.
             if self.headers.get("Host") not in (f"127.0.0.1:{bound}", f"localhost:{bound}"):
