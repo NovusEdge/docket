@@ -101,6 +101,25 @@ class ServerTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
+    def test_a_client_that_hangs_up_leaves_no_traceback(self):
+        err = io.StringIO()
+        with redirect_stderr(err):
+            for exc in (BrokenPipeError(32, "Broken pipe"), ConnectionResetError(104, "reset")):
+                try:
+                    raise exc
+                except OSError:
+                    self.server.handle_error(None, ("127.0.0.1", 1))
+        self.assertEqual(err.getvalue(), "")
+
+    def test_any_other_handler_error_still_prints(self):
+        err = io.StringIO()
+        with redirect_stderr(err):
+            try:
+                raise KeyError("real bug")
+            except KeyError:
+                self.server.handle_error(None, ("127.0.0.1", 1))
+        self.assertIn("real bug", err.getvalue())
+
 
 class ImportCostTests(unittest.TestCase):
     def test_importing_the_cli_does_not_load_the_server(self):
@@ -128,19 +147,18 @@ class WebCliTests(unittest.TestCase):
             proc.stdout.close()
         self.tmp.cleanup()
 
-    def start(self, port=0):
+    def start(self, port=0, browser="true", stderr=subprocess.DEVNULL):
         env = {
             **os.environ,
-            "BROWSER": "true",
+            "BROWSER": browser,
+            "DISPLAY": os.environ.get("DISPLAY", ":0"),
             "DOCKET_NO_UPDATE_CHECK": "1",
             "DOCKET_HOME": str(self.root / "home"),
         }
         argv = [sys.executable, str(ROOT / "bin" / "docket"), "graph", "--web"]
         if port is not None:
             argv += ["--port", str(port)]
-        proc = subprocess.Popen(
-            argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env, cwd=self.root
-        )
+        proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=stderr, env=env, cwd=self.root)
         self.procs.append(proc)
         return proc
 
@@ -165,6 +183,28 @@ class WebCliTests(unittest.TestCase):
         self.assertIn("records", data)
         proc.terminate()
         self.assertEqual(proc.wait(timeout=5), 0)
+
+    def test_the_browser_s_own_output_stays_off_the_terminal(self):
+        # A browser launched by webbrowser inherits our stdout and stderr, so
+        # Chrome's GPU and extension warnings used to land in the terminal.
+        script = self.root / "noisy-browser"
+        marker = self.root / "browser-ran"
+        script.write_text(
+            f'#!/bin/sh\necho browser-out\necho browser-err >&2\ntouch "{marker}"\n',
+            encoding="utf-8",
+        )
+        script.chmod(0o755)
+        proc = self.start(browser=str(script), stderr=subprocess.PIPE)
+        self.assertRegex(self.first_line(proc), r"^http://127\.0\.0\.1:\d+/\n$")
+        for _ in range(100):
+            if marker.exists():
+                break
+            threading.Event().wait(0.05)
+        self.assertTrue(marker.exists(), "the browser command never ran")
+        proc.terminate()
+        out, err = proc.communicate(timeout=5)
+        self.assertNotIn(b"browser-out", out)
+        self.assertNotIn(b"browser-err", err)
 
     def test_no_browser_is_opened_without_a_display(self):
         from unittest import mock

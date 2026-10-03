@@ -24,6 +24,13 @@ class _Server(ThreadingHTTPServer):
     # restarted child rebinds its port at once.
     allow_reuse_address = os.name != "nt"
 
+    def handle_error(self, request, client_address) -> None:
+        # A reload or an aborted poll closes the socket mid-response; that is
+        # the browser's choice, not a fault worth a traceback.
+        if isinstance(sys.exc_info()[1], (BrokenPipeError, ConnectionResetError)):
+            return
+        super().handle_error(request, client_address)
+
 
 def make_server(payload: Callable[[], bytes], port: int) -> ThreadingHTTPServer:
     class Handler(BaseHTTPRequestHandler):

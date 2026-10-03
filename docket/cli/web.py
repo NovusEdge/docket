@@ -62,9 +62,30 @@ def _stop(*_: object) -> None:
     raise KeyboardInterrupt
 
 
+def _open_quietly(url: str) -> None:
+    """Open the browser with its stdout and stderr on the null device.
+
+    webbrowser starts the browser as a child that inherits our descriptors,
+    and a browser starting fresh writes GPU, sandbox and extension warnings
+    to them. The URL line is already flushed, so nothing of ours is lost.
+    """
+    import webbrowser
+
+    saved = [os.dup(1), os.dup(2)]
+    null = os.open(os.devnull, os.O_WRONLY)
+    try:
+        os.dup2(null, 1)
+        os.dup2(null, 2)
+        webbrowser.open(url)
+    finally:
+        os.dup2(saved[0], 1)
+        os.dup2(saved[1], 2)
+        for fd in (null, *saved):
+            os.close(fd)
+
+
 def cmd_graph_web(args: argparse.Namespace) -> int:
     import signal
-    import webbrowser
 
     from docket.web import server as web_server
 
@@ -91,7 +112,7 @@ def cmd_graph_web(args: argparse.Namespace) -> int:
         )
         try:
             if not headless:
-                webbrowser.open(url)
+                _open_quietly(url)
         except Exception:
             pass
         server.serve_forever()
