@@ -46,11 +46,12 @@ def _payload(args: argparse.Namespace, params: dict[str, str]) -> bytes:
     # Read on every request: the page polls, and a ledger of a few hundred
     # records reads and renders in milliseconds.
     from docket.graph_export import to_dot
+    from docket.graph_layout import GROUPS
     from docket.ledger import project
     from docket.web.server import BadRequest
 
     group = params.get("group", "none")
-    if group not in ("none", "kind", "scope"):
+    if group not in GROUPS:
         raise BadRequest("group must be none, kind or scope")
     hops = params.get("hops", "2")
     if not (hops.isascii() and hops.isdigit() and 1 <= int(hops) <= 4):

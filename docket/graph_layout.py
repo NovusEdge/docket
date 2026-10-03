@@ -40,7 +40,10 @@ def neighbourhood(
             dist = best[node] + cost
             if dist <= hops and dist < best.get(nxt, hops + 1):
                 best[nxt] = dist
-                queue.appendleft(nxt) if cost == 0 else queue.append(nxt)
+                if cost == 0:
+                    queue.appendleft(nxt)
+                else:
+                    queue.append(nxt)
     return {n for n in best if "_set" not in n}
 
 
