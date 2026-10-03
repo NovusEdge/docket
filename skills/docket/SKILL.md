@@ -243,7 +243,7 @@ original record with derived fields such as `recorded_state`, effective `state`,
 `retired_by`, `resolved_by`, `applicable`, and `blocked_by`. `graph` preserves
 the full support sets as well as the renderer's deduplicated support union.
 
-`graph --format` exports the relation graph instead of drawing it.
+`export` writes the relation graph in the format `--format` names, mermaid by default.
 
 | Format | Output | For |
 |---|---|---|

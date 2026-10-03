@@ -12,6 +12,7 @@ Ledger commands use the file that `docket where` reports. Run
 | `docket list` | List current records |
 | `docket show ID` | Print one record in full |
 | `docket graph` | Browse how records connect |
+| `docket export` | Write the relation graph as mermaid, graphviz DOT or Gephi CSV |
 | `docket context` | Print the briefing an agent reads |
 | `docket where` | Print which ledger file is in use |
 | `docket check` | Report what makes the ledger unreadable |
@@ -110,11 +111,17 @@ Record that you checked a claim or decision whose grounds changed. It appends a 
 | `--where QUERY` | Filter with the [query language](#query-language). In the viewer it is the initial filter, and clearing it shows every record. |
 | `--interactive`, `--no-interactive` | Require or refuse the native viewer |
 | `--plain`, `--pretty` | Force colour off or on |
-| `--format mermaid\|dot\|csv` | Export the graph as a mermaid flowchart, a graphviz digraph, or Gephi tables |
+
+`docket export`
+
+| Flag | Effect |
+|---|---|
+| `--format mermaid\|dot\|csv` | A mermaid flowchart, a graphviz digraph, or Gephi tables. Default `mermaid`. |
+| `--kind`, `--state`, `--find`, `--where` | Filter, as in `list` |
+| `--superseded` | Include retired records and the retire edges |
 | `--out DIR` | Required by `--format csv`, which writes `nodes.csv` and `edges.csv` there |
-| `--superseded` | With `--format`, include retired records and the retire edges |
-| `--detail N` | With `--format`, characters of text per node. Default 40, `0` for IDs alone. |
-| `--direction LR\|TD\|RL\|BT` | With `--format mermaid` or `dot`, the layout direction. Default `LR`. |
+| `--detail N` | Characters of text per node. Default 40, `0` for IDs alone. |
+| `--direction LR\|TD\|RL\|BT` | With `mermaid` or `dot`, the layout direction. Default `LR`. |
 
 Claims and decisions carry three derived fields in `--json` output and in `show`:
 
@@ -124,7 +131,7 @@ Claims and decisions carry three derived fields in `--json` output and in `show`
 | `review_owed` | a list of `{ground, head, because}`, one per ground to review; `docket review` clears them |
 | `lost_grounds` | a list of `{ground, because}` for grounds an unsupported record lost |
 
-`context` prints `review_owed:` and `lost:` lines under an affected record and ends with `# owe review: N; docket list --where is:flagged`. `context --since` adds ", N newly owe review" to its summary and counts a newly unsupported record as no longer available. `show` prints "Review owed" and "Lost grounds" sections, and the text `graph` marks records `? review` or `! lost`. `graph --format` draws a flagged record with a dashed border and an unsupported one with a dotted border, and the csv node table carries a `support` column.
+`context` prints `review_owed:` and `lost:` lines under an affected record and ends with `# owe review: N; docket list --where is:flagged`. `context --since` adds ", N newly owe review" to its summary and counts a newly unsupported record as no longer available. `show` prints "Review owed" and "Lost grounds" sections, and the text `graph` marks records `? review` or `! lost`. `export` draws a flagged record with a dashed border and an unsupported one with a dotted border, and the csv node table carries a `support` column.
 
 A decision's `depends_on` follows restatements and revisions to the head of the chain. A reversal, or a rejected or revoked head, blocks the decision; a revised prerequisite flags it. An unsupported prerequisite does not block.
 

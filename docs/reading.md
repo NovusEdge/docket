@@ -86,7 +86,7 @@ Use `--no-interactive` to request text output directly.
 
 ## Export the graph
 
-`docket graph --format` exports the relation graph in three formats.
+`docket export` writes the relation graph in three formats, selected with `--format`. Without it, export prints mermaid.
 
 | Format | Viewer | Install | Output |
 |---|---|---|---|
@@ -100,13 +100,13 @@ or PNG files. Import CSV into an analysis tool to measure centrality, find
 clusters, or filter by node attributes.
 
 ```sh
-docket graph --format mermaid --find installer
-docket graph --format mermaid --superseded --detail 0 > graph.mmd
-docket graph --format dot --find installer | dot -Tsvg -o installer.svg
-docket graph --format csv --out gephi/ --superseded
+docket export --find installer
+docket export --superseded --detail 0 > graph.mmd
+docket export --format dot --find installer | dot -Tsvg -o installer.svg
+docket export --format csv --out gephi/ --superseded
 ```
 
-`--kind`, `--state`, `--find`, `--superseded` and `--detail` narrow all three.
+`--kind`, `--state`, `--find`, `--where`, `--superseded` and `--detail` narrow all three.
 `--direction` applies to mermaid and DOT.
 
 ### Gephi
@@ -115,7 +115,7 @@ docket graph --format csv --out gephi/ --superseded
 edge table separately. Name the directory with `--out`.
 
 ```sh
-docket graph --format csv --out gephi/
+docket export --format csv --out gephi/
 ```
 
 In Gephi, use **File > Import spreadsheet** to import `nodes.csv` as a node

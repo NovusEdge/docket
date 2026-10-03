@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `docket export` replaces `docket graph --format`, which is removed with no alias. `--format` defaults to `mermaid`, and `--out`, `--detail`, `--direction` and `--superseded` moved with it. `graph` is now only the viewer and the text renderer.
+
 ## [0.22.1] - 2026-10-03
 
 ### Changed
