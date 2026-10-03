@@ -12,6 +12,7 @@ import sys
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs
 
 WEB_ROOT = Path(__file__).resolve().parent
 ASSETS = {"/": "index.html", "/viz-global.js": "vendor/viz-global.js"}
@@ -32,7 +33,11 @@ class _Server(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
-def make_server(payload: Callable[[], bytes], port: int) -> ThreadingHTTPServer:
+class BadRequest(ValueError):
+    """Raised by a payload for a query the client got wrong; answered as 400."""
+
+
+def make_server(payload: Callable[[dict[str, str]], bytes], port: int) -> ThreadingHTTPServer:
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
             bound = self.connection.getsockname()[1]
@@ -41,9 +46,9 @@ def make_server(payload: Callable[[], bytes], port: int) -> ThreadingHTTPServer:
             if self.headers.get("Host") not in (f"127.0.0.1:{bound}", f"localhost:{bound}"):
                 self._send(403, b"forbidden", "text/plain")
                 return
-            path = self.path.split("?", 1)[0]
+            path, _, query = self.path.partition("?")
             if path == "/api/graph":
-                self._graph()
+                self._graph({k: v[0] for k, v in parse_qs(query).items()})
             elif path in ASSETS:
                 file = WEB_ROOT / ASSETS[path]
                 cache = "max-age=86400" if path != "/" else "no-cache"
@@ -51,9 +56,12 @@ def make_server(payload: Callable[[], bytes], port: int) -> ThreadingHTTPServer:
             else:
                 self._send(404, b"not found", "text/plain")
 
-        def _graph(self) -> None:
+        def _graph(self, params: dict[str, str]) -> None:
             try:
-                body = payload()
+                body = payload(params)
+            except BadRequest as exc:
+                self._send(400, str(exc).encode(), "text/plain")
+                return
             except Exception as exc:
                 print(f"docket: web: {exc}", file=sys.stderr)
                 self._send(500, f"docket: {exc}".encode(), "text/plain")

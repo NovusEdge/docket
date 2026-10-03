@@ -42,16 +42,33 @@ def web_conflict(args: argparse.Namespace) -> str | None:
     return None
 
 
-def _payload(args: argparse.Namespace) -> bytes:
+def _payload(args: argparse.Namespace, params: dict[str, str]) -> bytes:
     # Read on every request: the page polls, and a ledger of a few hundred
     # records reads and renders in milliseconds.
     from docket.graph_export import to_dot
     from docket.ledger import project
+    from docket.web.server import BadRequest
 
+    group = params.get("group", "none")
+    if group not in ("none", "kind", "scope"):
+        raise BadRequest("group must be none, kind or scope")
+    hops = params.get("hops", "2")
+    if not (hops.isascii() and hops.isdigit() and 1 <= int(hops) <= 4):
+        raise BadRequest("hops must be a whole number from 1 to 4")
     _, shown, superseded = selection(args)
     records = project(env.read(env.ledger_path()), validated=True)
+    try:
+        dot = to_dot(
+            shown,
+            superseded=superseded,
+            group=group,
+            focus=params.get("focus") or None,
+            hops=int(hops),
+        )
+    except ValueError as exc:
+        raise BadRequest(str(exc)) from exc
     body = {
-        "dot": to_dot(shown, superseded=superseded),
+        "dot": dot,
         "records": records,
         "title": env.project_root().name,
     }
@@ -98,7 +115,7 @@ def cmd_graph_web(args: argparse.Namespace) -> int:
         return 1
     selection(args)  # a bad --where fails here, before anything binds
     port = DEFAULT_PORT if args.port is None else args.port
-    server = web_server.make_server(lambda: _payload(args), port)
+    server = web_server.make_server(lambda params: _payload(args, params), port)
     # Installed before the URL line: a caller may terminate as soon as it reads it.
     signal.signal(signal.SIGTERM, _stop)
     url = f"http://127.0.0.1:{server.server_address[1]}/"

@@ -14,13 +14,21 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from docket import ROOT
-from docket.web.server import make_server
+from docket.web.server import BadRequest, make_server
 
 
 class ServerTests(unittest.TestCase):
     def setUp(self):
         self.body = {"dot": "digraph docket {}", "records": [], "title": "t"}
-        self.server = make_server(lambda: json.dumps(self.body).encode(), 0)
+        self.seen = []
+
+        def payload(params):
+            self.seen.append(params)
+            if params.get("group") == "bad":
+                raise BadRequest("group must be none, kind or scope")
+            return json.dumps({**self.body, "params": params}).encode()
+
+        self.server = make_server(payload, 0)
         self.port = self.server.server_address[1]
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 
@@ -53,6 +61,27 @@ class ServerTests(unittest.TestCase):
         status, _, body = self.get("/api/graph", {"If-None-Match": etag})
         self.assertEqual((status, body), (304, b""))
 
+    def test_the_query_reaches_the_payload_as_a_dict(self):
+        status, _, _ = self.get("/api/graph?group=scope&hops=3&hops=4")
+        self.assertEqual(status, 200)
+        self.assertEqual(self.seen[-1], {"group": "scope", "hops": "3"})
+        self.get("/api/graph")
+        self.assertEqual(self.seen[-1], {})
+
+    def test_a_bad_request_is_a_quiet_400_with_its_text(self):
+        err = io.StringIO()
+        with redirect_stderr(err):
+            status, headers, body = self.get("/api/graph?group=bad")
+        self.assertEqual(status, 400)
+        self.assertIn("text/plain", headers["Content-Type"])
+        self.assertEqual(body, b"group must be none, kind or scope")
+        self.assertEqual(err.getvalue(), "")
+
+    def test_different_params_give_different_etags(self):
+        _, first, _ = self.get("/api/graph?group=kind")
+        _, second, _ = self.get("/api/graph?group=scope")
+        self.assertNotEqual(first["ETag"], second["ETag"])
+
     def test_a_changed_payload_changes_the_etag(self):
         _, first, _ = self.get("/api/graph")
         self.body["records"] = [{"id": "c1"}]
@@ -74,14 +103,14 @@ class ServerTests(unittest.TestCase):
             self.assertEqual(self.get(path)[0], 404, path)
 
     def test_a_taken_port_falls_back_to_a_free_one(self):
-        other = make_server(lambda: b"{}", self.port)
+        other = make_server(lambda params: b"{}", self.port)
         try:
             self.assertNotEqual(other.server_address[1], self.port)
         finally:
             other.server_close()
 
     def test_a_failing_payload_is_a_500_and_the_server_lives(self):
-        def boom():
+        def boom(params):
             raise ValueError("ledger unreadable")
 
         server = make_server(boom, 0)
@@ -183,6 +212,47 @@ class WebCliTests(unittest.TestCase):
         self.assertIn("records", data)
         proc.terminate()
         self.assertEqual(proc.wait(timeout=5), 0)
+
+    def graph(self, query):
+        env = {**os.environ, "DOCKET_NO_UPDATE_CHECK": "1", "DOCKET_HOME": str(self.root / "home")}
+        docket = [sys.executable, str(ROOT / "bin" / "docket")]
+        for text, link, scope in (
+            ("a", [], "src/a.py"),
+            ("b", ["--supports", "c1"], "src/b.py"),
+            ("c", ["--supports", "c2"], "docs/x.md"),
+        ):
+            subprocess.run(
+                [*docket, "claim", text, "--scope", scope, *link],
+                cwd=self.root,
+                env=env,
+                check=True,
+                capture_output=True,
+            )
+        proc = self.start()
+        line = self.first_line(proc)
+        port = int(line.rsplit(":", 1)[1].rstrip("/\n"))
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        conn.request("GET", "/api/graph" + query)
+        resp = conn.getresponse()
+        return resp.status, resp.read().decode()
+
+    def test_bad_layout_parameters_are_400(self):
+        for query in ("?group=x", "?hops=abc", "?hops=0", "?hops=9", "?focus=nope"):
+            status, body = self.graph(query)
+            self.assertEqual(status, 400, query)
+            self.assertNotIn("Traceback", body)
+
+    def test_group_scope_boxes_the_graph(self):
+        status, body = self.graph("?group=scope")
+        self.assertEqual(status, 200)
+        self.assertIn("subgraph cluster_", json.loads(body)["dot"])
+
+    def test_focus_marks_the_node_and_keeps_every_record(self):
+        status, body = self.graph("?focus=c1&hops=1")
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        self.assertIn("focus", data["dot"])
+        self.assertEqual(len(data["records"]), 3)
 
     def test_the_browser_s_own_output_stays_off_the_terminal(self):
         # A browser launched by webbrowser inherits our stdout and stderr, so
