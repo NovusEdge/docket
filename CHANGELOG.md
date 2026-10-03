@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `docket graph --web` serves a live, localhost-only browser view of the relation graph, with `--port N` to pick the port.
 - The `w` key in the terminal graph viewer opens the web view for the current filter.
+- `docket export --group none|kind|scope` draws boxes around records, and `--focus ID --hops N` draws only a record and the records within N relation steps of it.
+- The `docket graph --web` page has a Layout popover for engine, direction and grouping, and a "Focus here" control in the record drawer. Layout state is kept in the URL query string.
 
 ### Changed
 

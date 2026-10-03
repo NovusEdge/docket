@@ -252,7 +252,7 @@ the full support sets as well as the renderer's deduplicated support union.
 | `csv` | `nodes.csv` and `edges.csv` in `--out DIR` | Gephi, or anything measuring the graph rather than drawing it |
 
 `--kind`, `--state`, `--find`, `--where`, `--superseded` and `--detail` narrow all three.
-Narrow before exporting: the whole ledger is a hairball in any of them.
+Narrow before exporting: the whole ledger is a hairball in any of them. `--focus ID --hops N` narrows an export to a record's neighbourhood.
 
 `graph --web` serves the same graph live in a browser, for a person to read; an agent reads `show` or `list --json` instead.
 
