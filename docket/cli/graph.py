@@ -167,7 +167,13 @@ def _run_graph_viewer(
                 command.append("--pretty")
             # An older viewer binary exits on an unknown flag but ignores an
             # unknown variable, so the callback travels in the environment.
-            child_env = {**os.environ, "DOCKET_GRAPH_FILTER_CMD": json.dumps(_filter_command())}
+            from docket.cli.web import web_command
+
+            child_env = {
+                **os.environ,
+                "DOCKET_GRAPH_FILTER_CMD": json.dumps(_filter_command()),
+                "DOCKET_GRAPH_WEB_CMD": json.dumps(web_command()),
+            }
             result = subprocess.run(command, env=child_env)
         except KeyboardInterrupt:
             return 130
@@ -480,6 +486,10 @@ def _render_static(
 
 
 def cmd_graph(args: argparse.Namespace) -> int:
+    if getattr(args, "web", False):
+        from docket.cli.web import cmd_graph_web
+
+        return cmd_graph_web(args)
     style = getattr(args, "style", None)
     interactive = bool(getattr(args, "interactive", False))
     no_interactive = bool(getattr(args, "no_interactive", False))

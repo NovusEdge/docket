@@ -40,6 +40,28 @@ class ExportCliTests(unittest.TestCase):
             code = main(list(argv))
         return code, out.getvalue(), err.getvalue()
 
+    def test_web_conflicts_with_the_terminal_flags(self):
+        for flag in ("--interactive", "--no-interactive", "--plain", "--style=forest"):
+            err = io.StringIO()
+            with self.assertRaises(SystemExit) as cm, redirect_stderr(err):
+                main(["graph", "--web", flag])
+            self.assertEqual(cm.exception.code, 2, flag)
+            self.assertIn("--web conflicts with", err.getvalue())
+
+    def test_web_refuses_a_port_outside_the_range(self):
+        err = io.StringIO()
+        with self.assertRaises(SystemExit) as cm, redirect_stderr(err):
+            main(["graph", "--web", "--port", "70000"])
+        self.assertEqual(cm.exception.code, 2)
+
+    def test_web_with_a_missing_asset_names_it(self):
+        from unittest import mock
+
+        with mock.patch("docket.cli.web.WEB_ROOT", self.root / "nowhere"):
+            code, _, err = self.run_cli("graph", "--web", "--port", "0")
+        self.assertEqual(code, 1)
+        self.assertIn("nowhere", err)
+
     def seed(self):
         self.run_cli("claim", "the loader scans plugins", "--state", "accepted", "--scope", "a/**")
         self.run_cli(

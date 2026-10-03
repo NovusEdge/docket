@@ -46,6 +46,8 @@ _COMPLETION_FLAGS = (
     "--style",
     "--interactive",
     "--no-interactive",
+    "--web",
+    "--port",
     "--format",
     "--out",
     "--detail",

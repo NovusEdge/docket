@@ -36,6 +36,13 @@ def _write_csv(entries: list[dict], args: argparse.Namespace, superseded: bool) 
     return 0
 
 
+def selection(args: argparse.Namespace) -> tuple[list[dict], list[dict], bool]:
+    query = where.parse(getattr(args, "where", None) or "")
+    entries, _ = _graph_entries(args)
+    shown = [e for e in entries if query.matches(e)]
+    return entries, shown, bool(getattr(args, "superseded", False)) or query.wants_retired
+
+
 def cmd_export(args: argparse.Namespace) -> int:
     if args.out and args.format != "csv":
         print("docket: --out belongs to --format csv", file=sys.stderr)
@@ -45,14 +52,10 @@ def cmd_export(args: argparse.Namespace) -> int:
         # two documents and stdout cannot carry both.
         print("docket: --format csv writes two files; name a directory with --out", file=sys.stderr)
         return 2
-    query = where.parse(args.where or "")
-
-    entries, _ = _graph_entries(args)
+    entries, shown, superseded = selection(args)
     if not entries:
         print("docket: nothing recorded")
         return 0
-    shown = [e for e in entries if query.matches(e)]
-    superseded = args.superseded or query.wants_retired
 
     if args.format == "csv":
         return _write_csv(shown, args, superseded)

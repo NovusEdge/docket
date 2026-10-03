@@ -1,11 +1,15 @@
 import http.client
 import json
+import os
+import subprocess
 import sys
+import tempfile
 import threading
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+from docket import ROOT
 from docket.web.server import make_server
 
 
@@ -71,3 +75,87 @@ class ServerTests(unittest.TestCase):
             self.assertNotEqual(other.server_address[1], self.port)
         finally:
             other.server_close()
+
+    def test_a_failing_payload_is_a_500_and_the_server_lives(self):
+        def boom():
+            raise ValueError("ledger unreadable")
+
+        server = make_server(boom, 0)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        port = server.server_address[1]
+        try:
+            for _ in range(2):
+                conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+                conn.request("GET", "/api/graph")
+                resp = conn.getresponse()
+                self.assertEqual(resp.status, 500)
+                self.assertIn(b"ledger unreadable", resp.read())
+        finally:
+            server.shutdown()
+            server.server_close()
+
+
+class WebCliTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        subprocess.run(
+            ["git", "-C", str(self.root), "init", "-b", "main"], check=True, capture_output=True
+        )
+        (self.root / ".docket").mkdir()
+        (self.root / ".docket" / "ledger.jsonl").write_text("", encoding="utf-8")
+        self.procs = []
+
+    def tearDown(self):
+        for proc in self.procs:
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait(timeout=5)
+            proc.stdout.close()
+            proc.stderr.close()
+        self.tmp.cleanup()
+
+    def start(self, port=0):
+        env = {
+            **os.environ,
+            "BROWSER": "true",
+            "DOCKET_NO_UPDATE_CHECK": "1",
+            "DOCKET_HOME": str(self.root / "home"),
+        }
+        argv = [sys.executable, str(ROOT / "bin" / "docket"), "graph", "--web"]
+        if port is not None:
+            argv += ["--port", str(port)]
+        proc = subprocess.Popen(
+            argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=self.root
+        )
+        self.procs.append(proc)
+        return proc
+
+    def first_line(self, proc):
+        box = []
+        reader = threading.Thread(target=lambda: box.append(proc.stdout.readline()), daemon=True)
+        reader.start()
+        reader.join(timeout=10)
+        if not box:
+            self.fail("URL line never arrived (stdout not flushed?)")
+        return box[0].decode()
+
+    def test_the_url_is_the_first_line_through_a_pipe(self):
+        proc = self.start()
+        line = self.first_line(proc)
+        self.assertRegex(line, r"^http://127\.0\.0\.1:\d+/\n$")
+        port = int(line.rsplit(":", 1)[1].rstrip("/\n"))
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        conn.request("GET", "/api/graph")
+        data = json.loads(conn.getresponse().read())
+        self.assertIn("dot", data)
+        self.assertIn("records", data)
+        proc.terminate()
+        self.assertEqual(proc.wait(timeout=5), 0)
+
+    def test_a_held_default_port_falls_back(self):
+        first = self.start(port=None)
+        a = self.first_line(first)
+        second = self.start(port=None)
+        b = self.first_line(second)
+        self.assertNotEqual(a, b)

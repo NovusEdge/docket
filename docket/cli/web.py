@@ -1,0 +1,66 @@
+"""`docket graph --web`: serve the relation graph to a browser until stopped."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import signal
+import sys
+import webbrowser
+
+from docket import ROOT, env
+from docket.cli.export import selection
+from docket.env import read
+from docket.graph_export import to_dot
+from docket.ledger import project
+from docket.web.server import ASSETS, WEB_ROOT, make_server
+
+DEFAULT_PORT = 7347
+
+
+def web_command() -> list[str]:
+    """The argv the terminal viewer runs for `w`; it appends --where QUERY."""
+    return [sys.executable, str(ROOT / "bin" / "docket"), "graph", "--web"]
+
+
+def _payload(args: argparse.Namespace) -> bytes:
+    # Read on every request: the page polls, and a ledger of a few hundred
+    # records reads and renders in milliseconds.
+    _, shown, superseded = selection(args)
+    records = project(read(env.ledger_path()), validated=True)
+    body = {
+        "dot": to_dot(shown, superseded=superseded),
+        "records": records,
+        "title": env.project_root().name,
+    }
+    return json.dumps(body, ensure_ascii=False).encode("utf-8")
+
+
+def _stop(*_: object) -> None:
+    raise KeyboardInterrupt
+
+
+def cmd_graph_web(args: argparse.Namespace) -> int:
+    missing = [str(WEB_ROOT / name) for name in ASSETS.values() if not (WEB_ROOT / name).is_file()]
+    if missing:
+        print(f"docket: web view files missing: {', '.join(missing)}", file=sys.stderr)
+        return 1
+    selection(args)  # a bad --where fails here, before anything binds
+    port = DEFAULT_PORT if args.port is None else args.port
+    server = make_server(lambda: _payload(args), port)
+    # Installed before the URL line: a caller may terminate as soon as it reads it.
+    signal.signal(signal.SIGTERM, _stop)
+    url = f"http://127.0.0.1:{server.server_address[1]}/"
+    # flush: the terminal viewer reads this line through a pipe.
+    print(url, flush=True)
+    try:
+        webbrowser.open(url)
+    except Exception:
+        pass
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+    return 0

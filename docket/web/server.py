@@ -37,7 +37,12 @@ def make_server(payload: Callable[[], bytes], port: int) -> ThreadingHTTPServer:
                 self._send(404, b"not found", "text/plain")
 
         def _graph(self) -> None:
-            body = payload()
+            try:
+                body = payload()
+            except Exception as exc:
+                print(f"docket: web: {exc}", file=sys.stderr)
+                self._send(500, f"docket: {exc}".encode(), "text/plain")
+                return
             etag = '"' + hashlib.sha256(body).hexdigest()[:16] + '"'
             if self.headers.get("If-None-Match") == etag:
                 self.send_response(304)
