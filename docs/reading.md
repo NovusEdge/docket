@@ -97,7 +97,7 @@ The page polls the ledger every 2 seconds. When the ledger changes, the graph re
 
 Press `/` to search. The kind and retired chips dim nodes without laying the graph out again. Selecting a node slides in a drawer with the full record, and the references in it are clickable. A toggle switches between the light and dark theme.
 
-The `Layout ▾` button opens a popover with three controls: Engine (Layered, Force, Radial, Circular), Direction (→ Right, ↓ Down; Layered only) and Group (None, Kind, Scope). The record drawer has a "Focus here" button and a stepper for 1 to 4 hops. While a focus is set, a `focus <id> · N hops ×` pill in the top bar clears it. Layout state lives in the URL query string, so a reload or a shared link restores it.
+The `Layout ▾` button opens a popover with three controls: Engine (Layered, Force, Radial, Circular), Direction (→ Right, ↓ Down; Layered only) and Group (None, Kind, Scope). Direction applies to the Layered engine only, because Force, Radial and Circular ignore it. Radial and Circular draw no group boxes, because Graphviz ignores clusters in those engines. The record drawer has a "Focus here" button and a stepper for 1 to 4 hops. While a focus is set, a `focus <id> · N hops ×` pill in the top bar clears it. Layout state lives in the URL query string, so a reload or a shared link restores it.
 
 The download buttons save what is on screen as SVG or PNG.
 
@@ -131,9 +131,9 @@ docket export --format dot --group scope --focus d155 --hops 2 | dot -Tsvg -o d1
 
 `--group none|kind|scope` draws boxes around records. The default is `none`. Kind boxes are labelled `claims`, `decisions` and `questions`. A scope box is the deepest directory that all of a record's scopes share. Boxes nest. Records whose scopes share no directory go in `/`, and records with no scope sit outside every box.
 
-`--focus ID` draws only that record and the records within `--hops` relation steps of it, in either direction. `--hops N` is 1 to 4, default 2, and requires `--focus` (exit 2 without it). An id that is not in the current selection, including one removed by `--kind` or `--where`, exits 1 with `<id> is not in this selection`.
+`--focus ID` draws only that record and the records within `--hops` relation steps of it, in either direction. A focused record with no relations draws alone. `--hops N` is 1 to 4, default 2, and requires `--focus` (exit 2 without it). An id that is not in the current selection, including one removed by `--kind` or `--where`, exits 1 with `<id> is not in this selection`.
 
-Grouping the whole ledger is crowded: kind boxes stack, and decisions that span directories cross scope boxes. Grouping reads best together with `--focus`. In the web page, the force and circular engines ignore direction.
+Grouping the whole ledger is crowded: kind boxes stack, and decisions that span directories cross scope boxes. Grouping reads best together with `--focus`.
 
 ### Gephi
 
