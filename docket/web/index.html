@@ -197,7 +197,7 @@ const off = new Set(), nodeId = g => g.querySelector('title').textContent;
 const CHOICES = { engine: ['dot', 'fdp', 'twopi', 'circo'], dir: ['LR', 'TB'], group: ['none', 'kind', 'scope'], hops: ['1', '2', '3', '4'] };
 const DEFAULTS = { engine: 'dot', dir: 'LR', group: 'none', focus: null, hops: 2 };
 const L = { ...DEFAULTS };
-let lastDot = '', drawnKey = null, again = false;
+let lastDot = '', drawnKey = null, again = false, accepted = null;
 {
   const p = new URLSearchParams(location.search);
   for (const k in CHOICES) if (CHOICES[k].includes(p.get(k))) L[k] = k === 'hops' ? +p.get(k) : p.get(k);
@@ -235,6 +235,7 @@ async function load(force = false) {
   if (loading) { again ||= force; return; }
   loading = true;
   const query = graphQuery();
+  const sent = { group: L.group, focus: L.focus, hops: L.hops };
   let data = null;
   try {
     const res = await fetch('/api/graph' + (query ? '?' + query : ''), { headers: lastEtag ? { 'If-None-Match': lastEtag } : {}, signal: AbortSignal.timeout(5000) });
@@ -243,8 +244,12 @@ async function load(force = false) {
       // A shared URL with a stale focus would otherwise stay blank; fall back to the unfocused graph.
       const stale = drawnKey === null && L.focus;
       if (stale) { L.focus = null; L.hops = DEFAULTS.hops; writeUrl(); syncUI(); lastEtag = null; again = true; }
+      // Over a drawn graph, put the controls back on the layout that graph came from.
+      else if (drawnKey !== null && query === graphQuery()) { Object.assign(L, accepted); writeUrl(); syncUI(); }
       setLayoutErr(text, stale);
     } else {
+      // The group, focus and hops the server last accepted; a 400 over a drawn graph restores them.
+      if (res.status === 200 || res.status === 304) accepted = sent;
       if (res.status === 200) {
         data = await res.json();
         lastEtag = res.headers.get('ETag');
