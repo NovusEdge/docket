@@ -127,7 +127,8 @@ button, input { font: inherit; color: inherit; }
 
 /* layout */
 .layout-btn.on { background: var(--surface-2); }
-.pop { position: absolute; z-index: 2; top: 62px; width: max-content; padding: 12px 14px; display: none; }
+.layout-col { position: absolute; z-index: 2; top: 62px; width: max-content; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.pop { width: max-content; padding: 12px 14px; display: none; }
 .pop.open { display: block; }
 .row-l { display: grid; grid-template-columns: 78px 1fr; align-items: center; gap: 8px; margin: 8px 0; }
 .row-l > span { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); }
@@ -136,7 +137,7 @@ button, input { font: inherit; color: inherit; }
 .seg button + button { border-left: 1px solid var(--line); }
 .seg button.on { background: var(--ink); color: var(--bg); }
 .seg button:disabled { opacity: .35; cursor: default; }
-.layout-err { position: absolute; z-index: 1; top: 62px; max-width: 320px; padding: 6px 10px; font-size: 12px; color: var(--bad); }
+.layout-err { max-width: 320px; padding: 6px 10px; font-size: 12px; color: var(--bad); }
 .pill { display: none; align-items: center; gap: 6px; padding: 3px 6px 3px 10px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); font: 12px var(--mono); }
 .pill.show { display: inline-flex; }
 .pill button { border: 0; background: transparent; color: inherit; cursor: pointer; font-size: 13px; }
@@ -166,12 +167,14 @@ button, input { font: inherit; color: inherit; }
   <button class="btn" id="pngbtn">PNG</button>
   <button class="btn" id="theme" title="Theme">◐</button>
 </header>
+<div class="layout-col" id="layout-col">
+<div class="layout-err panel" id="layout-err" role="alert" hidden></div>
 <div class="pop panel" id="pop">
   <div class="row-l"><span>Engine</span><div class="seg" data-k="engine"><button data-v="dot">Layered</button><button data-v="fdp">Force</button><button data-v="twopi">Radial</button><button data-v="circo">Circular</button></div></div>
   <div class="row-l"><span>Direction</span><div class="seg" data-k="dir"><button data-v="LR">→ Right</button><button data-v="TB">↓ Down</button></div></div>
   <div class="row-l"><span>Group</span><div class="seg" data-k="group"><button data-v="none">None</button><button data-v="kind">Kind</button><button data-v="scope">Scope</button></div></div>
 </div>
-<div class="layout-err panel" id="layout-err" role="alert" hidden></div>
+</div>
 <main class="center">
   <div id="stage"></div>
   <div class="zoom panel"><button id="zin" title="Zoom in">+</button><button id="zout" title="Zoom out">−</button><button id="zfit" title="Fit">⤢</button></div>
@@ -220,10 +223,12 @@ function setLive(ok) {
   document.getElementById('live').classList.toggle('off', !ok);
   document.getElementById('live-text').textContent = ok ? `live · ${count} records` : 'disconnected';
 }
-function setLayoutErr(text) {
+// A first-load error stays until the reader changes the layout; one raised over a drawn graph clears on the next good response.
+let errSticky = false;
+function setLayoutErr(text, sticky = false) {
   const el = document.getElementById('layout-err');
-  el.textContent = text || ''; el.hidden = !text;
-  if (text) anchorRight(el);
+  el.textContent = text || ''; el.hidden = !text; errSticky = !!text && sticky;
+  if (text) anchorRight(col);
 }
 
 async function load(force = false) {
@@ -233,8 +238,13 @@ async function load(force = false) {
   let data = null;
   try {
     const res = await fetch('/api/graph' + (query ? '?' + query : ''), { headers: lastEtag ? { 'If-None-Match': lastEtag } : {}, signal: AbortSignal.timeout(5000) });
-    if (res.status === 400) setLayoutErr((await res.text()).trim());
-    else {
+    if (res.status === 400) {
+      const text = (await res.text()).trim();
+      // A shared URL with a stale focus would otherwise stay blank; fall back to the unfocused graph.
+      const stale = drawnKey === null && L.focus;
+      if (stale) { L.focus = null; L.hops = DEFAULTS.hops; writeUrl(); syncUI(); lastEtag = null; again = true; }
+      setLayoutErr(text, stale);
+    } else {
       if (res.status === 200) {
         data = await res.json();
         lastEtag = res.headers.get('ETag');
@@ -242,7 +252,7 @@ async function load(force = false) {
         count = data.records.length;
         document.getElementById('title').textContent = data.title;
       } else if (res.status !== 304) throw new Error('HTTP ' + res.status);
-      setLayoutErr('');
+      if (!errSticky) setLayoutErr('');
       setLive(true);
     }
   } catch { data = null; setLive(false); }
@@ -398,15 +408,15 @@ document.querySelectorAll('[data-kind]').forEach(el => el.addEventListener('clic
   refilter();
 }));
 
-const pop = document.getElementById('pop'), layoutBtn = document.getElementById('layout-btn');
+const pop = document.getElementById('pop'), col = document.getElementById('layout-col'), layoutBtn = document.getElementById('layout-btn');
 function anchorRight(el) { el.style.right = innerWidth - layoutBtn.getBoundingClientRect().right + 'px'; }
 function togglePop(open) {
-  if (open) anchorRight(pop);
+  if (open) anchorRight(col);
   pop.classList.toggle('open', open); layoutBtn.classList.toggle('on', open); layoutBtn.setAttribute('aria-expanded', open);
 }
 layoutBtn.onclick = () => togglePop(!pop.classList.contains('open'));
 addEventListener('click', e => { if (!pop.contains(e.target) && !layoutBtn.contains(e.target)) togglePop(false); }, true);
-addEventListener('resize', () => { anchorRight(pop); anchorRight(document.getElementById('layout-err')); });
+addEventListener('resize', () => anchorRight(col));
 
 function syncUI() {
   for (const seg of pop.querySelectorAll('.seg')) for (const b of seg.querySelectorAll('button')) {
@@ -422,6 +432,7 @@ function syncUI() {
 async function setLayout(patch) {
   const before = graphQuery();
   Object.assign(L, patch);
+  if (errSticky) setLayoutErr('');
   writeUrl(); syncUI();
   if (graphQuery() !== before) reload();
   else if (lastDot && layoutKey() !== drawnKey) { try { await render(); } catch (err) { showError(err); } }
