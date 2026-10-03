@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>docket graph</title>
+<script>try { const t = localStorage.getItem('docket-theme'); if (t) document.documentElement.dataset.theme = t; } catch {}</script>
 <style>
 :root {
   --bg: #f7f7f5; --surface: #ffffff; --surface-2: #f0f0ed; --line: #e2e2dd; --line-strong: #c9c9c2;
@@ -55,7 +56,7 @@ button, input { font: inherit; color: inherit; }
 .node.decision text:first-of-type { fill: var(--decision) !important; }
 .node.question text:first-of-type { fill: var(--question) !important; }
 .node.retired :is(ellipse,polygon,path) { fill: var(--surface-2); stroke: var(--retired); }
-.node.retired text { fill: var(--ink-3) !important; }
+.node.retired text, .node.retired text:first-of-type { fill: var(--ink-3) !important; }
 .node.join text { font-size: 8px; }
 .node.join :is(ellipse,polygon,path) { fill: var(--edge); stroke: var(--edge); }
 .node { cursor: pointer; transition: opacity .15s; }
@@ -101,6 +102,7 @@ button, input { font: inherit; color: inherit; }
 .tag.kind-decision { color: var(--decision); background: var(--decision-bg); border-color: transparent; }
 .tag.kind-question { color: var(--question); background: var(--question-bg); border-color: transparent; }
 .tag.flag { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+.tag.unsupported { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, transparent); }
 .field { margin: 12px 0; }
 .field label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); margin-bottom: 3px; }
 .field p { margin: 0; color: var(--ink); }
@@ -159,8 +161,6 @@ const detail = document.getElementById('detail');
 let RECORDS = {}, svg, vb, base, vizReady, lastEtag, count = 0, selected = null, prevIds = null, loading = false;
 const off = new Set(), nodeId = g => g.querySelector('title').textContent;
 
-try { const t = localStorage.getItem('docket-theme'); if (t) document.documentElement.dataset.theme = t; } catch {}
-
 function setLive(ok) {
   document.getElementById('live').classList.toggle('off', !ok);
   document.getElementById('live-text').textContent = ok ? `live · ${count} records` : 'disconnected';
@@ -169,19 +169,28 @@ function setLive(ok) {
 async function load() {
   if (loading) return;
   loading = true;
+  let data = null;
   try {
-    const res = await fetch('/api/graph', { headers: lastEtag ? { 'If-None-Match': lastEtag } : {} });
+    const res = await fetch('/api/graph', { headers: lastEtag ? { 'If-None-Match': lastEtag } : {}, signal: AbortSignal.timeout(5000) });
     if (res.status === 200) {
-      const data = await res.json();
+      data = await res.json();
       lastEtag = res.headers.get('ETag');
       RECORDS = Object.fromEntries(data.records.map(r => [r.id, r]));
       count = data.records.length;
       document.getElementById('title').textContent = data.title;
-      await render(data.dot);
     } else if (res.status !== 304) throw new Error('HTTP ' + res.status);
     setLive(true);
-  } catch { setLive(false); }
+  } catch { data = null; setLive(false); }
+  if (data) {
+    try { await render(data.dot); } catch (err) { showError(err); }
+  }
   loading = false;
+}
+
+function showError(err) {
+  console.error(err);
+  svg = null; vb = null; prevIds = null;
+  stage.innerHTML = `<div class="empty"><b>Could not draw the graph</b>${esc(err.message)}</div>`;
 }
 
 async function render(dot) {
@@ -197,8 +206,7 @@ async function render(dot) {
     // The export keeps print colours; the page themes through CSS.
     svg = viz.renderSVGElement(dot.replace('bgcolor="white"', 'bgcolor="transparent"').replace(/fontname="Helvetica"/g, 'fontname="sans-serif"'));
   } catch (err) {
-    svg = null; vb = null; prevIds = null;
-    stage.innerHTML = `<div class="empty"><b>Could not draw the graph</b>${esc(err.message)}</div>`;
+    showError(err);
     return;
   }
   svg.removeAttribute('width'); svg.removeAttribute('height');
@@ -209,13 +217,13 @@ async function render(dot) {
   for (const g of svg.querySelectorAll('g.node')) {
     const id = nodeId(g);
     ids.add(id);
-    g.addEventListener('click', e => { e.stopPropagation(); select(id); });
+    g.addEventListener('click', e => { e.stopPropagation(); if (!moved) select(id); });
     if (prevIds && !prevIds.has(id)) fresh.push(g);
   }
   prevIds = ids;
   if (keep) { vb = keep; apply(); } else { vb = {}; fit(); }
   refilter();
-  if (selected && ids.has(selected)) select(selected);
+  if (selected && ids.has(selected)) select(selected, false);
   svg.getBoundingClientRect();
   for (const g of fresh) { g.classList.add('new'); setTimeout(() => g.classList.remove('new'), 2500); }
 }
@@ -246,19 +254,21 @@ document.getElementById('zin').onclick = () => zoomAt(0.8, cr().left + cr().widt
 document.getElementById('zout').onclick = () => zoomAt(1.25, cr().left + cr().width / 2, cr().top + cr().height / 2);
 document.getElementById('zfit').onclick = fit;
 
-const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 function refs(label, ids) {
   ids = (ids || []).flat ? (ids || []).flat(2) : ids;
   if (!ids || !ids.length) return '';
   return `<div class="field"><label>${label}</label><div class="refs">${ids.map(i => `<span class="ref" data-id="${esc(i)}">${esc(i)}</span>`).join('')}</div></div>`;
 }
 function field(label, v) { return v ? `<div class="field"><label>${label}</label><p>${esc(v)}</p></div>` : ''; }
-function select(id) {
+function select(id, pan = true) {
   const r = RECORDS[id]; if (!r) return;
   selected = id;
   svg?.querySelectorAll('g.node.selected').forEach(n => n.classList.remove('selected'));
-  if (svg) [...svg.querySelectorAll('g.node')].find(g => nodeId(g) === id)?.classList.add('selected');
-  const flags = (r.review_owed && r.review_owed.length) ? '<span class="tag flag">review owed</span>' : '';
+  const node = svg && [...svg.querySelectorAll('g.node')].find(g => nodeId(g) === id);
+  node?.classList.add('selected');
+  const flags = ((r.review_owed && r.review_owed.length) ? '<span class="tag flag">review owed</span>' : '')
+    + (r.support === 'unsupported' ? '<span class="tag unsupported">unsupported</span>' : '');
   document.getElementById('detail-body').innerHTML = `
     <div class="meta"><span class="tag mono" style="font-weight:600">${esc(r.id)}</span><span class="tag kind-${esc(r.kind)}">${esc(r.kind)}</span><span class="tag">${esc(r.state)}</span>${r.pinned ? '<span class="tag">pinned</span>' : ''}${flags}</div>
     <h2>${esc(r.text)}</h2>
@@ -268,6 +278,12 @@ function select(id) {
     <div class="prov">${esc(r.author)} · ${esc((r.ts || '').slice(0, 16).replace('T', ' '))} · ${esc(r.branch)}</div>`;
   document.querySelectorAll('#detail-body .ref[data-id]').forEach(el => el.onclick = () => select(el.dataset.id));
   detail.classList.add('open');
+  if (pan && node) {
+    // The drawer is still sliding in, so its resting edge comes from its width, not its current rect.
+    const clear = stage.getBoundingClientRect().right - 12 - detail.offsetWidth - 24;
+    const over = node.getBoundingClientRect().right - clear;
+    if (over > 0) { vb.x += over / stage.getBoundingClientRect().width * vb.w; apply(); }
+  }
 }
 function deselect() { selected = null; detail.classList.remove('open'); svg?.querySelectorAll('g.node.selected').forEach(n => n.classList.remove('selected')); }
 document.getElementById('close').onclick = deselect;
@@ -301,17 +317,17 @@ function exportSvg() {
   const clone = svg.cloneNode(true);
   clone.setAttribute('viewBox', `${base.x} ${base.y} ${base.width} ${base.height}`);
   clone.setAttribute('width', base.width); clone.setAttribute('height', base.height);
-  clone.querySelectorAll('.selected,.new,.hit,.dim').forEach(n => n.classList.remove('selected', 'new', 'hit', 'dim'));
+  clone.querySelectorAll('.new').forEach(n => n.classList.remove('new'));
   const sheet = document.styleSheets[0], computed = getComputedStyle(document.documentElement);
   // Only the theme in effect is written; the dark-mode rules would override it in a viewer that prefers dark.
   const vars = [...sheet.cssRules[0].style].filter(n => n.startsWith('--')).map(n => `${n}: ${computed.getPropertyValue(n).trim()};`).join(' ');
-  const css = [...sheet.cssRules].map(r => r.cssText).filter(t => /\.node|\.edge/.test(t)).join('\n');
+  const css = [...sheet.cssRules].map(r => r.cssText).filter(t => /\.node|\.edge|^\.dim|^\.hit/.test(t)).join('\n');
   const st = document.createElementNS('http://www.w3.org/2000/svg', 'style');
   st.textContent = `:root { ${vars} background: ${computed.getPropertyValue('--bg').trim()}; }\n${css}`;
   clone.prepend(st);
   return new XMLSerializer().serializeToString(clone);
 }
-function download(name, blob) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); }
+function download(name, blob) { const a = document.createElement('a'), u = URL.createObjectURL(blob); a.href = u; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(u), 1000); }
 function pngBlob() {
   return new Promise((resolve, reject) => {
     const img = new Image(), scale = 2;
