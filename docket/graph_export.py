@@ -170,6 +170,23 @@ DOT_EDGES = {
 }
 
 
+DOT_EDGE_CLASSES = {
+    "supports": "supports",
+    "depends_on": "depends_on",
+    "answers": "answers",
+    "supersedes": "retires",
+}
+
+
+def _dot_classes(entry: Mapping[str, Any]) -> str:
+    words = [str(entry.get("kind", "")), str(entry.get("state", ""))]
+    if entry.get("retired_by"):
+        words.append("retired")
+    elif mark := _support_mark(entry):
+        words.append(mark)
+    return " ".join(w for w in words if w)
+
+
 def _dot_quote(text: str) -> str:
     """Escape for a DOT quoted string, where a backslash also escapes itself."""
 
@@ -210,6 +227,9 @@ def to_dot(
     lines = [
         "digraph docket {",
         f"  rankdir={direction};",
+        # Without packing, a ledger of many small components lays out left to
+        # right as one tall column.
+        '  pack=true; packmode="array_u";',
         '  bgcolor="white";',
         '  node [fontname="Helvetica", fontsize=10, color="#0a0a0a", fontcolor="#0a0a0a"];',
         '  edge [fontname="Helvetica", color="#0a0a0a", fontcolor="#0a0a0a"];',
@@ -221,11 +241,16 @@ def to_dot(
             attrs += ', style=filled, fillcolor="#f3f3f3", color="#8a8a8a", fontcolor="#6a6a6a"'
         elif mark := _support_mark(entry):
             attrs += f", style={DOT_BORDERS[mark]}"
+        attrs += f', class="{_dot_classes(entry)}"'
         lines.append(f'  "{entry["id"]}" [{attrs}];')
     for join in _join_nodes(edges):
-        lines.append(f'  "{join}" [shape=point, width=0.08, xlabel="set", fontsize=8];')
+        lines.append(
+            f'  "{join}" [shape=point, width=0.08, xlabel="set", fontsize=8, class="join"];'
+        )
     for source, target, kind in edges:
-        lines.append(f'  "{source}" -> "{target}" [{DOT_EDGES[kind]}];')
+        lines.append(
+            f'  "{source}" -> "{target}" [{DOT_EDGES[kind]}, class="{DOT_EDGE_CLASSES[kind]}"];'
+        )
     lines.append("}")
     return "\n".join(lines)
 
@@ -288,6 +313,7 @@ def to_csv(
 __all__ = [
     "ARROWS",
     "DOT_EDGES",
+    "DOT_EDGE_CLASSES",
     "DOT_SHAPES",
     "EDGE_COLUMNS",
     "NODE_COLUMNS",

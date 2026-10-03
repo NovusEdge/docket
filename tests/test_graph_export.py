@@ -142,9 +142,27 @@ class DotTests(unittest.TestCase):
         return [
             entry("q1", "question"),
             entry("c2", "claim"),
-            entry("d3", "decision", supports=[["c2"]], answers=["q1"]),
+            entry("d3", "decision", supports=[["c2"]], answers=["q1"], retired_by="d4"),
             entry("d4", "decision", depends_on=["d3"], supersedes=["d3"]),
         ]
+
+    def test_nodes_and_edges_carry_classes_for_the_web_view(self):
+        out = to_dot(self.linked(), superseded=True)
+        self.assertIn('"c2" [shape=ellipse, label="c2\\nt", class="claim"]', out)
+        self.assertIn('class="decision retired"', out)
+        self.assertIn('"c2" -> "d3" [style=solid, arrowhead=normal, class="supports"]', out)
+        self.assertIn('class="retires"', out)
+
+    def test_join_nodes_carry_the_join_class(self):
+        records = [
+            entry("c1", "claim"),
+            entry("c2", "claim"),
+            entry("d3", "decision", supports=[["c1"], ["c2"]]),
+        ]
+        self.assertIn('class="join"', to_dot(records))
+
+    def test_the_graph_packs_its_components(self):
+        self.assertIn('pack=true; packmode="array_u";', to_dot(self.linked(), superseded=True))
 
     def test_it_opens_and_closes_a_digraph(self):
         out = to_dot(self.linked(), superseded=True)
@@ -153,9 +171,9 @@ class DotTests(unittest.TestCase):
 
     def test_each_relation_takes_its_own_style(self):
         out = to_dot(self.linked(), superseded=True)
-        self.assertIn('"c2" -> "d3" [style=solid, arrowhead=normal]', out)
-        self.assertIn('"d3" -> "q1" [style=bold, arrowhead=vee]', out)
-        self.assertIn('"d4" -> "d3" [style=dashed, arrowhead=empty]', out)
+        self.assertIn('"c2" -> "d3" [style=solid, arrowhead=normal, class="supports"]', out)
+        self.assertIn('"d3" -> "q1" [style=bold, arrowhead=vee, class="answers"]', out)
+        self.assertIn('"d4" -> "d3" [style=dashed, arrowhead=empty, class="depends_on"]', out)
         self.assertIn("retires", out)
 
     def test_kind_picks_the_node_shape(self):
@@ -333,9 +351,20 @@ class SupportMarkTests(unittest.TestCase):
 
     def test_dot_dashes_or_dots_the_border(self):
         out = to_dot(self.records())
-        self.assertIn('"c2" [shape=ellipse, label="c2\\nt", style=dashed]', out)
-        self.assertIn('"d3" [shape=box, label="d3\\nt", style=dotted]', out)
+        self.assertIn(
+            '"c2" [shape=ellipse, label="c2\\nt", style=dashed, class="claim accepted flagged"]',
+            out,
+        )
+        self.assertIn(
+            '"d3" [shape=box, label="d3\\nt", style=dotted, class="decision adopted unsupported"]',
+            out,
+        )
         self.assertNotIn('"c1" [shape=ellipse, label="c1\\nt", style=', out)
+
+    def test_dot_classes_carry_state_and_support_mark(self):
+        out = to_dot(self.records())
+        self.assertIn('class="claim accepted flagged"', out)
+        self.assertIn('class="decision adopted unsupported"', out)
 
     def test_a_retired_record_keeps_its_grey_fill_and_no_mark(self):
         records = [
