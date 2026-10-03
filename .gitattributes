@@ -5,3 +5,4 @@
 # feature ids after a union need renumbering by hand.
 .docket/*.jsonl merge=union
 .docket/ledger.jsonl merge=docket
+docket/web/vendor/** -diff linguist-vendored

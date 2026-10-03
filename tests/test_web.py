@@ -1,0 +1,73 @@
+import http.client
+import json
+import sys
+import threading
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from docket.web.server import make_server
+
+
+class ServerTests(unittest.TestCase):
+    def setUp(self):
+        self.body = {"dot": "digraph docket {}", "records": [], "title": "t"}
+        self.server = make_server(lambda: json.dumps(self.body).encode(), 0)
+        self.port = self.server.server_address[1]
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+    def get(self, path, headers=None):
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        conn.request("GET", path, headers=headers or {})
+        resp = conn.getresponse()
+        return resp.status, dict(resp.getheaders()), resp.read()
+
+    def test_the_page_is_served(self):
+        status, headers, body = self.get("/")
+        self.assertEqual(status, 200)
+        self.assertIn("text/html", headers["Content-Type"])
+        self.assertIn(b"<html", body)
+
+    def test_the_renderer_is_served(self):
+        status, _, body = self.get("/viz-global.js")
+        self.assertEqual(status, 200)
+        self.assertIn(b"Viz.js", body[:200])
+
+    def test_the_graph_carries_an_etag_and_a_match_gets_304(self):
+        status, headers, body = self.get("/api/graph")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)["dot"], "digraph docket {}")
+        etag = headers["ETag"]
+        status, _, body = self.get("/api/graph", {"If-None-Match": etag})
+        self.assertEqual((status, body), (304, b""))
+
+    def test_a_changed_payload_changes_the_etag(self):
+        _, first, _ = self.get("/api/graph")
+        self.body["records"] = [{"id": "c1"}]
+        status, second, _ = self.get("/api/graph", {"If-None-Match": first["ETag"]})
+        self.assertEqual(status, 200)
+        self.assertNotEqual(first["ETag"], second["ETag"])
+
+    def test_a_foreign_host_is_refused(self):
+        status, _, body = self.get("/api/graph", {"Host": f"evil.example:{self.port}"})
+        self.assertEqual(status, 403)
+        self.assertNotIn(b"digraph", body)
+
+    def test_localhost_by_name_is_allowed(self):
+        status, _, _ = self.get("/api/graph", {"Host": f"localhost:{self.port}"})
+        self.assertEqual(status, 200)
+
+    def test_paths_outside_the_route_list_are_404(self):
+        for path in ("/../ledger.jsonl", "/server.py", "/vendor/NOTICE", "/nope", "/index.html"):
+            self.assertEqual(self.get(path)[0], 404, path)
+
+    def test_a_taken_port_falls_back_to_a_free_one(self):
+        other = make_server(lambda: b"{}", self.port)
+        try:
+            self.assertNotEqual(other.server_address[1], self.port)
+        finally:
+            other.server_close()
