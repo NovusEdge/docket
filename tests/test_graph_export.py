@@ -327,6 +327,18 @@ class DotLayoutTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "nope is not in this selection"):
             to_dot(layout_records(), focus="nope")
 
+    def test_a_focused_record_with_no_relation_is_drawn_alone(self):
+        records = [*layout_records(), entry("c99", "claim", "alone")]
+        out = to_dot(records, focus="c99")
+        (line,) = [ln for ln in out.splitlines() if ln.strip().startswith('"c99" [')]
+        self.assertIn("focus", line)
+        self.assertIn("penwidth=2.5", line)
+        self.assertNotIn('"d3"', out)
+        self.assertNotIn("->", out)
+        flow = to_mermaid(records, focus="c99")
+        self.assertIn("c99", flow)
+        self.assertNotIn("d3", flow)
+
     def test_a_retired_record_is_outside_the_focus_unless_superseded(self):
         out = to_dot(layout_records(), focus="c5", hops=2)
         self.assertNotIn('"c6"', out)
@@ -690,6 +702,12 @@ class CsvTests(unittest.TestCase):
         self.assertNotIn("c5", edges)
         with self.assertRaises(ValueError):
             to_csv(layout_records(), focus="nope")
+
+    def test_focus_on_a_record_with_no_relation_lists_it_alone(self):
+        records = [*layout_records(), entry("c99", "claim", "alone")]
+        nodes, edges = to_csv(records, focus="c99")
+        self.assertEqual([row[0] for row in self.rows(nodes)[1:]], ["c99"])
+        self.assertEqual(self.rows(edges)[1:], [])
 
     def test_a_selection_with_no_relation_returns_two_empty_documents(self):
         self.assertEqual(to_csv([entry("c1", "claim", "alone")]), ("", ""))

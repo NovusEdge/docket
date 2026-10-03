@@ -102,8 +102,8 @@ def _selected(
     """The records to draw and the edges between them.
 
     Both formats read this, so a schema change touches one place. A record
-    with no relation is left out: a node alone on the canvas carries nothing a
-    list line does not already say.
+    with no relation is left out, except the focused one: it is in the
+    selection, so it draws alone rather than being reported as missing.
     """
 
     kept = [e for e in entries if superseded or not e.get("retired_by")]
@@ -118,8 +118,8 @@ def _selected(
     if focus is not None:
         # Focus walks the edges that survive retirement, so a retired record is
         # never a stepping stone unless it is drawn.
-        keep, edges = focus_edges(edges, {str(e["id"]) for e in drawn}, focus, hops)
-        drawn = [e for e in drawn if str(e["id"]) in keep]
+        keep, edges = focus_edges(edges, known, focus, hops)
+        drawn = [e for e in kept if str(e["id"]) in keep]
     return drawn, edges
 
 

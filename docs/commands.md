@@ -125,7 +125,7 @@ Record that you checked a claim or decision whose grounds changed. It appends a 
 | `--detail N` | Characters of text per node. Default 40, `0` for IDs alone. |
 | `--direction LR\|TD\|RL\|BT` | With `mermaid` or `dot`, the layout direction. Default `LR`. |
 | `--group none\|kind\|scope` | With `mermaid` or `dot`, draw boxes around records by kind or by shared scope directory. Default `none`. |
-| `--focus ID` | Draw only the record and the records within `--hops` relation steps of it. Exits 1 if `ID` is not in the selection. |
+| `--focus ID` | Draw only the record and the records within `--hops` relation steps of it; a record with no relations draws alone. Exits 1 if `ID` is not in the selection. |
 | `--hops N` | Steps from the focused record, 1 to 4. Default 2. Requires `--focus`. |
 
 DOT output packs separate clusters into a grid and tags nodes and edges with `class` attributes.

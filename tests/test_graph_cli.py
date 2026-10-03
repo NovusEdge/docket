@@ -144,6 +144,14 @@ class ExportCliTests(unittest.TestCase):
         self.assertIn("c1 --> d3", out)
         self.assertNotIn("q2", out)
 
+    def test_focus_on_a_record_with_no_relation_exits_0(self):
+        self.seed()
+        self.run_cli("claim", "a lone fact", "--state", "accepted", "--scope", "z/**")
+        code, out, _ = self.run_cli("export", "--focus", "c4")
+        self.assertEqual(code, 0)
+        self.assertIn("c4", out)
+        self.assertNotIn("d3", out)
+
     def test_an_empty_ledger_says_nothing_is_recorded(self):
         code, out, _ = self.run_cli("export", "--format", "mermaid")
         self.assertEqual(code, 0)
