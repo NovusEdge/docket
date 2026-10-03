@@ -1,3 +1,5 @@
+import argparse
+import contextlib
 import http.client
 import io
 import json
@@ -163,6 +165,29 @@ class WebCliTests(unittest.TestCase):
         self.assertIn("records", data)
         proc.terminate()
         self.assertEqual(proc.wait(timeout=5), 0)
+
+    def test_no_browser_is_opened_without_a_display(self):
+        from unittest import mock
+
+        from docket.cli import web
+
+        env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY")}
+        server = mock.Mock()
+        server.server_address = ("127.0.0.1", 1)
+        server.serve_forever.side_effect = KeyboardInterrupt
+        args = argparse.Namespace(port=0, where=None)
+        with (
+            mock.patch.dict(os.environ, env, clear=True),
+            mock.patch.object(sys, "platform", "linux"),
+            mock.patch("docket.web.server.make_server", return_value=server),
+            mock.patch("docket.cli.web.selection"),
+            mock.patch("webbrowser.open") as opened,
+            mock.patch("signal.signal"),
+            contextlib.redirect_stdout(io.StringIO()) as out,
+        ):
+            self.assertEqual(web.cmd_graph_web(args), 0)
+        opened.assert_not_called()
+        self.assertEqual(out.getvalue(), "http://127.0.0.1:1/\n")
 
     def test_a_held_default_port_falls_back(self):
         first = self.start(port=None)

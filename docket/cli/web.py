@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 
 from docket import ROOT, env
@@ -83,8 +84,14 @@ def cmd_graph_web(args: argparse.Namespace) -> int:
     # flush: the terminal viewer reads this line through a pipe.
     print(url, flush=True)
     try:
+        # Without a display webbrowser falls back to a console browser (lynx,
+        # w3m) on the inherited terminal and blocks there.
+        headless = sys.platform not in ("win32", "darwin") and not (
+            os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
+        )
         try:
-            webbrowser.open(url)
+            if not headless:
+                webbrowser.open(url)
         except Exception:
             pass
         server.serve_forever()

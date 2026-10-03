@@ -87,13 +87,13 @@ Use `--no-interactive` to request text output directly.
 
 ## Browse in a web page
 
-`docket graph --web` serves the relation graph to your browser. It prints the URL as its first line and opens it. The default port is 7347, or a free one if that is taken; `--port N` picks another. In the terminal viewer, `w` opens the web view for the current filter. Press it again to restart the view with a changed filter. Quitting the viewer stops it.
+`docket graph --web` serves the relation graph to your browser. It prints the URL as its first line and opens it. The default port is 7347, or a free one if that is taken; `--port N` picks another. In the terminal viewer, `w` opens the web view for the current filter. Press it again to restart the view with a changed filter. Quitting the viewer stops it. `w` passes the viewer's filter text as `--where`; flags the viewer was started with (`--kind`, `--state`, `--find`) are not carried over.
 
 ```sh
 docket graph --web --where scope:docket/cli/
 ```
 
-The page polls the ledger every 2 seconds. When the ledger changes, the graph redraws within that time and keeps your zoom and the record you have open.
+The page polls the ledger every 2 seconds. When the ledger changes, the graph redraws within a couple of seconds and keeps your zoom and the record you have open.
 
 Press `/` to search. The kind and retired chips dim nodes without laying the graph out again. Selecting a node slides in a drawer with the full record, and the references in it are clickable. A toggle switches between the light and dark theme.
 

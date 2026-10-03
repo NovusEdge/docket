@@ -54,6 +54,15 @@ class ExportCliTests(unittest.TestCase):
             main(["graph", "--web", "--port", "70000"])
         self.assertEqual(cm.exception.code, 2)
 
+    def test_web_accepts_a_negated_where_as_one_argument(self):
+        from unittest import mock
+
+        seen = []
+        with mock.patch("docket.cli.web.cmd_graph_web", lambda args: seen.append(args.where) or 0):
+            code, _, _ = self.run_cli("graph", "--web", "--where=-kind:claim")
+        self.assertEqual(code, 0)
+        self.assertEqual(seen, ["-kind:claim"])
+
     def test_web_with_a_missing_asset_names_it(self):
         from unittest import mock
 

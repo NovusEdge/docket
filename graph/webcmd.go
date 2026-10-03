@@ -145,7 +145,8 @@ var startWeb = func(argv []string, launch *webLaunch) tea.Cmd {
 func webArgv(base []string, query string) []string {
 	argv := append([]string(nil), base...)
 	if strings.TrimSpace(query) != "" {
-		argv = append(argv, "--where", query)
+		// One element: argparse reads a separate "-kind:claim" as an option.
+		argv = append(argv, "--where="+query)
 	}
 	return argv
 }

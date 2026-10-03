@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -959,12 +960,22 @@ func TestWebKeyStartsTheCommandWithTheAppliedFilter(t *testing.T) {
 	m.webCmd = []string{"py", "docket", "graph", "--web"}
 	m = applyFilter(m, "other")
 	m, cmd := updateModel(m, keyMsg('w'))
-	if want := "py docket graph --web --where other"; strings.Join(got, " ") != want {
+	if want := "py docket graph --web --where=other"; strings.Join(got, " ") != want {
 		t.Fatalf("argv = %q, want %q", got, want)
 	}
 	m, _ = updateModel(m, cmd())
 	if m.status != "web: http://127.0.0.1:7347/" {
 		t.Fatalf("status = %q", m.status)
+	}
+}
+
+func TestWebArgvKeepsANegatedFilterAsOneElement(t *testing.T) {
+	got := webArgv([]string{"py", "--web"}, "-kind:claim")
+	if want := []string{"py", "--web", "--where=-kind:claim"}; !slices.Equal(got, want) {
+		t.Fatalf("argv = %q, want %q", got, want)
+	}
+	if got := webArgv([]string{"py"}, "  "); len(got) != 1 {
+		t.Fatalf("blank query argv = %q", got)
 	}
 }
 

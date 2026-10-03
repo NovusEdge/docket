@@ -7,6 +7,7 @@ filesystem path.
 from __future__ import annotations
 
 import hashlib
+import os
 import sys
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -15,6 +16,13 @@ from pathlib import Path
 WEB_ROOT = Path(__file__).resolve().parent
 ASSETS = {"/": "index.html", "/viz-global.js": "vendor/viz-global.js"}
 _TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8"}
+
+
+class _Server(ThreadingHTTPServer):
+    # On Windows SO_REUSEADDR lets a second process bind a port that is already
+    # listening, which would defeat the port-0 fallback. POSIX needs it so a
+    # restarted child rebinds its port at once.
+    allow_reuse_address = os.name != "nt"
 
 
 def make_server(payload: Callable[[], bytes], port: int) -> ThreadingHTTPServer:
@@ -68,6 +76,6 @@ def make_server(payload: Callable[[], bytes], port: int) -> ThreadingHTTPServer:
             print("docket: web: " + format % args, file=sys.stderr)
 
     try:
-        return ThreadingHTTPServer(("127.0.0.1", port), Handler)
+        return _Server(("127.0.0.1", port), Handler)
     except OSError:
-        return ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        return _Server(("127.0.0.1", 0), Handler)
