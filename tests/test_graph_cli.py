@@ -106,6 +106,44 @@ class ExportCliTests(unittest.TestCase):
         self.assertTrue(out.startswith("digraph docket {"))
         self.assertIn('"c1" -> "d3"', out)
 
+    def test_group_scope_clusters_the_dot_output(self):
+        self.seed()
+        code, out, _ = self.run_cli("export", "--format", "dot", "--group", "scope")
+        self.assertEqual(code, 0)
+        self.assertIn("subgraph cluster_", out)
+
+    def test_an_unknown_focus_exits_1(self):
+        self.seed()
+        code, _, err = self.run_cli("export", "--focus", "nope")
+        self.assertEqual(code, 1)
+        self.assertIn("nope is not in this selection", err)
+
+    def test_focus_outside_the_filtered_selection_exits_1(self):
+        self.seed()
+        code, _, err = self.run_cli("export", "--kind", "claim", "--focus", "d3")
+        self.assertEqual(code, 1)
+        self.assertIn("d3 is not in this selection", err)
+
+    def test_hops_without_focus_exits_2(self):
+        self.seed()
+        code, _, err = self.run_cli("export", "--hops", "2")
+        self.assertEqual(code, 2)
+        self.assertIn("--hops needs --focus", err)
+
+    def test_hops_outside_1_to_4_is_refused(self):
+        self.seed()
+        err = io.StringIO()
+        with self.assertRaises(SystemExit) as cm, redirect_stderr(err):
+            main(["export", "--hops", "9", "--focus", "d3"])
+        self.assertEqual(cm.exception.code, 2)
+
+    def test_focus_reaches_the_renderer(self):
+        self.seed()
+        code, out, _ = self.run_cli("export", "--focus", "c1", "--hops", "1")
+        self.assertEqual(code, 0)
+        self.assertIn("c1 --> d3", out)
+        self.assertNotIn("q2", out)
+
     def test_an_empty_ledger_says_nothing_is_recorded(self):
         code, out, _ = self.run_cli("export", "--format", "mermaid")
         self.assertEqual(code, 0)

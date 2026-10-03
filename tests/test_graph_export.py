@@ -241,6 +241,95 @@ class DotTests(unittest.TestCase):
                 )
 
 
+def layout_records():
+    return [
+        entry("q1", "question", scope=["docs/a/x.md"]),
+        entry("c2", "claim", scope=["docs/a/y.md"]),
+        entry(
+            "d3", "decision", state="adopted", supports=[["c2"]], answers=["q1"], scope=["src/*.py"]
+        ),
+        entry("d4", "decision", state="adopted", depends_on=["d3"]),
+        entry("c5", "claim", supports=[["d4"]]),
+        entry("c6", "claim", supports=[["c5"]], retired_by="c7"),
+        entry("d7", "decision", depends_on=["c6"]),
+    ]
+
+
+class DotLayoutTests(unittest.TestCase):
+    def test_group_kind_emits_a_cluster_per_kind(self):
+        out = to_dot(layout_records(), group="kind")
+        self.assertEqual(out.count("subgraph cluster_"), 3)
+        for label in ("claims", "decisions", "questions"):
+            self.assertIn(f'label="{label}"; class="group"; labeljust=l;', out)
+        self.assertIn('fontname="monospace"; fontsize=18; margin=14;', out)
+
+    def test_group_scope_nests_and_leaves_scopeless_records_outside(self):
+        out = to_dot(layout_records(), group="scope")
+        self.assertIn('label="docs/a/"', out)
+        self.assertIn('label="src/"', out)
+        self.assertLess(out.index('"c2" ['), out.index("}", out.index('"c2" [')))
+        self.assertGreater(out.index('  "d4" ['), out.rindex("  }"))
+
+    def test_an_unknown_group_is_refused(self):
+        with self.assertRaises(ValueError):
+            to_dot(layout_records(), group="dir")
+        with self.assertRaises(ValueError):
+            to_mermaid(layout_records(), group="dir")
+
+    def test_focus_draws_only_the_neighbourhood_and_marks_the_focus_node(self):
+        out = to_dot(layout_records(), focus="d3", hops=1)
+        for ident in ("q1", "c2", "d3", "d4"):
+            self.assertIn(f'"{ident}" [', out)
+        for ident in ("c5", "d7"):
+            self.assertNotIn(f'"{ident}"', out)
+        (line,) = [ln for ln in out.splitlines() if ln.strip().startswith('"d3" [')]
+        self.assertIn('class="decision adopted focus"', line)
+        self.assertIn("penwidth=2.5", line)
+        self.assertNotIn("penwidth", [ln for ln in out.splitlines() if '"c2" [' in ln][0])
+
+    def test_an_unknown_focus_raises(self):
+        with self.assertRaisesRegex(ValueError, "nope is not in this selection"):
+            to_dot(layout_records(), focus="nope")
+
+    def test_a_retired_record_is_outside_the_focus_unless_superseded(self):
+        out = to_dot(layout_records(), focus="c5", hops=2)
+        self.assertNotIn('"c6"', out)
+        out = to_dot(layout_records(), focus="c5", hops=2, superseded=True)
+        self.assertIn('"c6" [', out)
+
+    def test_focus_keeps_a_join_whose_ends_survive_and_drops_a_cut_one(self):
+        records = [
+            entry("c1", "claim"),
+            entry("c2", "claim"),
+            entry("d3", "decision", supports=[["c1"], ["c2"]]),
+            entry("d4", "decision", depends_on=["d3"]),
+        ]
+        out = to_dot(records, focus="d3", hops=1)
+        self.assertEqual(out.count('class="join"'), 2)
+        far = to_dot(records, focus="d4", hops=1)
+        self.assertNotIn("_set", far)
+
+    def test_focus_applies_before_grouping(self):
+        out = to_dot(layout_records(), group="kind", focus="d3", hops=1)
+        self.assertEqual(out.count("subgraph cluster_"), 3)
+        out = to_dot(layout_records(), group="kind", focus="q1", hops=1)
+        self.assertEqual(out.count("subgraph cluster_"), 2)
+
+
+class MermaidLayoutTests(unittest.TestCase):
+    def test_group_scope_emits_unique_quoted_subgraphs(self):
+        out = to_mermaid(layout_records(), group="scope")
+        self.assertIn('subgraph g_0 ["docs/a/"]', out)
+        self.assertEqual(out.count("subgraph "), out.count("\n  end") + out.count("\n    end"))
+        ids = [ln.split()[1] for ln in out.splitlines() if ln.strip().startswith("subgraph ")]
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_focus_selects_the_same_records_as_dot(self):
+        out = to_mermaid(layout_records(), focus="d3", hops=1)
+        self.assertIn("d4", out)
+        self.assertNotIn("c5", out)
+
+
 @unittest.skipUnless(shutil.which("dot"), "graphviz is not installed")
 class DotRendersTests(unittest.TestCase):
     """Hand the output to graphviz. Only a real parse catches a bad label."""
@@ -278,6 +367,15 @@ class DotRendersTests(unittest.TestCase):
             entry("d3", "decision", supports=[["c1"], ["c2"]]),
         ]
         self.render(to_dot(records))
+
+    def test_grouped_by_scope_renders_with_group_clusters(self):
+        svg = self.render(to_dot(layout_records(), group="scope"))
+        self.assertIn("group", svg)
+        self.assertIn("docs/a/", svg)
+
+    def test_a_focused_graph_renders(self):
+        svg = self.render(to_dot(layout_records(), group="kind", focus="d3", hops=1))
+        self.assertNotIn(">c5", svg)
 
     def test_this_project_s_own_ledger_renders(self):
         import docket.ledger as ledger
@@ -321,6 +419,10 @@ class MermaidRendersTests(unittest.TestCase):
             entry("d2", "decision", "a --> b; end", supports=[["c1"]]),
         ]
         self.render(to_mermaid(records))
+
+    def test_nested_scope_subgraphs_parse(self):
+        self.render(to_mermaid(layout_records(), group="scope"))
+        self.render(to_mermaid(layout_records(), group="kind", focus="d3", hops=1))
 
     def test_this_project_s_own_ledger_parses(self):
         import docket.ledger as ledger
@@ -522,6 +624,13 @@ class CsvTests(unittest.TestCase):
         flags = {row[0]: row[4] for row in self.rows(nodes)[1:]}
         self.assertEqual(flags["c1"], "true")
         self.assertEqual(flags["d2"], "false")
+
+    def test_focus_narrows_the_node_table(self):
+        nodes, edges = to_csv(layout_records(), focus="d3", hops=1)
+        self.assertEqual(sorted(row[0] for row in self.rows(nodes)[1:]), ["c2", "d3", "d4", "q1"])
+        self.assertNotIn("c5", edges)
+        with self.assertRaises(ValueError):
+            to_csv(layout_records(), focus="nope")
 
     def test_a_selection_with_no_relation_returns_two_empty_documents(self):
         self.assertEqual(to_csv([entry("c1", "claim", "alone")]), ("", ""))

@@ -6,8 +6,10 @@ load time; callers pass the edges in.
 
 from __future__ import annotations
 
+import itertools
 import re
 from collections import defaultdict, deque
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -40,6 +42,21 @@ def neighbourhood(
                 best[nxt] = dist
                 queue.appendleft(nxt) if cost == 0 else queue.append(nxt)
     return {n for n in best if "_set" not in n}
+
+
+def focus_edges(
+    edges: list[tuple[str, str, str]], ids: set[str], focus: str, hops: int
+) -> tuple[set[str], list[tuple[str, str, str]]]:
+    """The neighbourhood's record ids and the edges that stay drawn.
+
+    A join node survives only with an input and its output both inside, so a
+    cut set never dangles.
+    """
+
+    keep = neighbourhood(edges, ids, focus, hops)
+    inside = [e for e in edges if all(n in keep or "_set" in n for n in e[:2])]
+    live = {b for _, b, _ in inside if "_set" in b} & {a for a, _, _ in inside if "_set" in a}
+    return keep, [e for e in inside if all("_set" not in n or n in live for n in e[:2])]
 
 
 def scope_dir(scope: str) -> tuple[str, ...]:
@@ -111,3 +128,63 @@ def box_tree(entries: list[dict[str, Any]], group: str) -> tuple[Box, list[str]]
         box.ids.append(ident)
     root.children = {k: _merge(c) for k, c in root.children.items()}
     return root, loose
+
+
+GROUPS = ("none", "kind", "scope")
+
+
+def _clusters(
+    box: Box,
+    lines: Mapping[str, str],
+    depth: int,
+    counter: Iterator[int],
+    head: Callable[[int, str], list[str]],
+    foot: str,
+) -> list[str]:
+    pad = "  " * depth
+    out: list[str] = []
+    for child in box.children.values():
+        out += [pad + h for h in head(next(counter), child.label)]
+        out += [f"{pad}  {lines[i]}" for i in child.ids]
+        out += _clusters(child, lines, depth + 1, counter, head, foot)
+        out.append(pad + foot)
+    return out
+
+
+def _dot_head(n: int, label: str) -> list[str]:
+    text = label.replace("\\", "\\\\").replace('"', '\\"')
+    return [
+        f"subgraph cluster_{n} {{",
+        f'  label="{text}"; class="group"; labeljust=l; fontname="monospace"; fontsize=18; margin=14;',
+    ]
+
+
+def dot_clusters(box: Box, lines: Mapping[str, str], depth: int = 1) -> list[str]:
+    """Nested `subgraph cluster_N` blocks for the root's children; `lines` maps id to node line."""
+
+    return _clusters(box, lines, depth, itertools.count(), _dot_head, "}")
+
+
+def mermaid_clusters(box: Box, lines: Mapping[str, str], depth: int = 1) -> list[str]:
+    """Nested `subgraph g_N ["label"]` blocks; the `g_` prefix cannot collide with a record id."""
+
+    def head(n: int, label: str) -> list[str]:
+        return [f'subgraph g_{n} ["{label.replace(chr(34), chr(39))}"]']
+
+    return _clusters(box, lines, depth, itertools.count(), head, "end")
+
+
+def arrange(
+    drawn: list[dict[str, Any]],
+    group: str,
+    lines: Mapping[str, str],
+    clusters: Callable[[Box, Mapping[str, str]], list[str]],
+) -> list[str]:
+    """Node lines in `lines` order, or boxed by `group`, with records outside any box last."""
+
+    if group not in GROUPS:
+        raise ValueError(f"group must be one of {', '.join(GROUPS)}, not {group}")
+    if group == "none":
+        return [f"  {line}" for line in lines.values()]
+    root, loose = box_tree(drawn, group)
+    return clusters(root, lines) + [f"  {lines[i]}" for i in loose]

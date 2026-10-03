@@ -16,6 +16,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from docket import support
+from docket.graph_layout import arrange, dot_clusters, focus_edges, mermaid_clusters
 
 # One arrow per relation, so the four read apart without a legend. supersedes
 # carries a label because a plain arrow between two decisions says nothing
@@ -92,7 +93,11 @@ def _join_nodes(edges: list[tuple[str, str, str]]) -> list[str]:
 
 
 def _selected(
-    entries: list[dict[str, Any]], *, superseded: bool
+    entries: list[dict[str, Any]],
+    *,
+    superseded: bool,
+    focus: str | None = None,
+    hops: int = 2,
 ) -> tuple[list[dict[str, Any]], list[tuple[str, str, str]]]:
     """The records to draw and the edges between them.
 
@@ -109,7 +114,13 @@ def _selected(
         if (a in known or "_set" in a) and (b in known or "_set" in b)
     ]
     linked = {end for edge in edges for end in edge[:2]}
-    return [e for e in kept if str(e["id"]) in linked], edges
+    drawn = [e for e in kept if str(e["id"]) in linked]
+    if focus is not None:
+        # Focus walks the edges that survive retirement, so a retired record is
+        # never a stepping stone unless it is drawn.
+        keep, edges = focus_edges(edges, {str(e["id"]) for e in drawn}, focus, hops)
+        drawn = [e for e in drawn if str(e["id"]) in keep]
+    return drawn, edges
 
 
 def to_mermaid(
@@ -118,17 +129,22 @@ def to_mermaid(
     detail: int = 40,
     direction: str = "LR",
     superseded: bool = False,
+    group: str = "none",
+    focus: str | None = None,
+    hops: int = 2,
 ) -> str:
     """A mermaid flowchart of the relations between these records."""
 
-    drawn, edges = _selected(entries, superseded=superseded)
+    drawn, edges = _selected(entries, superseded=superseded, focus=focus, hops=hops)
     if not drawn:
         return ""
 
     lines = [f"flowchart {direction}"]
+    nodes = {}
     for entry in drawn:
         open_mark, close_mark = SHAPES.get(str(entry.get("kind")), ("[", "]"))
-        lines.append(f'  {entry["id"]}{open_mark}"{_label(entry, detail)}"{close_mark}')
+        nodes[str(entry["id"])] = f'{entry["id"]}{open_mark}"{_label(entry, detail)}"{close_mark}'
+    lines += arrange(drawn, group, nodes, mermaid_clusters)
     for join in _join_nodes(edges):
         lines.append(f'  {join}(("set"))')
     for source, target, kind in edges:
@@ -178,12 +194,14 @@ DOT_EDGE_CLASSES = {
 }
 
 
-def _dot_classes(entry: Mapping[str, Any]) -> str:
+def _dot_classes(entry: Mapping[str, Any], focused: bool = False) -> str:
     words = [str(entry.get("kind", "")), str(entry.get("state", ""))]
     if entry.get("retired_by"):
         words.append("retired")
     elif mark := _support_mark(entry):
         words.append(mark)
+    if focused:
+        words.append("focus")
     return " ".join(w for w in words if w)
 
 
@@ -217,10 +235,17 @@ def to_dot(
     detail: int = 40,
     direction: str = "LR",
     superseded: bool = False,
+    group: str = "none",
+    focus: str | None = None,
+    hops: int = 2,
 ) -> str:
-    """A graphviz digraph of the relations between these records."""
+    """A graphviz digraph of the relations between these records.
 
-    drawn, edges = _selected(entries, superseded=superseded)
+    `group` boxes records by "kind" or "scope"; `focus` keeps the record and
+    those within `hops` relation steps, and raises ValueError if it is not drawn.
+    """
+
+    drawn, edges = _selected(entries, superseded=superseded, focus=focus, hops=hops)
     if not drawn:
         return ""
 
@@ -234,6 +259,7 @@ def to_dot(
         '  node [fontname="Helvetica", fontsize=10, color="#0a0a0a", fontcolor="#0a0a0a"];',
         '  edge [fontname="Helvetica", color="#0a0a0a", fontcolor="#0a0a0a"];',
     ]
+    nodes = {}
     for entry in drawn:
         shape = DOT_SHAPES.get(str(entry.get("kind")), "box")
         attrs = f'shape={shape}, label="{_dot_label(entry, detail)}"'
@@ -241,8 +267,12 @@ def to_dot(
             attrs += ', style=filled, fillcolor="#f3f3f3", color="#8a8a8a", fontcolor="#6a6a6a"'
         elif mark := _support_mark(entry):
             attrs += f", style={DOT_BORDERS[mark]}"
-        attrs += f', class="{_dot_classes(entry)}"'
-        lines.append(f'  "{entry["id"]}" [{attrs}];')
+        is_focus = str(entry["id"]) == focus
+        attrs += f', class="{_dot_classes(entry, is_focus)}"' + (
+            ", penwidth=2.5" if is_focus else ""
+        )
+        nodes[str(entry["id"])] = f'"{entry["id"]}" [{attrs}];'
+    lines += arrange(drawn, group, nodes, dot_clusters)
     for join in _join_nodes(edges):
         lines.append(
             f'  "{join}" [shape=point, width=0.08, xlabel="set", fontsize=8, class="join"];'
@@ -264,6 +294,8 @@ def to_csv(
     *,
     detail: int = 40,
     superseded: bool = False,
+    focus: str | None = None,
+    hops: int = 2,
 ) -> tuple[str, str]:
     """A Gephi node table and edge table, as two CSV documents.
 
@@ -279,7 +311,7 @@ def to_csv(
     import csv
     import io
 
-    drawn, edges = _selected(entries, superseded=superseded)
+    drawn, edges = _selected(entries, superseded=superseded, focus=focus, hops=hops)
     if not drawn:
         return "", ""
 

@@ -15,7 +15,7 @@ from docket.cli.completion import cmd_completion
 from docket.cli.construct import cmd_construct
 from docket.cli.context_cmd import CONTEXT_ENVELOPES, cmd_context
 from docket.cli.correct import add_correct_parser
-from docket.cli.export import cmd_export
+from docket.cli.export import add_export_parser
 from docket.cli.feature_parser import add_feature_parser
 from docket.cli.graph import cmd_graph
 from docket.cli.query import cmd_filter_ids, cmd_list, cmd_show, cmd_where
@@ -132,24 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     gr.add_argument("--port", type=port_arg, help="port for --web, default 7347")
     gr.set_defaults(func=cmd_graph)
 
-    ex = sub.add_parser("export", help="write the relation graph as mermaid, DOT or Gephi CSV")
-    ex.add_argument("--format", choices=("mermaid", "dot", "csv"), default="mermaid")
-    _add_filter_args(ex)
-    ex.add_argument(
-        "--superseded", action="store_true", help="include retired records and the retire edges"
-    )
-    ex.add_argument(
-        "--out",
-        metavar="DIR",
-        help="directory for --format csv, which writes nodes.csv and edges.csv",
-    )
-    ex.add_argument(
-        "--detail", type=int, default=40, help="characters of record text per node, 0 for ids only"
-    )
-    ex.add_argument(
-        "--direction", choices=("LR", "TD", "RL", "BT"), default="LR", help="layout direction"
-    )
-    ex.set_defaults(func=cmd_export)
+    add_export_parser(sub, _add_filter_args)
 
     sh = sub.add_parser("show", help="print one entry, human-readable")
     sh.add_argument("id")

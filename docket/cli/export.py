@@ -14,10 +14,51 @@ from docket import where
 from docket.cli.graph import _graph_entries
 
 
+def hops_arg(text: str) -> int:
+    if text not in ("1", "2", "3", "4"):
+        raise argparse.ArgumentTypeError(f"{text!r} is not a hop count, 1 to 4")
+    return int(text)
+
+
+def add_export_parser(sub, add_filter_args) -> None:
+    ex = sub.add_parser("export", help="write the relation graph as mermaid, DOT or Gephi CSV")
+    ex.add_argument("--format", choices=("mermaid", "dot", "csv"), default="mermaid")
+    add_filter_args(ex)
+    ex.add_argument(
+        "--superseded", action="store_true", help="include retired records and the retire edges"
+    )
+    ex.add_argument(
+        "--out",
+        metavar="DIR",
+        help="directory for --format csv, which writes nodes.csv and edges.csv",
+    )
+    ex.add_argument(
+        "--detail", type=int, default=40, help="characters of record text per node, 0 for ids only"
+    )
+    ex.add_argument(
+        "--direction", choices=("LR", "TD", "RL", "BT"), default="LR", help="layout direction"
+    )
+    ex.add_argument(
+        "--group", choices=("none", "kind", "scope"), default="none", help="box records (not csv)"
+    )
+    ex.add_argument("--focus", metavar="ID", help="keep this record and its neighbourhood")
+    # None, not 2: only an absent flag may be told apart from --hops 2 without --focus.
+    ex.add_argument(
+        "--hops", type=hops_arg, help="relation steps around --focus, 1 to 4, default 2"
+    )
+    ex.set_defaults(func=cmd_export)
+
+
 def _write_csv(entries: list[dict], args: argparse.Namespace, superseded: bool) -> int:
     from docket.graph_export import to_csv
 
-    nodes, edges = to_csv(entries, detail=args.detail, superseded=superseded)
+    nodes, edges = to_csv(
+        entries,
+        detail=args.detail,
+        superseded=superseded,
+        focus=args.focus,
+        hops=args.hops or 2,
+    )
     if not nodes:
         print("docket: no record in this selection carries a relation", file=sys.stderr)
         return 0
@@ -52,17 +93,32 @@ def cmd_export(args: argparse.Namespace) -> int:
         # two documents and stdout cannot carry both.
         print("docket: --format csv writes two files; name a directory with --out", file=sys.stderr)
         return 2
+    if args.hops is not None and not args.focus:
+        print("docket: --hops needs --focus", file=sys.stderr)
+        return 2
     entries, shown, superseded = selection(args)
     if not entries:
         print("docket: nothing recorded")
         return 0
 
-    if args.format == "csv":
-        return _write_csv(shown, args, superseded)
-    from docket.graph_export import to_dot, to_mermaid
+    try:
+        if args.format == "csv":
+            return _write_csv(shown, args, superseded)
+        from docket.graph_export import to_dot, to_mermaid
 
-    render = to_dot if args.format == "dot" else to_mermaid
-    text = render(shown, detail=args.detail, direction=args.direction, superseded=superseded)
+        render = to_dot if args.format == "dot" else to_mermaid
+        text = render(
+            shown,
+            detail=args.detail,
+            direction=args.direction,
+            superseded=superseded,
+            group=args.group,
+            focus=args.focus,
+            hops=args.hops or 2,
+        )
+    except ValueError as exc:
+        print(f"docket: {exc}", file=sys.stderr)
+        return 1
     if not text:
         print("docket: no record in this selection carries a relation", file=sys.stderr)
         return 0
