@@ -1084,29 +1084,40 @@ func TestTwoWPressesKeepExactlyOneChildInEitherDeliveryOrder(t *testing.T) {
 	}
 }
 
-func TestQuitWithAPendingLaunchKillsTheChildOnceItReports(t *testing.T) {
-	argv, dir := writeFilterScript(t, "echo $$ > \"$(dirname \"$0\")/pid\"\nsleep 0.3\necho http://127.0.0.1:9/\nexec sleep 30\n")
+// The child never prints a URL, so the command goroutine stays blocked. The
+// real program exits without awaiting it, so quit itself must kill the child.
+func TestQuitDuringStartupKillsTheChildBeforeUpdateReturns(t *testing.T) {
+	argv, dir := writeFilterScript(t, "echo $$ > \"$(dirname \"$0\")/pid\"\nexec sleep 30\n")
 	m := newModelWithFilter(testData(), false, nil)
 	m.webCmd = argv[:2]
 	m, cmd := updateModel(m, keyMsg('w'))
 	result := make(chan tea.Msg, 1)
 	go func() { result <- cmd() }()
-	time.Sleep(100 * time.Millisecond)
+	pid := 0
+	for deadline := time.Now().Add(5 * time.Second); pid == 0 && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if raw, err := os.ReadFile(filepath.Join(dir, "pid")); err == nil {
+			pid, _ = strconv.Atoi(strings.TrimSpace(string(raw)))
+		}
+	}
+	if pid == 0 {
+		t.Fatal("the child never started")
+	}
 	updateModel(m, keyMsg('q'))
-	if !m.launch.cancelled {
-		t.Fatal("quit did not cancel the pending launch")
-	}
-	msg := (<-result).(webStartedMsg)
-	if msg.proc != nil {
-		t.Fatal("a cancelled launch reported a live child")
-	}
-	raw, err := os.ReadFile(filepath.Join(dir, "pid"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
 	proc, _ := os.FindProcess(pid)
 	if proc.Signal(syscall.Signal(0)) == nil {
-		t.Fatal("the cancelled launch's child is still running")
+		t.Fatal("quit left the starting child running")
+	}
+	if msg := (<-result).(webStartedMsg); msg.proc != nil || msg.url != "" {
+		t.Fatalf("a cancelled launch reported a child: %+v", msg)
+	}
+}
+
+func TestCancelBeforeStartReturnsKillsTheChildItself(t *testing.T) {
+	argv, _ := writeFilterScript(t, "exec sleep 30\n")
+	launch := &webLaunch{}
+	launch.cancel()
+	msg := startWeb(argv[:2], launch)().(webStartedMsg)
+	if msg.proc != nil || msg.url != "" || msg.err != "" {
+		t.Fatalf("msg = %+v", msg)
 	}
 }

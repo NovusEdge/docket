@@ -35,10 +35,11 @@ type webStartedMsg struct {
 }
 
 // webLaunch ties one `w` press to the child it starts. The start command runs
-// outside Update, so the model cannot stop a child that has not reported yet;
-// cancel marks the launch dead and the command kills its own child when it
-// finds the mark. proc is recorded under the same lock so a cancel that races
-// the report still reaches the child.
+// outside Update, and bubbletea abandons command goroutines when the program
+// quits, so cancel must kill the child itself, synchronously: the command
+// registers the child right after Start, before it has printed a URL. Every
+// Wait on a launch's child runs under mu so cancel and the command never race
+// on it.
 type webLaunch struct {
 	mu        sync.Mutex
 	cancelled bool
@@ -55,8 +56,9 @@ func (l *webLaunch) cancel() {
 	l.proc.stop()
 }
 
-// adopt records the child, or kills it when the launch was already cancelled.
-func (l *webLaunch) adopt(p *webProc) bool {
+// register records the freshly started child, or kills it when the launch was
+// cancelled before Start returned.
+func (l *webLaunch) register(p *webProc) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.cancelled {
@@ -65,6 +67,28 @@ func (l *webLaunch) adopt(p *webProc) bool {
 	}
 	l.proc = p
 	return true
+}
+
+// adopt reports whether the launch is still wanted; a cancelled launch's child
+// is already dead.
+func (l *webLaunch) adopt() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return !l.cancelled
+}
+
+// reap waits for a child that failed to start properly, killing it first when
+// kill is set. A cancelled launch was reaped by cancel.
+func (l *webLaunch) reap(cmd *exec.Cmd, kill bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.cancelled {
+		return
+	}
+	if kill {
+		_ = cmd.Process.Kill()
+	}
+	_ = cmd.Wait()
 }
 
 // startWeb is a var so tests replace it and spawn nothing. The child gets no
@@ -84,6 +108,10 @@ var startWeb = func(argv []string, launch *webLaunch) tea.Cmd {
 		if err := cmd.Start(); err != nil {
 			return webStartedMsg{launch: launch, err: err.Error()}
 		}
+		proc := &webProc{cmd: cmd}
+		if !launch.register(proc) {
+			return webStartedMsg{launch: launch}
+		}
 		type result struct {
 			line string
 			err  error
@@ -96,18 +124,19 @@ var startWeb = func(argv []string, launch *webLaunch) tea.Cmd {
 		select {
 		case r := <-done:
 			if r.err != nil {
-				_ = cmd.Wait()
+				launch.reap(cmd, false)
+				if !launch.adopt() {
+					return webStartedMsg{launch: launch}
+				}
 				return webStartedMsg{launch: launch, err: lastLine(stderr.String(), "web view exited before printing its URL")}
 			}
-			go func() { _, _ = io.Copy(io.Discard, out) }()
-			proc := &webProc{cmd: cmd}
-			if !launch.adopt(proc) {
+			if !launch.adopt() {
 				return webStartedMsg{launch: launch}
 			}
+			go func() { _, _ = io.Copy(io.Discard, out) }()
 			return webStartedMsg{launch: launch, proc: proc, url: strings.TrimSpace(r.line)}
 		case <-time.After(webStartTimeout):
-			_ = cmd.Process.Kill()
-			_ = cmd.Wait()
+			launch.reap(cmd, true)
 			return webStartedMsg{launch: launch, err: "web view did not start within " + webStartTimeout.String()}
 		}
 	}
