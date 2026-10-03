@@ -6,6 +6,7 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -27,27 +28,61 @@ func (p *webProc) stop() {
 }
 
 type webStartedMsg struct {
-	proc *webProc
-	url  string
-	err  string
+	launch *webLaunch
+	proc   *webProc
+	url    string
+	err    string
+}
+
+// webLaunch ties one `w` press to the child it starts. The start command runs
+// outside Update, so the model cannot stop a child that has not reported yet;
+// cancel marks the launch dead and the command kills its own child when it
+// finds the mark. proc is recorded under the same lock so a cancel that races
+// the report still reaches the child.
+type webLaunch struct {
+	mu        sync.Mutex
+	cancelled bool
+	proc      *webProc
+}
+
+func (l *webLaunch) cancel() {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.cancelled = true
+	l.proc.stop()
+}
+
+// adopt records the child, or kills it when the launch was already cancelled.
+func (l *webLaunch) adopt(p *webProc) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.cancelled {
+		p.stop()
+		return false
+	}
+	l.proc = p
+	return true
 }
 
 // startWeb is a var so tests replace it and spawn nothing. The child gets no
 // stdin and both output streams are captured, so it never writes to the
 // viewer's terminal; stdout is read for the URL line, then drained.
-var startWeb = func(argv []string) tea.Cmd {
+var startWeb = func(argv []string, launch *webLaunch) tea.Cmd {
 	return func() tea.Msg {
 		cmd := exec.Command(argv[0], argv[1:]...)
 		// A grandchild holding stderr open would otherwise block Wait.
 		cmd.WaitDelay = time.Second
 		out, err := cmd.StdoutPipe()
 		if err != nil {
-			return webStartedMsg{err: err.Error()}
+			return webStartedMsg{launch: launch, err: err.Error()}
 		}
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 		if err := cmd.Start(); err != nil {
-			return webStartedMsg{err: err.Error()}
+			return webStartedMsg{launch: launch, err: err.Error()}
 		}
 		type result struct {
 			line string
@@ -62,14 +97,18 @@ var startWeb = func(argv []string) tea.Cmd {
 		case r := <-done:
 			if r.err != nil {
 				_ = cmd.Wait()
-				return webStartedMsg{err: lastLine(stderr.String(), "web view exited before printing its URL")}
+				return webStartedMsg{launch: launch, err: lastLine(stderr.String(), "web view exited before printing its URL")}
 			}
 			go func() { _, _ = io.Copy(io.Discard, out) }()
-			return webStartedMsg{proc: &webProc{cmd: cmd}, url: strings.TrimSpace(r.line)}
+			proc := &webProc{cmd: cmd}
+			if !launch.adopt(proc) {
+				return webStartedMsg{launch: launch}
+			}
+			return webStartedMsg{launch: launch, proc: proc, url: strings.TrimSpace(r.line)}
 		case <-time.After(webStartTimeout):
 			_ = cmd.Process.Kill()
 			_ = cmd.Wait()
-			return webStartedMsg{err: "web view did not start within " + webStartTimeout.String()}
+			return webStartedMsg{launch: launch, err: "web view did not start within " + webStartTimeout.String()}
 		}
 	}
 }

@@ -7,7 +7,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 	"unicode"
@@ -948,9 +950,9 @@ func updateModel(m model, msg tea.Msg) (model, tea.Cmd) {
 func TestWebKeyStartsTheCommandWithTheAppliedFilter(t *testing.T) {
 	var got []string
 	old := startWeb
-	startWeb = func(argv []string) tea.Cmd {
+	startWeb = func(argv []string, l *webLaunch) tea.Cmd {
 		got = argv
-		return func() tea.Msg { return webStartedMsg{url: "http://127.0.0.1:7347/"} }
+		return func() tea.Msg { return webStartedMsg{launch: l, url: "http://127.0.0.1:7347/"} }
 	}
 	defer func() { startWeb = old }()
 	m := newModelWithFilter(testData(), false, nil)
@@ -980,8 +982,8 @@ func TestPressingWAgainStopsThePreviousChild(t *testing.T) {
 		t.Skip("no sleep binary")
 	}
 	old := startWeb
-	startWeb = func(argv []string) tea.Cmd {
-		return func() tea.Msg { return webStartedMsg{url: "http://127.0.0.1:1/"} }
+	startWeb = func(argv []string, l *webLaunch) tea.Cmd {
+		return func() tea.Msg { return webStartedMsg{launch: l, url: "http://127.0.0.1:1/"} }
 	}
 	defer func() { startWeb = old }()
 	m := newModelWithFilter(testData(), false, nil)
@@ -1008,7 +1010,7 @@ func TestQuitStopsTheWebChild(t *testing.T) {
 
 func TestStartWebReadsTheURLAndStopKillsTheChild(t *testing.T) {
 	argv, _ := writeFilterScript(t, "echo http://127.0.0.1:9/\nexec sleep 30\n")
-	msg, ok := startWeb(argv[:2])().(webStartedMsg)
+	msg, ok := startWeb(argv[:2], &webLaunch{})().(webStartedMsg)
 	if !ok || msg.err != "" || msg.url != "http://127.0.0.1:9/" || msg.proc == nil {
 		t.Fatalf("msg = %+v", msg)
 	}
@@ -1020,7 +1022,7 @@ func TestStartWebReadsTheURLAndStopKillsTheChild(t *testing.T) {
 
 func TestStartWebReportsAChildThatExitsSilently(t *testing.T) {
 	argv, _ := writeFilterScript(t, "echo boom >&2\nexit 3\n")
-	msg := startWeb(argv[:2])().(webStartedMsg)
+	msg := startWeb(argv[:2], &webLaunch{})().(webStartedMsg)
 	if msg.proc != nil || msg.err != "boom" {
 		t.Fatalf("msg = %+v", msg)
 	}
@@ -1031,8 +1033,80 @@ func TestStartWebGivesUpOnAChildThatNeverPrints(t *testing.T) {
 	webStartTimeout = 100 * time.Millisecond
 	defer func() { webStartTimeout = old }()
 	argv, _ := writeFilterScript(t, "exec sleep 30\n")
-	msg := startWeb(argv[:2])().(webStartedMsg)
+	msg := startWeb(argv[:2], &webLaunch{})().(webStartedMsg)
 	if msg.proc != nil || msg.err != "web view did not start within 100ms" {
 		t.Fatalf("msg = %+v", msg)
+	}
+}
+
+func startSleeper(t *testing.T) *exec.Cmd {
+	t.Helper()
+	c := exec.Command("sleep", "30")
+	if err := c.Start(); err != nil {
+		t.Skip("no sleep binary")
+	}
+	t.Cleanup(func() { _ = c.Process.Kill(); _ = c.Wait() })
+	return c
+}
+
+func TestTwoWPressesKeepExactlyOneChildInEitherDeliveryOrder(t *testing.T) {
+	for _, reversed := range []bool{false, true} {
+		first, second := startSleeper(t), startSleeper(t)
+		procs := []*webProc{{cmd: first}, {cmd: second}}
+		var launches []*webLaunch
+		old := startWeb
+		startWeb = func(argv []string, l *webLaunch) tea.Cmd {
+			i := len(launches)
+			launches = append(launches, l)
+			return func() tea.Msg { return webStartedMsg{launch: l, proc: procs[i], url: fmt.Sprint("http://x/", i)} }
+		}
+		m := newModelWithFilter(testData(), false, nil)
+		m.webCmd = []string{"x"}
+		m, c1 := updateModel(m, keyMsg('w'))
+		m, c2 := updateModel(m, keyMsg('w'))
+		order := []tea.Cmd{c1, c2}
+		if reversed {
+			order = []tea.Cmd{c2, c1}
+		}
+		for _, c := range order {
+			m, _ = updateModel(m, c())
+		}
+		startWeb = old
+		if m.web != procs[1] || m.status != "web: http://x/1" {
+			t.Fatalf("reversed=%v: web=%v status=%q", reversed, m.web, m.status)
+		}
+		if first.ProcessState == nil {
+			t.Fatalf("reversed=%v: the first child is still running", reversed)
+		}
+		if second.ProcessState != nil {
+			t.Fatalf("reversed=%v: the latest child was stopped", reversed)
+		}
+	}
+}
+
+func TestQuitWithAPendingLaunchKillsTheChildOnceItReports(t *testing.T) {
+	argv, dir := writeFilterScript(t, "echo $$ > \"$(dirname \"$0\")/pid\"\nsleep 0.3\necho http://127.0.0.1:9/\nexec sleep 30\n")
+	m := newModelWithFilter(testData(), false, nil)
+	m.webCmd = argv[:2]
+	m, cmd := updateModel(m, keyMsg('w'))
+	result := make(chan tea.Msg, 1)
+	go func() { result <- cmd() }()
+	time.Sleep(100 * time.Millisecond)
+	updateModel(m, keyMsg('q'))
+	if !m.launch.cancelled {
+		t.Fatal("quit did not cancel the pending launch")
+	}
+	msg := (<-result).(webStartedMsg)
+	if msg.proc != nil {
+		t.Fatal("a cancelled launch reported a live child")
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "pid"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
+	proc, _ := os.FindProcess(pid)
+	if proc.Signal(syscall.Signal(0)) == nil {
+		t.Fatal("the cancelled launch's child is still running")
 	}
 }

@@ -100,6 +100,7 @@ type model struct {
 	filterCmd     []string
 	webCmd        []string
 	web           *webProc
+	launch        *webLaunch
 	filterSeq     int
 	pendingQuery  string
 	helpOpen      bool
@@ -618,10 +619,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case filterResultMsg:
 		return m.applyFilterResult(msg), nil
 	case webStartedMsg:
+		if msg.launch != m.launch {
+			msg.proc.stop()
+			return m, nil
+		}
 		if msg.err != "" {
 			m.status, m.statusErr = msg.err, true
 			return m, nil
 		}
+		if msg.url == "" {
+			return m, nil
+		}
+		m.web.stop()
 		m.web = msg.proc
 		m.status, m.statusErr = "web: "+msg.url, false
 		return m, nil
@@ -631,6 +640,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if !m.searching && key.Matches(msg, keyQuit) {
+			m.launch.cancel()
 			m.web.stop()
 			return m, tea.Quit
 		}
@@ -674,10 +684,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.status, m.statusErr = "web view unavailable", true
 				return m, nil
 			}
+			m.launch.cancel()
 			m.web.stop()
 			m.web = nil
+			m.launch = &webLaunch{}
 			m.status, m.statusErr = "starting web view…", false
-			return m, startWeb(webArgv(m.webCmd, m.appliedQuery))
+			return m, startWeb(webArgv(m.webCmd, m.appliedQuery), m.launch)
 		}
 		if key.Matches(msg, keySearch) {
 			m.searching = true
