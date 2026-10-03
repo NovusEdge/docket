@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `docket graph --web` serves a live, localhost-only browser view of the relation graph, with `--port N` to pick the port.
+- The `w` key in the terminal graph viewer opens the web view for the current filter.
+
+### Changed
+
+- `docket export --format dot` packs disconnected clusters into a grid and tags nodes and edges with `class` attributes.
+
 ## [0.23.0] - 2026-10-03
 
 ### Changed

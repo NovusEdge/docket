@@ -70,6 +70,7 @@ terminal. Select a record in the tree to read its details.
 | `s` | Cycle the sort field: ledger, id, timestamp, kind, state |
 | `r` | Reverse the sort direction |
 | `/` | Search |
+| `w` | Open the graph in a browser |
 | `q` | Quit |
 
 See the [viewer reference](installer-reference.md#browse-the-decision-graph)
@@ -83,6 +84,22 @@ docket graph | less -R
 ```
 
 Use `--no-interactive` to request text output directly.
+
+## Browse in a web page
+
+`docket graph --web` serves the relation graph to your browser. It prints the URL as its first line and opens it. The default port is 7347, or a free one if that is taken; `--port N` picks another. In the terminal viewer, `w` opens the web view for the current filter. Press it again to restart the view with a changed filter. Quitting the viewer stops it.
+
+```sh
+docket graph --web --where scope:docket/cli/
+```
+
+The page polls the ledger every 2 seconds. When the ledger changes, the graph redraws within that time and keeps your zoom and the record you have open.
+
+Press `/` to search. The kind and retired chips dim nodes without laying the graph out again. Selecting a node slides in a drawer with the full record, and the references in it are clickable. A toggle switches between the light and dark theme.
+
+The download buttons save what is on screen as SVG or PNG.
+
+The server listens on 127.0.0.1 only and refuses requests for any other host name. It runs until you press Ctrl-C.
 
 ## Export the graph
 

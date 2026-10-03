@@ -254,6 +254,8 @@ the full support sets as well as the renderer's deduplicated support union.
 `--kind`, `--state`, `--find`, `--where`, `--superseded` and `--detail` narrow all three.
 Narrow before exporting: the whole ledger is a hairball in any of them.
 
+`graph --web` serves the same graph live in a browser, for a person to read; an agent reads `show` or `list --json` instead.
+
 Evidence references are provenance supplied by the recorder. Docket does not
 claim that evidence was freshly checked. Re-run `docket context` through the
 harness's existing hook after compaction or resume.

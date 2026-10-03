@@ -111,6 +111,8 @@ Record that you checked a claim or decision whose grounds changed. It appends a 
 | `--where QUERY` | Filter with the [query language](#query-language). In the viewer it is the initial filter, and clearing it shows every record. |
 | `--interactive`, `--no-interactive` | Require or refuse the native viewer |
 | `--plain`, `--pretty` | Force colour off or on |
+| `--web` | Serve a live view to the browser on localhost until Ctrl-C |
+| `--port N` | Port for `--web`. Default 7347, or a free one if taken |
 
 `docket export`
 
@@ -122,6 +124,8 @@ Record that you checked a claim or decision whose grounds changed. It appends a 
 | `--out DIR` | Required by `--format csv`, which writes `nodes.csv` and `edges.csv` there |
 | `--detail N` | Characters of text per node. Default 40, `0` for IDs alone. |
 | `--direction LR\|TD\|RL\|BT` | With `mermaid` or `dot`, the layout direction. Default `LR`. |
+
+DOT output packs separate clusters into a grid and tags nodes and edges with `class` attributes.
 
 Claims and decisions carry three derived fields in `--json` output and in `show`:
 
