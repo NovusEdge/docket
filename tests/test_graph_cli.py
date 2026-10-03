@@ -12,10 +12,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from docket.cli import main
 
 
-class GraphFormatCliTests(unittest.TestCase):
-    """The --format path end to end.
+class ExportCliTests(unittest.TestCase):
+    """`docket export` end to end.
 
-    Every other graph test calls to_mermaid or to_dot directly, so the argparse
+    Every other export test calls to_mermaid or to_dot directly, so the argparse
     wiring, the filters and the empty-selection message went uncovered.
     """
 
@@ -62,7 +62,7 @@ class GraphFormatCliTests(unittest.TestCase):
 
     def test_mermaid_prints_a_flowchart(self):
         self.seed()
-        code, out, _ = self.run_cli("graph", "--format", "mermaid", "--no-interactive")
+        code, out, _ = self.run_cli("export", "--format", "mermaid")
         self.assertEqual(code, 0)
         self.assertTrue(out.startswith("flowchart LR"))
         self.assertIn("c1 --> d3", out)
@@ -70,19 +70,19 @@ class GraphFormatCliTests(unittest.TestCase):
 
     def test_dot_prints_a_digraph(self):
         self.seed()
-        code, out, _ = self.run_cli("graph", "--format", "dot", "--no-interactive")
+        code, out, _ = self.run_cli("export", "--format", "dot")
         self.assertEqual(code, 0)
         self.assertTrue(out.startswith("digraph docket {"))
         self.assertIn('"c1" -> "d3"', out)
 
     def test_an_empty_ledger_says_nothing_is_recorded(self):
-        code, out, _ = self.run_cli("graph", "--format", "mermaid", "--no-interactive")
+        code, out, _ = self.run_cli("export", "--format", "mermaid")
         self.assertEqual(code, 0)
         self.assertIn("nothing recorded", out)
 
     def test_a_ledger_with_no_relation_says_so_on_stderr(self):
         self.run_cli("claim", "alone", "--scope", "a/**", "--cost", "none")
-        code, out, err = self.run_cli("graph", "--format", "mermaid", "--no-interactive")
+        code, out, err = self.run_cli("export", "--format", "mermaid")
         self.assertEqual(code, 0)
         self.assertEqual(out, "")
         self.assertIn("carries a relation", err)
@@ -92,9 +92,13 @@ class GraphFormatCliTests(unittest.TestCase):
         self.run_cli(
             "decision", "something else", "--choice", "x", "--scope", "z/**", "--cost", "none"
         )
-        _, wide, _ = self.run_cli("graph", "--format", "mermaid", "--no-interactive")
+        _, wide, _ = self.run_cli("export", "--format", "mermaid")
         _, narrow, _ = self.run_cli(
-            "graph", "--format", "mermaid", "--find", "plugin", "--no-interactive"
+            "export",
+            "--format",
+            "mermaid",
+            "--find",
+            "plugin",
         )
         self.assertLessEqual(len(narrow), len(wide))
         self.assertIn("d3", narrow)
@@ -102,14 +106,22 @@ class GraphFormatCliTests(unittest.TestCase):
     def test_detail_zero_prints_bare_ids(self):
         self.seed()
         _, out, _ = self.run_cli(
-            "graph", "--format", "mermaid", "--detail", "0", "--no-interactive"
+            "export",
+            "--format",
+            "mermaid",
+            "--detail",
+            "0",
         )
         self.assertIn('c1(["c1"])', out)
 
     def test_direction_reaches_the_renderer(self):
         self.seed()
         _, out, _ = self.run_cli(
-            "graph", "--format", "dot", "--direction", "TD", "--no-interactive"
+            "export",
+            "--format",
+            "dot",
+            "--direction",
+            "TD",
         )
         self.assertIn("rankdir=TD;", out)
 
@@ -129,9 +141,12 @@ class GraphFormatCliTests(unittest.TestCase):
             "--cost",
             "none",
         )
-        _, without, _ = self.run_cli("graph", "--format", "mermaid", "--no-interactive")
+        _, without, _ = self.run_cli("export", "--format", "mermaid")
         _, with_retired, _ = self.run_cli(
-            "graph", "--format", "mermaid", "--superseded", "--no-interactive"
+            "export",
+            "--format",
+            "mermaid",
+            "--superseded",
         )
         self.assertNotIn("retires", without)
         self.assertIn("retires", with_retired)
@@ -139,26 +154,23 @@ class GraphFormatCliTests(unittest.TestCase):
 
     def test_an_unknown_format_is_refused_by_the_parser(self):
         with self.assertRaises(SystemExit):
-            self.run_cli("graph", "--format", "graphml", "--no-interactive")
+            self.run_cli("export", "--format", "graphml")
 
     def test_format_output_is_pipeable_with_no_colour_codes(self):
         self.seed()
-        _, out, _ = self.run_cli("graph", "--format", "dot", "--no-interactive")
+        _, out, _ = self.run_cli("export", "--format", "dot")
         self.assertNotIn("\x1b[", out)
 
-    def test_format_conflicts_with_interactive(self):
-        # Without the guard --format silently won in a terminal, so a caller
-        # who asked for the viewer got text and no word about it.
+    def test_export_defaults_to_mermaid(self):
+        self.seed()
+        code, out, _ = self.run_cli("export")
+        self.assertEqual(code, 0)
+        self.assertTrue(out.startswith("flowchart LR"))
+
+    def test_graph_no_longer_takes_format(self):
         self.seed()
         with self.assertRaises(SystemExit):
-            self.run_cli("graph", "--format", "mermaid", "--interactive")
-
-    def test_format_works_with_no_interactive_and_with_neither(self):
-        self.seed()
-        for extra in (("--no-interactive",), ()):
-            code, out, _ = self.run_cli("graph", "--format", "dot", *extra)
-            self.assertEqual(code, 0)
-            self.assertTrue(out.startswith("digraph docket {"))
+            self.run_cli("graph", "--format", "dot")
 
     def test_a_supersede_chain_draws_every_link(self):
         self.seed()
@@ -186,7 +198,7 @@ class GraphFormatCliTests(unittest.TestCase):
             "--cost",
             "none",
         )
-        _, out, _ = self.run_cli("graph", "--format", "mermaid", "--superseded", "--no-interactive")
+        _, out, _ = self.run_cli("export", "--format", "mermaid", "--superseded")
         self.assertIn("d4 -- retires --> d3", out)
         self.assertIn("d5 -- retires --> d4", out)
 
@@ -195,7 +207,11 @@ class GraphFormatCliTests(unittest.TestCase):
         # would render as a bare node mermaid invents.
         self.seed()
         _, out, _ = self.run_cli(
-            "graph", "--format", "mermaid", "--kind", "decision", "--no-interactive"
+            "export",
+            "--format",
+            "mermaid",
+            "--kind",
+            "decision",
         )
         self.assertNotIn("c1", out)
         self.assertNotIn("q2", out)
@@ -203,7 +219,11 @@ class GraphFormatCliTests(unittest.TestCase):
     def test_a_state_filter_reaches_the_export(self):
         self.seed()
         code, out, err = self.run_cli(
-            "graph", "--format", "mermaid", "--state", "rejected", "--no-interactive"
+            "export",
+            "--format",
+            "mermaid",
+            "--state",
+            "rejected",
         )
         self.assertEqual(code, 0)
         self.assertIn("nothing recorded", out + err)
@@ -212,7 +232,11 @@ class GraphFormatCliTests(unittest.TestCase):
         self.seed()
         target = self.root / "gephi"
         code, out, _ = self.run_cli(
-            "graph", "--format", "csv", "--out", str(target), "--no-interactive"
+            "export",
+            "--format",
+            "csv",
+            "--out",
+            str(target),
         )
         self.assertEqual(code, 0)
         self.assertTrue((target / "nodes.csv").is_file())
@@ -223,14 +247,18 @@ class GraphFormatCliTests(unittest.TestCase):
         # Gephi imports node and edge tables separately, so stdout cannot carry
         # both and a silent choice of one would be the wrong one half the time.
         self.seed()
-        code, _, err = self.run_cli("graph", "--format", "csv", "--no-interactive")
+        code, _, err = self.run_cli("export", "--format", "csv")
         self.assertEqual(code, 2)
         self.assertIn("--out", err)
 
     def test_out_without_csv_is_refused(self):
         self.seed()
         code, _, err = self.run_cli(
-            "graph", "--format", "dot", "--out", str(self.root / "x"), "--no-interactive"
+            "export",
+            "--format",
+            "dot",
+            "--out",
+            str(self.root / "x"),
         )
         self.assertEqual(code, 2)
         self.assertIn("--out belongs to --format csv", err)
@@ -277,14 +305,13 @@ class GraphFormatCliTests(unittest.TestCase):
         self.seed()
         target = self.root / "gephi"
         self.run_cli(
-            "graph",
+            "export",
             "--format",
             "csv",
             "--out",
             str(target),
             "--kind",
             "decision",
-            "--no-interactive",
         )
         if (target / "nodes.csv").is_file():
             self.assertNotIn("q2", (target / "nodes.csv").read_text(encoding="utf-8"))

@@ -46,6 +46,10 @@ _COMPLETION_FLAGS = (
     "--style",
     "--interactive",
     "--no-interactive",
+    "--format",
+    "--out",
+    "--detail",
+    "--direction",
     "--for",
     "--version",
     "--dry-run",
@@ -60,6 +64,7 @@ _COMPLETION_CMDS = (
     "list",
     "show",
     "graph",
+    "export",
     "context",
     "where",
     "check",
@@ -124,6 +129,7 @@ _docket() {{
     case "$prev" in
         --state) COMPREPLY=($(compgen -W "unassessed accepted disputed rejected adopted revoked open resolved" -- "$cur")); return ;;
         --supersede-reason) COMPREPLY=($(compgen -W "restate revise reverse" -- "$cur")); return ;;
+        --format) COMPREPLY=($(compgen -W "mermaid dot csv" -- "$cur")); return ;;
         --supports|--depends-on|--answers|--supersedes|show|review)
             COMPREPLY=($(compgen -W "$(docket list --oneline 2>/dev/null | awk '{{print $1}}')" -- "$cur")); return ;;
         completion) COMPREPLY=($(compgen -W "bash zsh fish" -- "$cur")); return ;;

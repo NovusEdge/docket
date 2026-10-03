@@ -15,6 +15,7 @@ from docket.cli.completion import cmd_completion
 from docket.cli.construct import cmd_construct
 from docket.cli.context_cmd import CONTEXT_ENVELOPES, cmd_context
 from docket.cli.correct import add_correct_parser
+from docket.cli.export import cmd_export
 from docket.cli.feature_parser import add_feature_parser
 from docket.cli.graph import cmd_graph
 from docket.cli.query import cmd_filter_ids, cmd_list, cmd_show, cmd_where
@@ -53,6 +54,15 @@ def _add_shared_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--pin", action="store_true")
 
 
+def _add_filter_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--kind", choices=KINDS)
+    p.add_argument(
+        "--state", choices=tuple(sorted({state for values in STATES.values() for state in values}))
+    )
+    p.add_argument("--find", help="match question or answer text")
+    p.add_argument("--where", metavar="QUERY", help="filter with the query language")
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="docket",
@@ -64,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = p.add_subparsers(
         dest="cmd",
         metavar=(
-            "{claim,decision,question,correct,review,list,show,graph,context,where,check,"
+            "{claim,decision,question,correct,review,list,show,graph,export,context,where,check,"
             "rebase,migrate,init,feature,completion,update}"
         ),
     )
@@ -93,12 +103,7 @@ def main(argv: list[str] | None = None) -> int:
     add_review_parser(sub)
 
     ls = sub.add_parser("list", help="list records")
-    ls.add_argument("--kind", choices=KINDS)
-    ls.add_argument(
-        "--state", choices=tuple(sorted({state for values in STATES.values() for state in values}))
-    )
-    ls.add_argument("--find", help="match question or answer text")
-    ls.add_argument("--where", metavar="QUERY", help="filter with the query language")
+    _add_filter_args(ls)
     ls.add_argument(
         "--superseded",
         action="store_true",
@@ -112,31 +117,7 @@ def main(argv: list[str] | None = None) -> int:
 
     gr = sub.add_parser("graph", help="browse decision support relationships")
     gr.add_argument("--style", choices=("forest", "rail", "compact"))
-    gr.add_argument("--kind", choices=KINDS)
-    gr.add_argument(
-        "--state", choices=tuple(sorted({state for values in STATES.values() for state in values}))
-    )
-    gr.add_argument("--find", help="match question or answer text")
-    gr.add_argument("--where", metavar="QUERY", help="filter with the query language")
-    gr.add_argument(
-        "--format",
-        choices=("mermaid", "dot", "csv"),
-        help="emit the relation graph as mermaid, graphviz DOT or Gephi CSV instead of rendering it",
-    )
-    gr.add_argument(
-        "--out",
-        metavar="DIR",
-        help="directory for --format csv, which writes nodes.csv and edges.csv",
-    )
-    gr.add_argument(
-        "--detail", type=int, default=40, help="characters of record text per node, 0 for ids only"
-    )
-    gr.add_argument(
-        "--direction", choices=("LR", "TD", "RL", "BT"), default="LR", help="mermaid layout"
-    )
-    gr.add_argument(
-        "--superseded", action="store_true", help="include retired records and the retire edges"
-    )
+    _add_filter_args(gr)
     gr.add_argument("--plain", action="store_true", help="force colour off")
     gr.add_argument("--pretty", action="store_true", help="force colour on, e.g. piping to less -R")
     mode = gr.add_mutually_exclusive_group()
@@ -147,6 +128,25 @@ def main(argv: list[str] | None = None) -> int:
         "--no-interactive", action="store_true", help="force the static text renderer"
     )
     gr.set_defaults(func=cmd_graph)
+
+    ex = sub.add_parser("export", help="write the relation graph as mermaid, DOT or Gephi CSV")
+    ex.add_argument("--format", choices=("mermaid", "dot", "csv"), default="mermaid")
+    _add_filter_args(ex)
+    ex.add_argument(
+        "--superseded", action="store_true", help="include retired records and the retire edges"
+    )
+    ex.add_argument(
+        "--out",
+        metavar="DIR",
+        help="directory for --format csv, which writes nodes.csv and edges.csv",
+    )
+    ex.add_argument(
+        "--detail", type=int, default=40, help="characters of record text per node, 0 for ids only"
+    )
+    ex.add_argument(
+        "--direction", choices=("LR", "TD", "RL", "BT"), default="LR", help="layout direction"
+    )
+    ex.set_defaults(func=cmd_export)
 
     sh = sub.add_parser("show", help="print one entry, human-readable")
     sh.add_argument("id")
@@ -278,8 +278,6 @@ def main(argv: list[str] | None = None) -> int:
             p.error("graph --interactive conflicts with --plain")
         if args.style is not None:
             p.error("graph --interactive conflicts with --style")
-        if args.format is not None:
-            p.error("graph --interactive conflicts with --format")
     if args.cmd == "feature" and getattr(args, "feature_cmd", None) is None:
         p.error("feature needs a subcommand")
     from docket.feature_outcome import OutcomeError

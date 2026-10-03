@@ -840,13 +840,11 @@ class WhereCliTests(unittest.TestCase):
             self.assertIn("unknown field colour", result.stderr)
             self.assertNotIn("Traceback", result.stderr)
 
-    def test_graph_format_with_is_retired_keeps_retired_records(self):
+    def test_export_with_is_retired_keeps_retired_records(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             _where_ledger(root)
-            result = run(
-                root, "graph", "--format", "mermaid", "--no-interactive", "--where", "is:retired"
-            )
+            result = run(root, "export", "--format", "mermaid", "--where", "is:retired")
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("d4 -- retires --> d3", result.stdout)
             self.assertIn("classDef retired", result.stdout)
