@@ -124,6 +124,28 @@ button, input { font: inherit; color: inherit; }
 .detail { position: absolute; z-index: 1; top: 72px; right: 12px; bottom: 12px; width: 380px; padding: 16px 18px; overflow: auto; transform: translateX(calc(100% + 24px)); transition: transform .2s ease; }
 .detail.open { transform: none; }
 .detail .close { position: absolute; top: 10px; right: 10px; }
+
+/* layout */
+.layout-btn.on { background: var(--surface-2); }
+.pop { position: absolute; z-index: 2; top: 62px; width: max-content; padding: 12px 14px; display: none; }
+.pop.open { display: block; }
+.row-l { display: grid; grid-template-columns: 78px 1fr; align-items: center; gap: 8px; margin: 8px 0; }
+.row-l > span { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.seg button { border: 0; background: transparent; padding: 4px 10px; font-size: 12px; cursor: pointer; color: var(--ink-2); }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button.on { background: var(--ink); color: var(--bg); }
+.seg button:disabled { opacity: .35; cursor: default; }
+.layout-err { position: absolute; z-index: 1; top: 62px; max-width: 320px; padding: 6px 10px; font-size: 12px; color: var(--bad); }
+.pill { display: none; align-items: center; gap: 6px; padding: 3px 6px 3px 10px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); font: 12px var(--mono); }
+.pill.show { display: inline-flex; }
+.pill button { border: 0; background: transparent; color: inherit; cursor: pointer; font-size: 13px; }
+.focusbar { display: flex; gap: 8px; align-items: center; margin: 10px 0 2px; }
+.focusbar .btn:disabled { opacity: .5; cursor: default; }
+.focusbar small { color: var(--ink-3); }
+.cluster > polygon { fill: color-mix(in srgb, var(--surface-2) 70%, transparent); stroke: var(--line-strong); }
+.cluster > text { fill: var(--ink-2) !important; font-family: var(--mono) !important; }
+.node.focus :is(ellipse,polygon,path) { stroke: var(--accent); stroke-width: 3; }
 </style>
 </head>
 <body>
@@ -136,12 +158,20 @@ button, input { font: inherit; color: inherit; }
     <span class="chip" data-kind="question"><span class="sw" style="background:var(--question)"></span>questions</span>
     <span class="chip" data-kind="retired">retired</span>
   </div>
+  <button class="btn layout-btn" id="layout-btn" aria-haspopup="true" aria-expanded="false">Layout ▾</button>
+  <span class="pill" id="pill"><span id="pill-text"></span><button id="pill-x" title="Clear focus">×</button></span>
   <div class="spacer"></div>
   <span class="live off" id="live" title="Watching .docket/ledger.jsonl"><i></i><span id="live-text">connecting</span></span>
   <button class="btn" id="svgbtn">SVG</button>
   <button class="btn" id="pngbtn">PNG</button>
   <button class="btn" id="theme" title="Theme">◐</button>
 </header>
+<div class="pop panel" id="pop">
+  <div class="row-l"><span>Engine</span><div class="seg" data-k="engine"><button data-v="dot">Layered</button><button data-v="fdp">Force</button><button data-v="twopi">Radial</button><button data-v="circo">Circular</button></div></div>
+  <div class="row-l"><span>Direction</span><div class="seg" data-k="dir"><button data-v="LR">→ Right</button><button data-v="TB">↓ Down</button></div></div>
+  <div class="row-l"><span>Group</span><div class="seg" data-k="group"><button data-v="none">None</button><button data-v="kind">Kind</button><button data-v="scope">Scope</button></div></div>
+</div>
+<div class="layout-err panel" id="layout-err" role="alert" hidden></div>
 <main class="center">
   <div id="stage"></div>
   <div class="zoom panel"><button id="zin" title="Zoom in">+</button><button id="zout" title="Zoom out">−</button><button id="zfit" title="Fit">⤢</button></div>
@@ -161,31 +191,69 @@ const detail = document.getElementById('detail');
 let RECORDS = {}, svg, vb, base, vizReady, lastEtag, count = 0, selected = null, prevIds = null, loading = false;
 const off = new Set(), nodeId = g => g.querySelector('title').textContent;
 
+const CHOICES = { engine: ['dot', 'fdp', 'twopi', 'circo'], dir: ['LR', 'TB'], group: ['none', 'kind', 'scope'], hops: ['1', '2', '3', '4'] };
+const DEFAULTS = { engine: 'dot', dir: 'LR', group: 'none', focus: null, hops: 2 };
+const L = { ...DEFAULTS };
+let lastDot = '', drawnKey = null, again = false;
+{
+  const p = new URLSearchParams(location.search);
+  for (const k in CHOICES) if (CHOICES[k].includes(p.get(k))) L[k] = k === 'hops' ? +p.get(k) : p.get(k);
+  L.focus = p.get('focus') || null;
+}
+const layoutKey = () => [L.engine, L.dir, L.group, L.focus, L.focus && L.hops].join('|');
+const graphQuery = () => {
+  const p = new URLSearchParams();
+  if (L.group !== 'none') p.set('group', L.group);
+  if (L.focus) { p.set('focus', L.focus); p.set('hops', L.hops); }
+  return p.toString();
+};
+function writeUrl() {
+  const p = new URLSearchParams();
+  if (L.engine !== 'dot') p.set('engine', L.engine);
+  if (L.dir !== 'LR') p.set('dir', L.dir);
+  const q = graphQuery();
+  const url = location.pathname + [p.toString(), q].filter(Boolean).map((s, i) => (i ? '&' : '?') + s).join('');
+  history.replaceState(null, '', url);
+}
+
 function setLive(ok) {
   document.getElementById('live').classList.toggle('off', !ok);
   document.getElementById('live-text').textContent = ok ? `live · ${count} records` : 'disconnected';
 }
+function setLayoutErr(text) {
+  const el = document.getElementById('layout-err');
+  el.textContent = text || ''; el.hidden = !text;
+  if (text) anchorRight(el);
+}
 
-async function load() {
-  if (loading) return;
+async function load(force = false) {
+  if (loading) { again ||= force; return; }
   loading = true;
+  const query = graphQuery();
   let data = null;
   try {
-    const res = await fetch('/api/graph', { headers: lastEtag ? { 'If-None-Match': lastEtag } : {}, signal: AbortSignal.timeout(5000) });
-    if (res.status === 200) {
-      data = await res.json();
-      lastEtag = res.headers.get('ETag');
-      RECORDS = Object.fromEntries(data.records.map(r => [r.id, r]));
-      count = data.records.length;
-      document.getElementById('title').textContent = data.title;
-    } else if (res.status !== 304) throw new Error('HTTP ' + res.status);
-    setLive(true);
+    const res = await fetch('/api/graph' + (query ? '?' + query : ''), { headers: lastEtag ? { 'If-None-Match': lastEtag } : {}, signal: AbortSignal.timeout(5000) });
+    if (res.status === 400) setLayoutErr((await res.text()).trim());
+    else {
+      if (res.status === 200) {
+        data = await res.json();
+        lastEtag = res.headers.get('ETag');
+        RECORDS = Object.fromEntries(data.records.map(r => [r.id, r]));
+        count = data.records.length;
+        document.getElementById('title').textContent = data.title;
+      } else if (res.status !== 304) throw new Error('HTTP ' + res.status);
+      setLayoutErr('');
+      setLive(true);
+    }
   } catch { data = null; setLive(false); }
-  if (data) {
-    try { await render(data.dot); } catch (err) { showError(err); }
+  if (data && query === graphQuery()) {
+    lastDot = data.dot;
+    try { await render(); } catch (err) { showError(err); }
   }
   loading = false;
+  if (again) { again = false; load(); }
 }
+function reload() { lastEtag = null; load(true); }
 
 function showError(err) {
   console.error(err);
@@ -193,8 +261,26 @@ function showError(err) {
   stage.innerHTML = `<div class="empty"><b>Could not draw the graph</b>${esc(err.message)}</div>`;
 }
 
-async function render(dot) {
-  const keep = svg && vb && { ...vb };
+function layoutDot(dot) {
+  // twopi needs a centre; with no focus the best-connected record reads as the hub.
+  const hub = () => {
+    const n = {};
+    for (const [, a, b] of dot.matchAll(/^\s*"([^"]+)" -> "([^"]+)"/gm)) for (const id of [a, b]) if (RECORDS[id]) n[id] = (n[id] || 0) + 1;
+    return L.focus || Object.keys(n).sort((a, b) => n[b] - n[a])[0];
+  };
+  return dot.replace(/rankdir=\w+;/, () => {
+    let s = `rankdir=${L.dir};`;
+    if (L.engine !== 'dot') s += ' overlap=false;';
+    if (L.engine === 'twopi' && hub()) s += ` root="${hub()}";`;
+    return s;
+  });
+}
+
+async function render() {
+  const dot = lastDot, key = layoutKey();
+  // A poll that leaves the layout alone keeps the reader's zoom and pan.
+  const keep = svg && vb && key === drawnKey && { ...vb };
+  drawnKey = key;
   if (!dot.trim()) {
     svg = null; vb = null; prevIds = null;
     stage.innerHTML = '<div class="empty"><b>Nothing to draw</b>No record in this selection carries a relation.</div>';
@@ -204,7 +290,7 @@ async function render(dot) {
     vizReady ??= Viz.instance();
     const viz = await vizReady;
     // The export keeps print colours; the page themes through CSS.
-    svg = viz.renderSVGElement(dot.replace('bgcolor="white"', 'bgcolor="transparent"').replace(/fontname="Helvetica"/g, 'fontname="sans-serif"'));
+    svg = viz.renderSVGElement(layoutDot(dot).replace('bgcolor="white"', 'bgcolor="transparent"').replace(/fontname="Helvetica"/g, 'fontname="sans-serif"'), { engine: L.engine });
   } catch (err) {
     showError(err);
     return;
@@ -233,7 +319,8 @@ function fit() {
   if (!svg) return;
   const r = stage.getBoundingClientRect(), pad = 40;
   const avail = r.width - (detail.classList.contains('open') ? detail.offsetWidth + 24 : 0);
-  const s = Math.max(base.width / (avail - pad * 2), base.height / (r.height - pad * 2));
+  // At most 1.5 CSS px per SVG unit, so a handful of nodes is not blown up to fill the stage.
+  const s = Math.max(base.width / (avail - pad * 2), base.height / (r.height - pad * 2), 1 / 1.5);
   vb.w = r.width * s; vb.h = r.height * s;
   vb.x = base.x + base.width / 2 - avail / 2 / r.width * vb.w; vb.y = base.y - (vb.h - base.height) / 2; apply();
 }
@@ -272,11 +359,15 @@ function select(id, pan = true) {
   document.getElementById('detail-body').innerHTML = `
     <div class="meta"><span class="tag mono" style="font-weight:600">${esc(r.id)}</span><span class="tag kind-${esc(r.kind)}">${esc(r.kind)}</span><span class="tag">${esc(r.state)}</span>${r.pinned ? '<span class="tag">pinned</span>' : ''}${flags}</div>
     <h2>${esc(r.text)}</h2>
+    <div class="focusbar"><button class="btn" id="focus-here">Focus here</button><div class="seg" id="hops">${CHOICES.hops.map(n => `<button data-v="${n}">${n}</button>`).join('')}</div><small>hops</small></div>
     ${field('Choice', r.choice)}${field('Rationale', r.rationale)}${field('Cost if wrong', r.cost_if_wrong)}
     ${refs('Supported by', r.supports)}${refs('Depends on', r.depends_on)}${refs('Answers', r.answers)}${refs('Supersedes', r.supersedes)}
     ${r.scope && r.scope.length ? `<div class="field"><label>Scope</label><div class="refs">${r.scope.map(s => `<span class="ref" style="cursor:default">${esc(s)}</span>`).join('')}</div></div>` : ''}
     <div class="prov">${esc(r.author)} · ${esc((r.ts || '').slice(0, 16).replace('T', ' '))} · ${esc(r.branch)}</div>`;
   document.querySelectorAll('#detail-body .ref[data-id]').forEach(el => el.onclick = () => select(el.dataset.id));
+  document.getElementById('focus-here').onclick = () => setLayout({ focus: id });
+  document.querySelectorAll('#hops button').forEach(b => b.onclick = () => setLayout({ hops: +b.dataset.v }));
+  syncUI();
   detail.classList.add('open');
   if (pan && node) {
     // The drawer is still sliding in, so its resting edge comes from its width, not its current rect.
@@ -300,12 +391,46 @@ function refilter() {
   for (const g of svg.querySelectorAll('g.edge')) g.classList.toggle('dim', !!t);
 }
 document.getElementById('q').addEventListener('input', refilter);
-addEventListener('keydown', e => { if (e.key === '/' && document.activeElement.id !== 'q') { e.preventDefault(); document.getElementById('q').focus(); } if (e.key === 'Escape') deselect(); });
+addEventListener('keydown', e => { if (e.key === '/' && document.activeElement.id !== 'q') { e.preventDefault(); document.getElementById('q').focus(); } if (e.key === 'Escape') { if (pop.classList.contains('open')) togglePop(false); else deselect(); } });
 document.querySelectorAll('[data-kind]').forEach(el => el.addEventListener('click', () => {
   el.classList.toggle('off');
   el.classList.contains('off') ? off.add(el.dataset.kind) : off.delete(el.dataset.kind);
   refilter();
 }));
+
+const pop = document.getElementById('pop'), layoutBtn = document.getElementById('layout-btn');
+function anchorRight(el) { el.style.right = innerWidth - layoutBtn.getBoundingClientRect().right + 'px'; }
+function togglePop(open) {
+  if (open) anchorRight(pop);
+  pop.classList.toggle('open', open); layoutBtn.classList.toggle('on', open); layoutBtn.setAttribute('aria-expanded', open);
+}
+layoutBtn.onclick = () => togglePop(!pop.classList.contains('open'));
+addEventListener('click', e => { if (!pop.contains(e.target) && !layoutBtn.contains(e.target)) togglePop(false); }, true);
+addEventListener('resize', () => { anchorRight(pop); anchorRight(document.getElementById('layout-err')); });
+
+function syncUI() {
+  for (const seg of pop.querySelectorAll('.seg')) for (const b of seg.querySelectorAll('button')) {
+    b.classList.toggle('on', String(L[seg.dataset.k]) === b.dataset.v);
+    if (seg.dataset.k === 'dir') b.disabled = L.engine !== 'dot';
+  }
+  document.getElementById('pill').classList.toggle('show', !!L.focus);
+  if (L.focus) document.getElementById('pill-text').textContent = `focus ${L.focus} · ${L.hops} hop${L.hops > 1 ? 's' : ''}`;
+  document.querySelectorAll('#hops button').forEach(b => b.classList.toggle('on', +b.dataset.v === L.hops));
+  const here = document.getElementById('focus-here');
+  if (here) here.disabled = L.focus === selected;
+}
+async function setLayout(patch) {
+  const before = graphQuery();
+  Object.assign(L, patch);
+  writeUrl(); syncUI();
+  if (graphQuery() !== before) reload();
+  else if (lastDot && layoutKey() !== drawnKey) { try { await render(); } catch (err) { showError(err); } }
+}
+pop.addEventListener('click', e => {
+  const b = e.target.closest('button'), seg = b?.closest('.seg');
+  if (b && !b.disabled) setLayout({ [seg.dataset.k]: b.dataset.v });
+});
+document.getElementById('pill-x').onclick = () => setLayout({ focus: null });
 
 document.getElementById('theme').onclick = () => {
   const d = document.documentElement, dark = matchMedia('(prefers-color-scheme: dark)').matches;
@@ -321,7 +446,7 @@ function exportSvg() {
   const sheet = document.styleSheets[0], computed = getComputedStyle(document.documentElement);
   // Only the theme in effect is written; the dark-mode rules would override it in a viewer that prefers dark.
   const vars = [...sheet.cssRules[0].style].filter(n => n.startsWith('--')).map(n => `${n}: ${computed.getPropertyValue(n).trim()};`).join(' ');
-  const css = [...sheet.cssRules].map(r => r.cssText).filter(t => /\.node|\.edge|^\.dim|^\.hit/.test(t)).join('\n');
+  const css = [...sheet.cssRules].map(r => r.cssText).filter(t => /\.node|\.edge|\.cluster|^\.dim|^\.hit/.test(t)).join('\n');
   const st = document.createElementNS('http://www.w3.org/2000/svg', 'style');
   st.textContent = `:root { ${vars} background: ${computed.getPropertyValue('--bg').trim()}; }\n${css}`;
   clone.prepend(st);
@@ -340,6 +465,7 @@ document.getElementById('svgbtn').onclick = () => svg && download('docket-graph.
 document.getElementById('pngbtn').onclick = () => svg && pngBlob().then(b => download('docket-graph.png', b));
 addEventListener('resize', fit);
 
+syncUI();
 load();
 setInterval(load, 2000);
 </script>
