@@ -255,7 +255,39 @@ def layout_records():
     ]
 
 
+def nested_records():
+    # docs/ holds d3 and has two child boxes, so the emitters recurse past depth 1.
+    return [
+        entry("q1", "question", scope=["docs/a/x.md"]),
+        entry("c2", "claim", scope=["docs/b/y.md"]),
+        entry("d3", "decision", supports=[["c2"]], answers=["q1"], scope=["docs/z.md"]),
+        entry("d4", "decision", depends_on=["d3"], scope=["src/*.py"]),
+        entry("c5", "claim", supports=[["d4"]]),
+    ]
+
+
 class DotLayoutTests(unittest.TestCase):
+    def test_nested_scope_boxes_nest_with_unique_cluster_ids(self):
+        out = to_dot(nested_records(), group="scope")
+        ids = [ln.split()[1] for ln in out.splitlines() if ln.strip().startswith("subgraph ")]
+        self.assertEqual(ids, ["cluster_0", "cluster_1", "cluster_2", "cluster_3"])
+        stack, where = [], {}
+        for ln in out.splitlines():
+            text = ln.strip()
+            if text.startswith("subgraph "):
+                stack.append(None)
+            elif text.startswith("label=") and None in stack:
+                stack[stack.index(None)] = text.split('label="')[1].split('"')[0]
+            elif text == "}" and ln != "}":
+                stack.pop()
+            elif text.startswith('"') and "[" in text and "->" not in text:
+                where[text.split('"')[1]] = list(stack)
+        self.assertEqual(where["d3"], ["docs/"])
+        self.assertEqual(where["q1"], ["docs/", "a/"])
+        self.assertEqual(where["c2"], ["docs/", "b/"])
+        self.assertEqual(where["d4"], ["src/"])
+        self.assertEqual(where["c5"], [])
+
     def test_group_kind_emits_a_cluster_per_kind(self):
         out = to_dot(layout_records(), group="kind")
         self.assertEqual(out.count("subgraph cluster_"), 3)
@@ -267,7 +299,11 @@ class DotLayoutTests(unittest.TestCase):
         out = to_dot(layout_records(), group="scope")
         self.assertIn('label="docs/a/"', out)
         self.assertIn('label="src/"', out)
-        self.assertLess(out.index('"c2" ['), out.index("}", out.index('"c2" [')))
+        lines = out.splitlines()
+        node = next(i for i, ln in enumerate(lines) if ln.strip().startswith('"c2" ['))
+        opener = max(i for i in range(node) if lines[i].strip().startswith("subgraph cluster_"))
+        closer = next(i for i in range(opener + 1, len(lines)) if lines[i] == "  }")
+        self.assertLess(node, closer)
         self.assertGreater(out.index('  "d4" ['), out.rindex("  }"))
 
     def test_an_unknown_group_is_refused(self):
@@ -324,6 +360,25 @@ class MermaidLayoutTests(unittest.TestCase):
         ids = [ln.split()[1] for ln in out.splitlines() if ln.strip().startswith("subgraph ")]
         self.assertEqual(len(ids), len(set(ids)))
 
+    def test_nested_scope_subgraphs_nest_and_balance(self):
+        lines = to_mermaid(nested_records(), group="scope").splitlines()
+        stack, where, ids = [], {}, []
+        for ln in lines:
+            text = ln.strip()
+            if text.startswith("subgraph "):
+                ids.append(text.split()[1])
+                stack.append(text.split('["')[1].rstrip('"]'))
+            elif text == "end":
+                stack.pop()
+            elif text[:2] in ("q1", "c2", "d3", "d4", "c5") and "-" not in text and "=" not in text:
+                where[text[:2]] = list(stack)
+        self.assertEqual(stack, [])
+        self.assertEqual(ids, ["g_0", "g_1", "g_2", "g_3"])
+        self.assertEqual(where["q1"], ["docs/", "a/"])
+        self.assertEqual(where["c2"], ["docs/", "b/"])
+        self.assertEqual(where["d3"], ["docs/"])
+        self.assertEqual(where["c5"], [])
+
     def test_focus_selects_the_same_records_as_dot(self):
         out = to_mermaid(layout_records(), focus="d3", hops=1)
         self.assertIn("d4", out)
@@ -373,6 +428,10 @@ class DotRendersTests(unittest.TestCase):
         self.assertIn("group", svg)
         self.assertIn("docs/a/", svg)
 
+    def test_nested_scope_boxes_render(self):
+        svg = self.render(to_dot(nested_records(), group="scope"))
+        self.assertEqual(svg.count('class="cluster group"'), 4)
+
     def test_a_focused_graph_renders(self):
         svg = self.render(to_dot(layout_records(), group="kind", focus="d3", hops=1))
         self.assertNotIn(">c5", svg)
@@ -421,7 +480,7 @@ class MermaidRendersTests(unittest.TestCase):
         self.render(to_mermaid(records))
 
     def test_nested_scope_subgraphs_parse(self):
-        self.render(to_mermaid(layout_records(), group="scope"))
+        self.render(to_mermaid(nested_records(), group="scope"))
         self.render(to_mermaid(layout_records(), group="kind", focus="d3", hops=1))
 
     def test_this_project_s_own_ledger_parses(self):
