@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -826,12 +827,12 @@ func runFilter(t *testing.T, m model, cmd tea.Cmd) model {
 func TestBottomPaneAtEightyAndFiftyEightColumns(t *testing.T) {
 	m := NewModel(testData())
 	m, _ = updateModel(m, tea.WindowSizeMsg{Width: 80, Height: 24})
-	assertPane(t, m, "filter: none", "4/4 match · sort ledger asc", "/ filter  s sort  tab detail  ? help  q quit")
+	assertPane(t, m, "filter: none", "4/4 match · sort ledger asc", "/ filter  s sort  w web  tab detail  ? help  q quit")
 	m, _ = updateModel(m, keyMsg(' '))
-	assertPane(t, m, "filter: none", "4/4 match · 2 shown · sort ledger asc", "/ filter  s sort  tab detail  ? help  q quit")
+	assertPane(t, m, "filter: none", "4/4 match · 2 shown · sort ledger asc", "/ filter  s sort  w web  tab detail  ? help  q quit")
 	m, _ = updateModel(m, keyMsg(' '))
 	m = applyFilter(m, "other")
-	assertPane(t, m, "filter: other", "1/4 match · sort ledger asc", "/ filter  s sort  tab detail  ? help  q quit")
+	assertPane(t, m, "filter: other", "1/4 match · sort ledger asc", "/ filter  s sort  w web  tab detail  ? help  q quit")
 	m, _ = updateModel(m, tea.WindowSizeMsg{Width: 58, Height: 24})
 	assertPane(t, m, "filter: other", "1/4 match · sort ledger asc", "? help  q quit")
 }
@@ -942,4 +943,96 @@ func keyMsg(k rune) tea.KeyPressMsg { return tea.KeyPressMsg(tea.Key{Code: k}) }
 func updateModel(m model, msg tea.Msg) (model, tea.Cmd) {
 	next, cmd := m.Update(msg)
 	return next.(model), cmd
+}
+
+func TestWebKeyStartsTheCommandWithTheAppliedFilter(t *testing.T) {
+	var got []string
+	old := startWeb
+	startWeb = func(argv []string) tea.Cmd {
+		got = argv
+		return func() tea.Msg { return webStartedMsg{url: "http://127.0.0.1:7347/"} }
+	}
+	defer func() { startWeb = old }()
+	m := newModelWithFilter(testData(), false, nil)
+	m.webCmd = []string{"py", "docket", "graph", "--web"}
+	m = applyFilter(m, "other")
+	m, cmd := updateModel(m, keyMsg('w'))
+	if want := "py docket graph --web --where other"; strings.Join(got, " ") != want {
+		t.Fatalf("argv = %q, want %q", got, want)
+	}
+	m, _ = updateModel(m, cmd())
+	if m.status != "web: http://127.0.0.1:7347/" {
+		t.Fatalf("status = %q", m.status)
+	}
+}
+
+func TestWebKeyWithoutTheVariableSaysUnavailable(t *testing.T) {
+	m := newModelWithFilter(testData(), false, nil)
+	m, cmd := updateModel(m, keyMsg('w'))
+	if cmd != nil || m.status != "web view unavailable" || !m.statusErr {
+		t.Fatalf("status=%q err=%v cmd=%v", m.status, m.statusErr, cmd != nil)
+	}
+}
+
+func TestPressingWAgainStopsThePreviousChild(t *testing.T) {
+	sleeper := exec.Command("sleep", "30")
+	if err := sleeper.Start(); err != nil {
+		t.Skip("no sleep binary")
+	}
+	old := startWeb
+	startWeb = func(argv []string) tea.Cmd {
+		return func() tea.Msg { return webStartedMsg{url: "http://127.0.0.1:1/"} }
+	}
+	defer func() { startWeb = old }()
+	m := newModelWithFilter(testData(), false, nil)
+	m.webCmd = []string{"x"}
+	m.web = &webProc{cmd: sleeper}
+	m, _ = updateModel(m, keyMsg('w'))
+	if sleeper.ProcessState == nil {
+		t.Fatal("the previous web child is still running")
+	}
+}
+
+func TestQuitStopsTheWebChild(t *testing.T) {
+	sleeper := exec.Command("sleep", "30")
+	if err := sleeper.Start(); err != nil {
+		t.Skip("no sleep binary")
+	}
+	m := newModelWithFilter(testData(), false, nil)
+	m.web = &webProc{cmd: sleeper}
+	updateModel(m, keyMsg('q'))
+	if sleeper.ProcessState == nil {
+		t.Fatal("quit left the web child running")
+	}
+}
+
+func TestStartWebReadsTheURLAndStopKillsTheChild(t *testing.T) {
+	argv, _ := writeFilterScript(t, "echo http://127.0.0.1:9/\nexec sleep 30\n")
+	msg, ok := startWeb(argv[:2])().(webStartedMsg)
+	if !ok || msg.err != "" || msg.url != "http://127.0.0.1:9/" || msg.proc == nil {
+		t.Fatalf("msg = %+v", msg)
+	}
+	msg.proc.stop()
+	if msg.proc.cmd.ProcessState == nil {
+		t.Fatal("stop left the child running")
+	}
+}
+
+func TestStartWebReportsAChildThatExitsSilently(t *testing.T) {
+	argv, _ := writeFilterScript(t, "echo boom >&2\nexit 3\n")
+	msg := startWeb(argv[:2])().(webStartedMsg)
+	if msg.proc != nil || msg.err != "boom" {
+		t.Fatalf("msg = %+v", msg)
+	}
+}
+
+func TestStartWebGivesUpOnAChildThatNeverPrints(t *testing.T) {
+	old := webStartTimeout
+	webStartTimeout = 100 * time.Millisecond
+	defer func() { webStartTimeout = old }()
+	argv, _ := writeFilterScript(t, "exec sleep 30\n")
+	msg := startWeb(argv[:2])().(webStartedMsg)
+	if msg.proc != nil || msg.err != "web view did not start within 100ms" {
+		t.Fatalf("msg = %+v", msg)
+	}
 }

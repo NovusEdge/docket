@@ -39,6 +39,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "docket-graph: %v\n", err)
 		os.Exit(2)
 	}
+	webCmd, err := parseArgvEnv("DOCKET_GRAPH_WEB_CMD", os.Getenv("DOCKET_GRAPH_WEB_CMD"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "docket-graph: %v\n", err)
+		os.Exit(2)
+	}
 	if *plain || !isTerminal(os.Stdin) || !isTerminal(os.Stdout) {
 		if err := renderPlain(os.Stdout, data); err != nil {
 			fmt.Fprintf(os.Stderr, "docket-graph: %v\n", err)
@@ -46,7 +51,9 @@ func main() {
 		}
 		return
 	}
-	program := tea.NewProgram(newModelWithFilter(data, *pretty || os.Getenv("NO_COLOR") == "", filterCmd))
+	start := newModelWithFilter(data, *pretty || os.Getenv("NO_COLOR") == "", filterCmd)
+	start.webCmd = webCmd
+	program := tea.NewProgram(start)
 	if _, err := program.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "docket-graph: %v\n", err)
 		os.Exit(1)
@@ -79,12 +86,16 @@ func readData(path string) (GraphData, error) {
 }
 
 func parseFilterCmd(raw string) ([]string, error) {
+	return parseArgvEnv("DOCKET_GRAPH_FILTER_CMD", raw)
+}
+
+func parseArgvEnv(name, raw string) ([]string, error) {
 	if raw == "" {
 		return nil, nil
 	}
 	var argv []string
 	if err := json.Unmarshal([]byte(raw), &argv); err != nil || len(argv) == 0 {
-		return nil, fmt.Errorf("DOCKET_GRAPH_FILTER_CMD must be a non-empty JSON array of strings")
+		return nil, fmt.Errorf("%s must be a non-empty JSON array of strings", name)
 	}
 	return argv, nil
 }

@@ -98,6 +98,8 @@ type model struct {
 	status        string
 	statusErr     bool
 	filterCmd     []string
+	webCmd        []string
+	web           *webProc
 	filterSeq     int
 	pendingQuery  string
 	helpOpen      bool
@@ -114,6 +116,7 @@ var (
 	keyDown        = key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "down"))
 	keyCollapse    = key.NewBinding(key.WithKeys("space", "enter"), key.WithHelp("space", "collapse"))
 	keySearch      = key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter"))
+	keyWeb         = key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "open in browser"))
 	keyHelp        = key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help"))
 	keyQuit        = key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit"))
 	keyTab         = key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "detail"))
@@ -129,6 +132,7 @@ var (
 	keyCancel      = key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel"))
 	footerSearch   = key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter"))
 	footerSort     = key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "sort"))
+	footerWeb      = key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "web"))
 	footerTab      = key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "detail"))
 	footerHelp     = key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help"))
 	footerQuit     = key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit"))
@@ -613,12 +617,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case filterResultMsg:
 		return m.applyFilterResult(msg), nil
+	case webStartedMsg:
+		if msg.err != "" {
+			m.status, m.statusErr = msg.err, true
+			return m, nil
+		}
+		m.web = msg.proc
+		m.status, m.statusErr = "web: "+msg.url, false
+		return m, nil
 	case tea.KeyPressMsg:
 		if m.helpOpen {
 			m.helpOpen = false
 			return m, nil
 		}
 		if !m.searching && key.Matches(msg, keyQuit) {
+			m.web.stop()
 			return m, tea.Quit
 		}
 		if m.searching {
@@ -655,6 +668,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
+		}
+		if key.Matches(msg, keyWeb) {
+			if len(m.webCmd) == 0 {
+				m.status, m.statusErr = "web view unavailable", true
+				return m, nil
+			}
+			m.web.stop()
+			m.web = nil
+			m.status, m.statusErr = "starting web view…", false
+			return m, startWeb(webArgv(m.webCmd, m.appliedQuery))
 		}
 		if key.Matches(msg, keySearch) {
 			m.searching = true

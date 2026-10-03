@@ -99,7 +99,7 @@ func (m model) footer() string {
 	if m.width < 60 {
 		return "? help  q quit"
 	}
-	bindings := []key.Binding{footerSearch, footerSort, footerTab, footerHelp, footerQuit}
+	bindings := []key.Binding{footerSearch, footerSort, footerWeb, footerTab, footerHelp, footerQuit}
 	if m.detailFocus {
 		bindings = []key.Binding{footerPageUp, footerPageDown, footerLeft, footerRight, footerTab, footerHelp, footerQuit}
 	}
@@ -125,7 +125,7 @@ var helpRows = [][][]key.Binding{
 	},
 	{
 		{helpHeading("detail"), keyTab, keyPageUp, keyPageDown, keyLeft, keyRight},
-		{helpHeading("filter"), keySearch, keyApply, keyCancel},
+		{helpHeading("filter"), keySearch, keyApply, keyCancel, keyWeb},
 	},
 }
 
