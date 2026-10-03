@@ -57,7 +57,7 @@ class ExportCliTests(unittest.TestCase):
     def test_web_with_a_missing_asset_names_it(self):
         from unittest import mock
 
-        with mock.patch("docket.cli.web.WEB_ROOT", self.root / "nowhere"):
+        with mock.patch("docket.web.server.WEB_ROOT", self.root / "nowhere"):
             code, _, err = self.run_cli("graph", "--web", "--port", "0")
         self.assertEqual(code, 1)
         self.assertIn("nowhere", err)

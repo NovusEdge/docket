@@ -100,6 +100,13 @@ class ServerTests(unittest.TestCase):
             server.server_close()
 
 
+class ImportCostTests(unittest.TestCase):
+    def test_importing_the_cli_does_not_load_the_server(self):
+        code = "import sys, docket.cli; sys.exit('http.server' in sys.modules)"
+        result = subprocess.run([sys.executable, "-c", code], cwd=ROOT, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+
+
 class WebCliTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

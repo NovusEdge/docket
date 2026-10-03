@@ -4,17 +4,14 @@ from __future__ import annotations
 
 import argparse
 import json
-import signal
 import sys
-import webbrowser
 
 from docket import ROOT, env
 from docket.cli.export import selection
-from docket.env import read
-from docket.graph_export import to_dot
-from docket.ledger import project
-from docket.web.server import ASSETS, WEB_ROOT, make_server
 
+# docket.cli imports this module while building the parser on every
+# invocation, so the server, browser and renderer imports stay inside the
+# functions that need them.
 DEFAULT_PORT = 7347
 
 
@@ -47,8 +44,11 @@ def web_conflict(args: argparse.Namespace) -> str | None:
 def _payload(args: argparse.Namespace) -> bytes:
     # Read on every request: the page polls, and a ledger of a few hundred
     # records reads and renders in milliseconds.
+    from docket.graph_export import to_dot
+    from docket.ledger import project
+
     _, shown, superseded = selection(args)
-    records = project(read(env.ledger_path()), validated=True)
+    records = project(env.read(env.ledger_path()), validated=True)
     body = {
         "dot": to_dot(shown, superseded=superseded),
         "records": records,
@@ -62,13 +62,21 @@ def _stop(*_: object) -> None:
 
 
 def cmd_graph_web(args: argparse.Namespace) -> int:
-    missing = [str(WEB_ROOT / name) for name in ASSETS.values() if not (WEB_ROOT / name).is_file()]
+    import signal
+    import webbrowser
+
+    from docket.web import server as web_server
+
+    root = web_server.WEB_ROOT
+    missing = [
+        str(root / name) for name in web_server.ASSETS.values() if not (root / name).is_file()
+    ]
     if missing:
         print(f"docket: web view files missing: {', '.join(missing)}", file=sys.stderr)
         return 1
     selection(args)  # a bad --where fails here, before anything binds
     port = DEFAULT_PORT if args.port is None else args.port
-    server = make_server(lambda: _payload(args), port)
+    server = web_server.make_server(lambda: _payload(args), port)
     # Installed before the URL line: a caller may terminate as soon as it reads it.
     signal.signal(signal.SIGTERM, _stop)
     url = f"http://127.0.0.1:{server.server_address[1]}/"
