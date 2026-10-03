@@ -112,6 +112,7 @@ docket decision "Billing uses asyncpg." \
   --choice "asyncpg" \
   --rationale "The billing worker now uses an async database interface" \
   --supersedes d4 \
+  --supersede-reason revise \
   --answers q3 \
   --scope "billing/**"
 ```
@@ -119,6 +120,16 @@ docket decision "Billing uses asyncpg." \
 This creates `d5`. The old decision disappears from the default list, but
 `docket show d4` still shows it. The `--answers q3` link keeps the original
 question answered by your new choice.
+
+`--supersede-reason` tells Docket what the change means for records that cite the old one:
+
+| Reason | Use it when | Records citing the old one |
+|---|---|---|
+| `restate` | The wording changed, the substance did not | Stay clean |
+| `revise` | The substance changed | Are flagged until someone reviews them |
+| `reverse` | The old one no longer holds | Lose it as a ground |
+
+Leaving the reason out prints a hint and counts as `revise`. To relabel a supersession later, run `docket correct d5 --supersede-reason restate`. [Records that need review](reading.md#records-that-need-review) shows how to find and clear the flags.
 
 If you drop a commitment without choosing a replacement, record a revoked
 decision that supersedes it:

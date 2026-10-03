@@ -122,7 +122,7 @@ In Gephi, use **File > Import spreadsheet** to import `nodes.csv` as a node
 table, then `edges.csv` as an edge table into the same workspace.
 
 `nodes.csv` carries `Id` and `Label` for Gephi itself, then `kind`, `state`,
-`retired`, `scope` and the full `text` as node attributes. Partition by `kind`
+`retired`, `scope`, the full `text` and `support` as node attributes. Partition by `kind`
 to colour claims, decisions and questions apart, or filter on `retired` to
 drop the retired records after importing them.
 
@@ -176,6 +176,39 @@ showing that it needs one complete set rather than every premise.
 
 DOT wraps labels across several lines to keep long text from stretching
 hexagonal or elliptical nodes across the graph.
+
+Mermaid and DOT draw a flagged record with a dashed border and an unsupported one with a dotted border, so the status survives a black and white print. In Gephi, partition by the `support` column in `nodes.csv` to colour them apart.
+
+## Records that need review
+
+When a record's grounds change, Docket marks the records that cite it. A claim or decision is `flagged` when a ground was revised, or is unassessed, disputed or circular, and nobody has reviewed it since. It is `unsupported` when no complete set of its grounds survives, for example after a reversal.
+
+To find them:
+
+```sh
+docket list --where is:flagged
+docket list --where is:unsupported
+```
+
+`show` says what changed. Here the claim behind `d2` was revised by `c3`:
+
+```text
+d2  decision  adopted  Billing uses Postgres.
+  Choice: Postgres
+  Rationale: Reuse the existing database
+  Because: c1 (The service already runs Postgres.)
+  Review owed: c1 -> c3 (revise)
+```
+
+If the decision still holds against `c3`, record that you checked:
+
+```sh
+docket review d2 --note "Still fine on the managed host"
+```
+
+The flag clears until the same chain is revised again. If the decision no longer holds, supersede it instead. An unsupported record shows `Lost grounds:` in place of `Review owed:`. `docket review` does not clear it, so supersede it with a record that has grounds that hold.
+
+A flag can also come from a ground that is itself flagged. `docket review` refuses such a record and names the ground to review first. The briefing ends with a count of records that owe review, and the text `graph` marks them `? review` or `! lost`. The [commands reference](commands.md#reading) lists the derived fields.
 
 ## Read the briefing for a task
 

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The user guides cover 0.21 and 0.22: supersession reasons in Recording decisions, a "Records that need review" section and the export borders in Reading your ledger, and the merge driver in Sharing and maintenance.
+
 ## [0.22.0] - 2026-10-02
 
 ### Added

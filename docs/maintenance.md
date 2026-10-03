@@ -12,9 +12,9 @@ docket init
 docket where
 ```
 
-Docket creates a ledger at `.docket/ledger.jsonl` and copies any existing private
-records for that project into it. Include `.docket/` in your normal Git commits
-so other checkouts receive the same history.
+Docket creates a ledger at `.docket/ledger.jsonl` and copies any existing private records for that project into it. Include `.docket/` and `.gitattributes` in your normal Git commits so other checkouts receive the same history.
+
+`init` also adds `.docket/ledger.jsonl merge=docket` to `.gitattributes` and, when `docket` is on PATH, registers the ledger merge driver in the clone's git config. Git config is not committed, so run `docket init` again in each fresh clone; the session briefing notes a clone where the attribute is set but the driver is not.
 
 Without a project ledger, Docket uses a private ledger under your home directory
 for that project. `docket where` prints the active path.
@@ -33,9 +33,9 @@ markers, recover the two branch versions before combining their records.
 
 ## Combine records from two branches
 
-When both branches add records, they can allocate the same IDs. Combining the
-lines directly does not resolve that conflict. Use `docket rebase` to give the
-incoming records new IDs and update their links.
+When both branches add records, they can allocate the same IDs. With the merge driver registered, `git merge`, `git rebase` and `git cherry-pick` handle this themselves: the other side's new records take fresh IDs and their links follow. Nothing else is needed unless git reports a conflict on the ledger.
+
+The driver leaves a conflict when both sides superseded the same record, when a cherry-picked record cites one the target lacks, or when a file does not read. A clone without the driver registered also gets an ordinary conflict. Combining the lines by hand does not resolve it; use `docket rebase` to give the incoming records new IDs and update their links.
 
 Start with two complete, valid ledger files:
 
