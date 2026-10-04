@@ -259,6 +259,14 @@ class WebCliTests(unittest.TestCase):
         ):
             dot = json.loads(web._payload(argparse.Namespace(), {}))["dot"]
         self.assertIn('"d7" [', dot)
+        with (
+            mock.patch("docket.cli.web.selection", return_value=([alone], [alone], False)),
+            mock.patch("docket.ledger.project", return_value=[alone]),
+        ):
+            hidden = json.loads(web._payload(argparse.Namespace(), {"orphans": "hide"}))["dot"]
+            with self.assertRaises(BadRequest):
+                web._payload(argparse.Namespace(), {"orphans": "maybe"})
+        self.assertNotIn('"d7" [', hidden)
 
     def test_focus_marks_the_node_and_keeps_every_record(self):
         status, body = self.graph("?focus=c1&hops=1")

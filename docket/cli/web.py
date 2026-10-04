@@ -56,6 +56,9 @@ def _payload(args: argparse.Namespace, params: dict[str, str]) -> bytes:
     hops = params.get("hops", "2")
     if not (hops.isascii() and hops.isdigit() and 1 <= int(hops) <= 4):
         raise BadRequest("hops must be a whole number from 1 to 4")
+    orphans = params.get("orphans", "show")
+    if orphans not in ("show", "hide"):
+        raise BadRequest("orphans must be show or hide")
     _, shown, superseded = selection(args)
     records = project(env.read(env.ledger_path()), validated=True)
     try:
@@ -65,7 +68,7 @@ def _payload(args: argparse.Namespace, params: dict[str, str]) -> bytes:
             group=group,
             focus=params.get("focus") or None,
             hops=int(hops),
-            unlinked=True,
+            orphans=orphans == "show",
         )
     except ValueError as exc:
         raise BadRequest(str(exc)) from exc

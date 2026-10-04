@@ -105,17 +105,15 @@ def _selected(
     superseded: bool,
     focus: str | None = None,
     hops: int = 2,
-    unlinked: bool = False,
+    orphans: bool = False,
 ) -> tuple[list[dict[str, Any]], list[tuple[str, str, str]]]:
     """The records to draw and the edges between them.
 
-    Both formats read this, so a schema change touches one place. A record
-    with no relation in the selection is left out, except the focused one: it
-    is in the selection, so it draws alone rather than being reported as
-    missing. Relations to hidden retired records still count, or a record that
-    retired another would vanish along with it. `unlinked` draws every current
-    record: the web view shows the whole ledger, while a pasted export would
-    only gain loose boxes.
+    Every format reads this, so a schema change touches one place. A record
+    with no relation in the selection is left out unless `orphans` is set,
+    except the focused one: it is in the selection, so it draws alone rather
+    than being reported as missing. Relations to hidden retired records still
+    count, or a record that retired another would vanish along with it.
     """
 
     def inside(ids: set[str], source: list[dict[str, Any]]) -> list[tuple[str, str, str]]:
@@ -129,7 +127,7 @@ def _selected(
     known = {str(e["id"]) for e in kept}
     edges = inside(known, kept)
     linked = {end for edge in inside({str(e["id"]) for e in entries}, entries) for end in edge[:2]}
-    drawn = kept if unlinked else [e for e in kept if str(e["id"]) in linked]
+    drawn = kept if orphans else [e for e in kept if str(e["id"]) in linked]
     if focus is not None:
         # Focus walks the edges that survive retirement, so a retired record is
         # never a stepping stone unless it is drawn.
@@ -147,10 +145,13 @@ def to_mermaid(
     group: str = "none",
     focus: str | None = None,
     hops: int = 2,
+    orphans: bool = False,
 ) -> str:
     """A mermaid flowchart of the relations between these records."""
 
-    drawn, edges = _selected(entries, superseded=superseded, focus=focus, hops=hops)
+    drawn, edges = _selected(
+        entries, superseded=superseded, focus=focus, hops=hops, orphans=orphans
+    )
     if not drawn:
         return ""
 
@@ -253,7 +254,7 @@ def to_dot(
     group: str = "none",
     focus: str | None = None,
     hops: int = 2,
-    unlinked: bool = False,
+    orphans: bool = False,
 ) -> str:
     """A graphviz digraph of the relations between these records.
 
@@ -262,7 +263,7 @@ def to_dot(
     """
 
     drawn, edges = _selected(
-        entries, superseded=superseded, focus=focus, hops=hops, unlinked=unlinked
+        entries, superseded=superseded, focus=focus, hops=hops, orphans=orphans
     )
     if not drawn:
         return ""
@@ -318,6 +319,7 @@ def to_csv(
     superseded: bool = False,
     focus: str | None = None,
     hops: int = 2,
+    orphans: bool = False,
 ) -> tuple[str, str]:
     """A Gephi node table and edge table, as two CSV documents.
 
@@ -333,7 +335,9 @@ def to_csv(
     import csv
     import io
 
-    drawn, edges = _selected(entries, superseded=superseded, focus=focus, hops=hops)
+    drawn, edges = _selected(
+        entries, superseded=superseded, focus=focus, hops=hops, orphans=orphans
+    )
     if not drawn:
         return "", ""
 

@@ -158,6 +158,7 @@ button, input { font: inherit; color: inherit; }
     <span class="chip" data-kind="decision"><span class="sw" style="background:var(--decision)"></span>decisions</span>
     <span class="chip" data-kind="question"><span class="sw" style="background:var(--question)"></span>questions</span>
     <span class="chip" data-kind="retired">retired</span>
+    <span class="chip" id="orphans" title="Records with no relation">orphans</span>
   </div>
   <button class="btn layout-btn" id="layout-btn" aria-haspopup="true" aria-expanded="false">Layout ▾</button>
   <span class="pill" id="pill"><span id="pill-text"></span><button id="pill-x" title="Clear focus">×</button></span>
@@ -194,8 +195,8 @@ const detail = document.getElementById('detail');
 let RECORDS = {}, svg, vb, base, vizReady, lastEtag, count = 0, selected = null, prevIds = null, loading = false;
 const off = new Set(), nodeId = g => g.querySelector('title').textContent;
 
-const CHOICES = { engine: ['dot', 'fdp', 'twopi', 'circo'], dir: ['LR', 'TB'], group: ['none', 'kind', 'scope'], hops: ['1', '2', '3', '4'] };
-const DEFAULTS = { engine: 'dot', dir: 'LR', group: 'none', focus: null, hops: 2 };
+const CHOICES = { engine: ['dot', 'fdp', 'twopi', 'circo'], dir: ['LR', 'TB'], group: ['none', 'kind', 'scope'], hops: ['1', '2', '3', '4'], orphans: ['show', 'hide'] };
+const DEFAULTS = { engine: 'dot', dir: 'LR', group: 'none', focus: null, hops: 2, orphans: 'show' };
 const L = { ...DEFAULTS };
 let lastDot = '', drawnKey = null, again = false, accepted = null;
 {
@@ -203,10 +204,11 @@ let lastDot = '', drawnKey = null, again = false, accepted = null;
   for (const k in CHOICES) if (CHOICES[k].includes(p.get(k))) L[k] = k === 'hops' ? +p.get(k) : p.get(k);
   L.focus = p.get('focus') || null;
 }
-const layoutKey = () => [L.engine, L.dir, L.group, L.focus, L.focus && L.hops].join('|');
+const layoutKey = () => [L.engine, L.dir, L.group, L.orphans, L.focus, L.focus && L.hops].join('|');
 const graphQuery = () => {
   const p = new URLSearchParams();
   if (L.group !== 'none') p.set('group', L.group);
+  if (L.orphans !== 'show') p.set('orphans', L.orphans);
   if (L.focus) { p.set('focus', L.focus); p.set('hops', L.hops); }
   return p.toString();
 };
@@ -235,7 +237,7 @@ async function load(force = false) {
   if (loading) { again ||= force; return; }
   loading = true;
   const query = graphQuery();
-  const sent = { group: L.group, focus: L.focus, hops: L.hops };
+  const sent = { group: L.group, orphans: L.orphans, focus: L.focus, hops: L.hops };
   let data = null;
   try {
     const res = await fetch('/api/graph' + (query ? '?' + query : ''), { headers: lastEtag ? { 'If-None-Match': lastEtag } : {}, signal: AbortSignal.timeout(5000) });
@@ -430,6 +432,7 @@ function syncUI() {
     b.classList.toggle('on', String(L[seg.dataset.k]) === b.dataset.v);
     if (seg.dataset.k === 'dir') b.disabled = L.engine !== 'dot';
   }
+  document.getElementById('orphans').classList.toggle('off', L.orphans === 'hide');
   document.getElementById('pill').classList.toggle('show', !!L.focus);
   if (L.focus) document.getElementById('pill-text').textContent = `focus ${L.focus} · ${L.hops} hop${L.hops > 1 ? 's' : ''}`;
   document.querySelectorAll('#hops button').forEach(b => b.classList.toggle('on', +b.dataset.v === L.hops));
@@ -449,6 +452,8 @@ pop.addEventListener('click', e => {
   if (b && !b.disabled) setLayout({ [seg.dataset.k]: b.dataset.v });
 });
 document.getElementById('pill-x').onclick = () => setLayout({ focus: null });
+// Unlike the dimming chips this one asks the server again: a dimmed grid of orphans still takes its space.
+document.getElementById('orphans').onclick = () => setLayout({ orphans: L.orphans === 'show' ? 'hide' : 'show' });
 
 document.getElementById('theme').onclick = () => {
   const d = document.documentElement, dark = matchMedia('(prefers-color-scheme: dark)').matches;

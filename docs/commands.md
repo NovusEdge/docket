@@ -121,6 +121,7 @@ Record that you checked a claim or decision whose grounds changed. It appends a 
 | `--format mermaid\|dot\|csv` | A mermaid flowchart, a graphviz digraph, or Gephi tables. Default `mermaid`. |
 | `--kind`, `--state`, `--find`, `--where` | Filter, as in `list` |
 | `--superseded` | Include retired records and the retire edges |
+| `--include-orphans` | Also draw records with no relation in the selection. The `--web` page shows them by default; its `orphans` chip hides them. |
 | `--out DIR` | Required by `--format csv`, which writes `nodes.csv` and `edges.csv` there |
 | `--detail N` | Characters of text per node. Default 40, `0` for IDs alone. |
 | `--direction LR\|TD\|RL\|BT` | With `mermaid` or `dot`, the layout direction. Default `LR`. |

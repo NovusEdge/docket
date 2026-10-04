@@ -28,6 +28,11 @@ def add_export_parser(sub, add_filter_args) -> None:
         "--superseded", action="store_true", help="include retired records and the retire edges"
     )
     ex.add_argument(
+        "--include-orphans",
+        action="store_true",
+        help="also draw records with no relation in the selection",
+    )
+    ex.add_argument(
         "--out",
         metavar="DIR",
         help="directory for --format csv, which writes nodes.csv and edges.csv",
@@ -58,6 +63,7 @@ def _write_csv(entries: list[dict], args: argparse.Namespace, superseded: bool) 
         superseded=superseded,
         focus=args.focus,
         hops=args.hops or 2,
+        orphans=args.include_orphans,
     )
     if not nodes:
         print("docket: no record in this selection carries a relation", file=sys.stderr)
@@ -115,6 +121,7 @@ def cmd_export(args: argparse.Namespace) -> int:
             group=args.group,
             focus=args.focus,
             hops=args.hops or 2,
+            orphans=args.include_orphans,
         )
     except ValueError as exc:
         print(f"docket: {exc}", file=sys.stderr)

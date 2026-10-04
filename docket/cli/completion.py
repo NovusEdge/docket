@@ -39,6 +39,7 @@ _COMPLETION_FLAGS = (
     "--find",
     "--where",
     "--superseded",
+    "--include-orphans",
     "--oneline",
     "--json",
     "--plain",

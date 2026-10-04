@@ -164,6 +164,16 @@ class ExportCliTests(unittest.TestCase):
         self.assertEqual(out, "")
         self.assertIn("carries a relation", err)
 
+    def test_include_orphans_draws_a_record_with_no_relation(self):
+        self.run_cli("claim", "alone", "--scope", "a/**", "--cost", "none")
+        for fmt in ("mermaid", "dot"):
+            code, out, _ = self.run_cli("export", "--format", fmt, "--include-orphans")
+            self.assertEqual(code, 0)
+            self.assertIn("c1", out, fmt)
+        out_dir = Path(self.tmp.name) / "csv"
+        self.run_cli("export", "--format", "csv", "--out", str(out_dir), "--include-orphans")
+        self.assertIn("c1,", (out_dir / "nodes.csv").read_text(encoding="utf-8"))
+
     def test_find_narrows_the_export(self):
         self.seed()
         self.run_cli(
