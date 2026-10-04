@@ -299,6 +299,68 @@ class WebCliTests(unittest.TestCase):
         opened.assert_not_called()
         self.assertEqual(out.getvalue(), "http://127.0.0.1:1/\n")
 
+    def run_in_terminal(self, stdin_tty: bool, display: bool = True):
+        from unittest import mock
+
+        from docket.cli import web
+
+        env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY")}
+        if display:
+            env["DISPLAY"] = ":0"
+        server = mock.Mock()
+        server.server_address = ("127.0.0.1", 1)
+        server.serve_forever.side_effect = KeyboardInterrupt
+        out = io.StringIO()
+        out.isatty = lambda: True
+        stdin = io.StringIO()
+        stdin.isatty = lambda: stdin_tty
+        with (
+            mock.patch.dict(os.environ, env, clear=True),
+            mock.patch.object(sys, "platform", "linux"),
+            mock.patch("docket.web.server.make_server", return_value=server),
+            mock.patch("docket.cli.web.selection"),
+            mock.patch("docket.cli.web._open_quietly") as opened,
+            mock.patch("threading.Thread") as thread,
+            mock.patch("signal.signal"),
+            mock.patch.object(sys, "stdin", stdin),
+            contextlib.redirect_stdout(out),
+        ):
+            self.assertEqual(web.cmd_graph_web(argparse.Namespace(port=0, where=None)), 0)
+        return out.getvalue(), opened, thread
+
+    def test_a_terminal_gets_a_banner_and_no_browser(self):
+        out, opened, thread = self.run_in_terminal(stdin_tty=True)
+        opened.assert_not_called()
+        self.assertIn("Local:   http://127.0.0.1:1/", out)
+        self.assertIn("o + enter to open in a browser, q + enter to quit", out)
+        thread.return_value.start.assert_called_once()
+
+    def test_without_a_display_the_banner_does_not_offer_o(self):
+        out, _, _ = self.run_in_terminal(stdin_tty=True, display=False)
+        self.assertIn("press q + enter to quit", out)
+        self.assertNotIn("o + enter", out)
+
+    def test_without_a_terminal_on_stdin_no_keys_are_offered(self):
+        out, opened, thread = self.run_in_terminal(stdin_tty=False)
+        opened.assert_not_called()
+        self.assertIn("http://127.0.0.1:1/", out)
+        self.assertNotIn("press", out)
+        thread.assert_not_called()
+
+    def test_o_opens_the_browser_and_q_stops_the_server(self):
+        from unittest import mock
+
+        from docket.cli import web
+
+        server = mock.Mock()
+        with (
+            mock.patch.object(sys, "stdin", io.StringIO("x\nO\nq\no\n")),
+            mock.patch("docket.cli.web._open_quietly") as opened,
+        ):
+            web._read_keys(server, "http://127.0.0.1:1/", can_open=True)
+        opened.assert_called_once_with("http://127.0.0.1:1/")
+        server.shutdown.assert_called_once()
+
     def test_a_held_default_port_falls_back(self):
         first = self.start(port=None)
         a = self.first_line(first)

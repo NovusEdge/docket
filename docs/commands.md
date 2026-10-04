@@ -111,7 +111,7 @@ Record that you checked a claim or decision whose grounds changed. It appends a 
 | `--where QUERY` | Filter with the [query language](#query-language). In the viewer it is the initial filter, and clearing it shows every record. |
 | `--interactive`, `--no-interactive` | Require or refuse the native viewer |
 | `--plain`, `--pretty` | Force colour off or on |
-| `--web` | Serve a live view to the browser on localhost until Ctrl-C |
+| `--web` | Serve a live view to the browser on localhost until Ctrl-C. In a terminal it prints the URL; type `o` and Enter to open a browser, `q` and Enter to quit. With stdout piped it prints the bare URL and opens a browser itself. |
 | `--port N` | Port for `--web`. Default 7347, or a free one if taken |
 
 `docket export`

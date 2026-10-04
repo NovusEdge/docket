@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `docket graph --web` run in a terminal no longer opens a browser on its own. It prints the URL and waits for `o` and Enter to open one, or `q` and Enter to quit. The terminal viewer's `w` key still opens a browser.
+
+### Fixed
+
+- The web view and `docket export` drew no node for a current record whose only relations pointed at retired records, such as a record that superseded another and had no other link.
+
 ## [0.24.0] - 2026-10-03
 
 ### Added

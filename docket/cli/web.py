@@ -102,8 +102,42 @@ def _open_quietly(url: str) -> None:
             os.close(fd)
 
 
+def _banner(url: str, can_open: bool, keys: bool) -> str:
+    from docket.cli.term import _c, _use_color, _use_glyphs
+
+    color = _use_color()
+    arrow = _c("2", "➜" if _use_glyphs() else ">", color)
+    lines = [
+        "",
+        f"  {_c('6', 'docket', color)}  web view of {env.project_root().name}",
+        "",
+        f"  {arrow}  Local:   {_c('6', url, color)}",
+    ]
+    if keys:
+        hint = "q + enter to quit"
+        if can_open:
+            hint = "o + enter to open in a browser, " + hint
+        lines.append(f"  {arrow}  press {hint}")
+    return "\n".join(lines) + "\n"
+
+
+def _read_keys(server, url: str, can_open: bool) -> None:
+    # EOF (Ctrl-D) ends the prompt, not the server; Ctrl-C still stops it.
+    for line in sys.stdin:
+        key = line.strip().lower()
+        if key == "o" and can_open:
+            try:
+                _open_quietly(url)
+            except Exception as exc:
+                print(f"docket: cannot open a browser: {exc}", file=sys.stderr)
+        elif key == "q":
+            server.shutdown()
+            return
+
+
 def cmd_graph_web(args: argparse.Namespace) -> int:
     import signal
+    import threading
 
     from docket.web import server as web_server
 
@@ -120,19 +154,28 @@ def cmd_graph_web(args: argparse.Namespace) -> int:
     # Installed before the URL line: a caller may terminate as soon as it reads it.
     signal.signal(signal.SIGTERM, _stop)
     url = f"http://127.0.0.1:{server.server_address[1]}/"
-    # flush: the terminal viewer reads this line through a pipe.
-    print(url, flush=True)
+    # Without a display webbrowser falls back to a console browser (lynx,
+    # w3m) on the inherited terminal and blocks there.
+    can_open = sys.platform in ("win32", "darwin") or bool(
+        os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
+    )
     try:
-        # Without a display webbrowser falls back to a console browser (lynx,
-        # w3m) on the inherited terminal and blocks there.
-        headless = sys.platform not in ("win32", "darwin") and not (
-            os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
-        )
-        try:
-            if not headless:
-                _open_quietly(url)
-        except Exception:
-            pass
+        if sys.stdout.isatty():
+            keys = sys.stdin.isatty()
+            print(_banner(url, can_open, keys), flush=True)
+            if keys:
+                threading.Thread(
+                    target=_read_keys, args=(server, url, can_open), daemon=True
+                ).start()
+        else:
+            # The terminal viewer reads this one line through a pipe, and its
+            # `w` key promises a browser, so a piped run still opens one.
+            print(url, flush=True)
+            try:
+                if can_open:
+                    _open_quietly(url)
+            except Exception:
+                pass
         server.serve_forever()
     except KeyboardInterrupt:
         pass
