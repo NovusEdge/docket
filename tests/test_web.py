@@ -247,6 +247,19 @@ class WebCliTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("subgraph cluster_", json.loads(body)["dot"])
 
+    def test_a_record_with_no_relation_is_drawn(self):
+        from unittest import mock
+
+        from docket.cli import web
+
+        alone = {"id": "d7", "kind": "decision", "text": "t"}
+        with (
+            mock.patch("docket.cli.web.selection", return_value=([alone], [alone], False)),
+            mock.patch("docket.ledger.project", return_value=[alone]),
+        ):
+            dot = json.loads(web._payload(argparse.Namespace(), {}))["dot"]
+        self.assertIn('"d7" [', dot)
+
     def test_focus_marks_the_node_and_keeps_every_record(self):
         status, body = self.graph("?focus=c1&hops=1")
         self.assertEqual(status, 200)

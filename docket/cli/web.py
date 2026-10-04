@@ -65,6 +65,7 @@ def _payload(args: argparse.Namespace, params: dict[str, str]) -> bytes:
             group=group,
             focus=params.get("focus") or None,
             hops=int(hops),
+            unlinked=True,
         )
     except ValueError as exc:
         raise BadRequest(str(exc)) from exc

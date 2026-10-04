@@ -239,6 +239,17 @@ class DotTests(unittest.TestCase):
     def test_an_unrelated_record_is_left_out(self):
         self.assertEqual(to_dot([entry("d1", "decision")]), "")
 
+    def test_unlinked_draws_unrelated_records_but_not_retired_ones(self):
+        records = [
+            entry("d1", "decision"),
+            entry("c2", "claim", retired_by="c3"),
+            entry("c3", "claim", supersedes=["c2"]),
+        ]
+        out = to_dot(records, unlinked=True)
+        self.assertIn('"d1" [', out)
+        self.assertIn('"c3" [', out)
+        self.assertNotIn('"c2" [', out)
+
     def test_both_formats_draw_the_same_records(self):
         records = self.linked()
         for superseded in (False, True):
@@ -298,6 +309,22 @@ class DotLayoutTests(unittest.TestCase):
         self.assertEqual(where["c2"], ["docs/", "b/"])
         self.assertEqual(where["d4"], ["src/"])
         self.assertEqual(where["c5"], [])
+
+    def test_unconnected_records_in_a_box_are_laid_out_in_rows(self):
+        records = [entry(f"d{i}", "decision") for i in range(1, 6)]
+        records += [entry("c9", "claim"), entry("d8", "decision", supports=[["c9"]])]
+        out = to_dot(records, group="kind", unlinked=True)
+        grid = [ln.strip() for ln in out.splitlines() if "style=invis" in ln]
+        # Five records, rows of three: d1 d2 d3 / d4 d5. d8 has an edge and stays out.
+        self.assertEqual(
+            grid,
+            [
+                '"d1" -> "d2" [style=invis];',
+                '"d2" -> "d3" [style=invis];',
+                '"d4" -> "d5" [style=invis];',
+            ],
+        )
+        self.assertNotIn("style=invis", to_dot(records, unlinked=True))
 
     def test_group_kind_emits_a_cluster_per_kind(self):
         out = to_dot(layout_records(), group="kind")

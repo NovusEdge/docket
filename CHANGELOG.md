@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `docket graph --web` run in a terminal no longer opens a browser on its own. It prints the URL and waits for `o` and Enter to open one, or `q` and Enter to quit. The terminal viewer's `w` key still opens a browser.
+- The `docket graph --web` page draws every current record, including records with no relation. `docket export` still leaves those out.
+- With `--group kind` or `--group scope`, DOT output lays the unconnected records in each box out in rows instead of one tall column.
+- Fitting the web view to the window keeps the graph clear of the toolbar.
 
 ### Fixed
 

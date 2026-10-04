@@ -298,7 +298,7 @@ async function render() {
   drawnKey = key;
   if (!dot.trim()) {
     svg = null; vb = null; prevIds = null;
-    stage.innerHTML = '<div class="empty"><b>Nothing to draw</b>No record in this selection carries a relation.</div>';
+    stage.innerHTML = '<div class="empty"><b>Nothing to draw</b>No current record matches this selection.</div>';
     return;
   }
   try {
@@ -332,12 +332,14 @@ async function render() {
 function apply() { svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.w} ${vb.h}`); }
 function fit() {
   if (!svg) return;
-  const r = stage.getBoundingClientRect(), pad = 40;
+  // The toolbar floats over the stage's top edge; .detail starts below it at the same offset.
+  const r = stage.getBoundingClientRect(), pad = 40, top = detail.offsetTop;
   const avail = r.width - (detail.classList.contains('open') ? detail.offsetWidth + 24 : 0);
   // At most 1.5 CSS px per SVG unit, so a handful of nodes is not blown up to fill the stage.
-  const s = Math.max(base.width / (avail - pad * 2), base.height / (r.height - pad * 2), 1 / 1.5);
+  const s = Math.max(base.width / (avail - pad * 2), base.height / (r.height - top - pad * 2), 1 / 1.5);
   vb.w = r.width * s; vb.h = r.height * s;
-  vb.x = base.x + base.width / 2 - avail / 2 / r.width * vb.w; vb.y = base.y - (vb.h - base.height) / 2; apply();
+  vb.x = base.x + base.width / 2 - avail / 2 / r.width * vb.w;
+  vb.y = base.y - (vb.h - top * s - base.height) / 2 - top * s; apply();
 }
 function zoomAt(f, cx, cy) {
   if (!svg) return;

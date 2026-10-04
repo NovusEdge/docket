@@ -16,7 +16,14 @@ from collections.abc import Mapping
 from typing import Any
 
 from docket import support
-from docket.graph_layout import arrange, dot_clusters, focus_edges, mermaid_clusters
+from docket.graph_layout import (
+    arrange,
+    box_tree,
+    dot_clusters,
+    focus_edges,
+    grid_edges,
+    mermaid_clusters,
+)
 
 # One arrow per relation, so the four read apart without a legend. supersedes
 # carries a label because a plain arrow between two decisions says nothing
@@ -98,6 +105,7 @@ def _selected(
     superseded: bool,
     focus: str | None = None,
     hops: int = 2,
+    unlinked: bool = False,
 ) -> tuple[list[dict[str, Any]], list[tuple[str, str, str]]]:
     """The records to draw and the edges between them.
 
@@ -105,7 +113,9 @@ def _selected(
     with no relation in the selection is left out, except the focused one: it
     is in the selection, so it draws alone rather than being reported as
     missing. Relations to hidden retired records still count, or a record that
-    retired another would vanish along with it.
+    retired another would vanish along with it. `unlinked` draws every current
+    record: the web view shows the whole ledger, while a pasted export would
+    only gain loose boxes.
     """
 
     def inside(ids: set[str], source: list[dict[str, Any]]) -> list[tuple[str, str, str]]:
@@ -119,7 +129,7 @@ def _selected(
     known = {str(e["id"]) for e in kept}
     edges = inside(known, kept)
     linked = {end for edge in inside({str(e["id"]) for e in entries}, entries) for end in edge[:2]}
-    drawn = [e for e in kept if str(e["id"]) in linked]
+    drawn = kept if unlinked else [e for e in kept if str(e["id"]) in linked]
     if focus is not None:
         # Focus walks the edges that survive retirement, so a retired record is
         # never a stepping stone unless it is drawn.
@@ -243,6 +253,7 @@ def to_dot(
     group: str = "none",
     focus: str | None = None,
     hops: int = 2,
+    unlinked: bool = False,
 ) -> str:
     """A graphviz digraph of the relations between these records.
 
@@ -250,7 +261,9 @@ def to_dot(
     those within `hops` relation steps, and raises ValueError if it is not drawn.
     """
 
-    drawn, edges = _selected(entries, superseded=superseded, focus=focus, hops=hops)
+    drawn, edges = _selected(
+        entries, superseded=superseded, focus=focus, hops=hops, unlinked=unlinked
+    )
     if not drawn:
         return ""
 
@@ -286,6 +299,10 @@ def to_dot(
         lines.append(
             f'  "{source}" -> "{target}" [{DOT_EDGES[kind]}, class="{DOT_EDGE_CLASSES[kind]}"];'
         )
+    if group != "none":
+        linked = {end for edge in edges for end in edge[:2]}
+        for a, b in grid_edges(box_tree(drawn, group)[0], linked):
+            lines.append(f'  "{a}" -> "{b}" [style=invis];')
     lines.append("}")
     return "\n".join(lines)
 

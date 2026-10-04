@@ -7,6 +7,7 @@ load time; callers pass the edges in.
 from __future__ import annotations
 
 import itertools
+import math
 import re
 from collections import defaultdict, deque
 from collections.abc import Callable, Iterator, Mapping
@@ -131,6 +132,25 @@ def box_tree(entries: list[dict[str, Any]], group: str) -> tuple[Box, list[str]]
         box.ids.append(ident)
     root.children = {k: _merge(c) for k, c in root.children.items()}
     return root, loose
+
+
+def grid_edges(box: Box, linked: set[str]) -> list[tuple[str, str]]:
+    """Pairs to join with invisible edges so each box lays its unconnected records out in rows.
+
+    Graphviz packs top-level components into a grid but not a cluster's
+    contents: there every record without an edge takes the first rank, and a
+    box of them draws as one column the height of the box.
+    """
+
+    out: list[tuple[str, str]] = []
+    for child in box.children.values():
+        alone = [i for i in child.ids if i not in linked]
+        width = max(1, math.ceil(math.sqrt(len(alone))))
+        for start in range(0, len(alone), width):
+            row = alone[start : start + width]
+            out += zip(row, row[1:])
+        out += grid_edges(child, linked)
+    return out
 
 
 GROUPS = ("none", "kind", "scope")
