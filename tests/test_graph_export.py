@@ -173,7 +173,7 @@ class DotTests(unittest.TestCase):
         self.assertIn('class="join"', to_dot(records))
 
     def test_the_graph_packs_its_components(self):
-        self.assertIn('pack=true; packmode="array_u";', to_dot(self.linked(), superseded=True))
+        self.assertIn('pack=true; packmode="array";', to_dot(self.linked(), superseded=True))
 
     def test_it_opens_and_closes_a_digraph(self):
         out = to_dot(self.linked(), superseded=True)

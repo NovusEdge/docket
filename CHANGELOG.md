@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `docket graph --web` page draws every current record, including records with no relation. Its `orphans` chip hides those and lays the graph out again without them.
 - With `--group kind` or `--group scope`, DOT output lays the unconnected records in each box out in rows instead of one tall column.
 - Fitting the web view to the window keeps the graph clear of the toolbar.
+- DOT output packs the largest components first (`packmode="array"`), so related records lead and records with no relation trail.
+
+### Fixed
+
+- The web view's Radial and Circular engines no longer accept a grouping. Graphviz draws no boxes for them and spread the grouped records out along spokes.
 
 ### Fixed
 

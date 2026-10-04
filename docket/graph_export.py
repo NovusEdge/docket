@@ -272,8 +272,9 @@ def to_dot(
         "digraph docket {",
         f"  rankdir={direction};",
         # Without packing, a ledger of many small components lays out left to
-        # right as one tall column.
-        '  pack=true; packmode="array_u";',
+        # right as one tall column. "array" without the u flag places the
+        # largest components first, so related records lead and lone ones trail.
+        '  pack=true; packmode="array";',
         '  bgcolor="white";',
         '  node [fontname="Helvetica", fontsize=10, color="#0a0a0a", fontcolor="#0a0a0a"];',
         '  edge [fontname="Helvetica", color="#0a0a0a", fontcolor="#0a0a0a"];',

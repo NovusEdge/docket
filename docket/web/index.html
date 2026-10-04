@@ -204,10 +204,14 @@ let lastDot = '', drawnKey = null, again = false, accepted = null;
   for (const k in CHOICES) if (CHOICES[k].includes(p.get(k))) L[k] = k === 'hops' ? +p.get(k) : p.get(k);
   L.focus = p.get('focus') || null;
 }
-const layoutKey = () => [L.engine, L.dir, L.group, L.orphans, L.focus, L.focus && L.hops].join('|');
+// Graphviz draws clusters only in dot and fdp; twopi and circo drop the boxes
+// and lay the grid's invisible edges out as spokes.
+const boxes = () => ['dot', 'fdp'].includes(L.engine);
+const group = () => boxes() ? L.group : 'none';
+const layoutKey = () => [L.engine, L.dir, group(), L.orphans, L.focus, L.focus && L.hops].join('|');
 const graphQuery = () => {
   const p = new URLSearchParams();
-  if (L.group !== 'none') p.set('group', L.group);
+  if (group() !== 'none') p.set('group', group());
   if (L.orphans !== 'show') p.set('orphans', L.orphans);
   if (L.focus) { p.set('focus', L.focus); p.set('hops', L.hops); }
   return p.toString();
@@ -431,6 +435,7 @@ function syncUI() {
   for (const seg of pop.querySelectorAll('.seg')) for (const b of seg.querySelectorAll('button')) {
     b.classList.toggle('on', String(L[seg.dataset.k]) === b.dataset.v);
     if (seg.dataset.k === 'dir') b.disabled = L.engine !== 'dot';
+    if (seg.dataset.k === 'group') b.disabled = !boxes();
   }
   document.getElementById('orphans').classList.toggle('off', L.orphans === 'hide');
   document.getElementById('pill').classList.toggle('show', !!L.focus);
