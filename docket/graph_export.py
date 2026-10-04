@@ -102,18 +102,23 @@ def _selected(
     """The records to draw and the edges between them.
 
     Both formats read this, so a schema change touches one place. A record
-    with no relation is left out, except the focused one: it is in the
-    selection, so it draws alone rather than being reported as missing.
+    with no relation in the selection is left out, except the focused one: it
+    is in the selection, so it draws alone rather than being reported as
+    missing. Relations to hidden retired records still count, or a record that
+    retired another would vanish along with it.
     """
+
+    def inside(ids: set[str], source: list[dict[str, Any]]) -> list[tuple[str, str, str]]:
+        return [
+            (a, b, k)
+            for a, b, k in _edges(source)
+            if (a in ids or "_set" in a) and (b in ids or "_set" in b)
+        ]
 
     kept = [e for e in entries if superseded or not e.get("retired_by")]
     known = {str(e["id"]) for e in kept}
-    edges = [
-        (a, b, k)
-        for a, b, k in _edges(kept)
-        if (a in known or "_set" in a) and (b in known or "_set" in b)
-    ]
-    linked = {end for edge in edges for end in edge[:2]}
+    edges = inside(known, kept)
+    linked = {end for edge in inside({str(e["id"]) for e in entries}, entries) for end in edge[:2]}
     drawn = [e for e in kept if str(e["id"]) in linked]
     if focus is not None:
         # Focus walks the edges that survive retirement, so a retired record is

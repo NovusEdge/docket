@@ -89,7 +89,18 @@ class MermaidTests(unittest.TestCase):
             entry("c1", "claim", retired_by="c9"),
             entry("d2", "decision", supports=[["c1"]]),
         ]
-        self.assertEqual(to_mermaid(records), "")
+        out = to_mermaid(records)
+        self.assertNotIn("c1", out)
+        self.assertIn('d2["d2', out)
+
+    def test_a_record_that_retired_another_is_still_drawn(self):
+        records = [
+            entry("d1", "decision", retired_by="d2"),
+            entry("d2", "decision", supersedes=["d1"]),
+        ]
+        out = to_mermaid(records)
+        self.assertIn('d2["d2', out)
+        self.assertNotIn("d1", out)
 
     def test_superseded_keeps_them_and_marks_them(self):
         records = [
