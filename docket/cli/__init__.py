@@ -18,7 +18,7 @@ from docket.cli.correct import add_correct_parser
 from docket.cli.export import add_export_parser
 from docket.cli.feature_parser import add_feature_parser
 from docket.cli.graph import cmd_graph
-from docket.cli.query import cmd_filter_ids, cmd_list, cmd_show, cmd_where
+from docket.cli.query import cmd_filter_ids, cmd_list, cmd_show, cmd_where, fields_arg
 from docket.cli.record import cmd_claim, cmd_decision, cmd_question, cmd_record
 from docket.cli.review import add_review_parser
 from docket.cli.selfupdate import cmd_update, cmd_update_fetch
@@ -190,6 +190,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     ls.add_argument("--oneline", action="store_true", help="one line per entry, no answer")
     ls.add_argument("--json", action="store_true", help="print projected records as JSON")
+    ls.add_argument(
+        "--fields",
+        type=fields_arg,
+        metavar="CSV",
+        help="with --json, keep only these fields, e.g. id,kind,state,text",
+    )
+    ls.add_argument(
+        "--legacy", action="store_true", help="with --json, keep the schema 1 migration audit field"
+    )
     ls.add_argument("--plain", action="store_true", help="force colour off")
     ls.add_argument("--pretty", action="store_true", help="force colour on, e.g. piping to less -R")
     ls.set_defaults(func=cmd_list)
@@ -215,6 +224,9 @@ def main(argv: list[str] | None = None) -> int:
     sh = sub.add_parser("show", help="print one entry, human-readable")
     sh.add_argument("id")
     sh.add_argument("--json", action="store_true", help="print the entry as JSON")
+    sh.add_argument(
+        "--legacy", action="store_true", help="with --json, keep the schema 1 migration audit field"
+    )
     sh.add_argument("--at", default="", help="print the record as history stood at this record ID")
     sh.set_defaults(func=cmd_show)
 

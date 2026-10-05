@@ -12,7 +12,7 @@ import shutil
 import sys
 import textwrap
 
-from docket import corrections, env, support, where
+from docket import corrections, env, ledger, support, where
 from docket.cli.term import _DIM, _STATE_COLOR, _c, _match, _use_color
 from docket.context_model import positions
 from docket.env import LEDGER, justification_sets, read, retired_by
@@ -35,7 +35,45 @@ def _list_dim_tail(line: str, marker: str, use_color: bool) -> str:
     return line[:idx] + _c(_DIM, line[idx:], use_color)
 
 
+_DERIVED_FIELDS = frozenset(
+    {
+        "recorded_state",
+        "retired_by",
+        "resolved_by",
+        "applicable",
+        "blocked_by",
+        "support",
+        "review_owed",
+        "lost_grounds",
+        "original",
+        "corrections",
+        "reviews",
+    }
+)
+JSON_FIELDS = tuple(sorted(ledger.ALLOWED_FIELDS - ledger.AUDIT_FIELDS | _DERIVED_FIELDS))
+
+
+def _without_legacy(entry: dict, keep: bool) -> dict:
+    """Schema 1 migration audit blobs are about a tenth of a ledger's JSON and nothing reads them."""
+    if keep or "legacy" not in entry:
+        return entry
+    return {k: v for k, v in entry.items() if k != "legacy"}
+
+
+def fields_arg(value: str) -> list[str]:
+    names = [n for n in value.split(",") if n]
+    unknown = [n for n in names if n not in JSON_FIELDS]
+    if unknown or not names:
+        raise argparse.ArgumentTypeError(
+            f"unknown field {', '.join(unknown) or value!r}; valid fields: {', '.join(JSON_FIELDS)}"
+        )
+    return names
+
+
 def cmd_list(args: argparse.Namespace) -> int:
+    if args.fields and not args.json:
+        print("docket: --fields needs --json", file=sys.stderr)
+        return 2
     query = where.parse(getattr(args, "where", None) or "")
     entries = project(read(env.ledger_path()), validated=True)
     retired = retired_by(entries)
@@ -55,7 +93,10 @@ def cmd_list(args: argparse.Namespace) -> int:
         print("docket: nothing recorded")
         return 0
     if getattr(args, "json", False):
-        print(json.dumps(entries, ensure_ascii=False, indent=2))
+        rows = [_without_legacy(e, args.legacy) for e in entries]
+        if args.fields:
+            rows = [{k: e[k] for k in args.fields if k in e} for e in rows]
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
         return 0
 
     use_color = False if args.plain else True if args.pretty else _use_color()
@@ -122,7 +163,7 @@ def cmd_show(args: argparse.Namespace) -> int:
         return 1
 
     if args.json:
-        print(json.dumps(e, indent=2))
+        print(json.dumps(_without_legacy(e, getattr(args, "legacy", False)), indent=2))
         return 0
 
     def cite(i: str) -> str:

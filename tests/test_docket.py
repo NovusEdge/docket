@@ -103,6 +103,38 @@ class CliTests(unittest.TestCase):
             self.assertTrue(data[0]["applicable"])
             self.assertEqual(data[0]["decided_by"], "human")
 
+    def test_list_and_show_json_drop_legacy_unless_asked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".git").mkdir()
+            run(root, "claim", "Premise", "--state", "accepted")
+            path = Path(run(root, "where").stdout.split()[0])
+            lines = [json.loads(line) for line in path.read_text().splitlines()]
+            lines[-1]["legacy"] = {"source_id": "d1"}
+            path.write_text("".join(json.dumps(line) + "\n" for line in lines))
+            for cmd in (("list", "--json"), ("show", "c1", "--json")):
+                plain = json.loads(run(root, *cmd).stdout)
+                plain = plain[0] if isinstance(plain, list) else plain
+                self.assertNotIn("legacy", plain)
+                kept = json.loads(run(root, *cmd, "--legacy").stdout)
+                kept = kept[0] if isinstance(kept, list) else kept
+                self.assertEqual(kept["legacy"], {"source_id": "d1"})
+
+    def test_list_json_fields_keeps_only_named_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".git").mkdir()
+            run(root, "claim", "Premise", "--state", "accepted")
+            data = json.loads(run(root, "list", "--json", "--fields", "id,kind,state,text").stdout)
+            self.assertEqual(
+                data, [{"id": "c1", "kind": "claim", "state": "accepted", "text": "Premise"}]
+            )
+            result = run(root, "list", "--json", "--fields", "id,nope")
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("nope", result.stderr)
+            self.assertIn("recorded_state", result.stderr)
+            self.assertEqual(run(root, "list", "--fields", "id").returncode, 2)
+
     def test_unknown_refs_and_old_schema_fail_without_traceback(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
