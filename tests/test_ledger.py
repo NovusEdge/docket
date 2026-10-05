@@ -125,6 +125,66 @@ class LedgerTests(unittest.TestCase):
         self.assertEqual(second["id"], "q2")
         self.assertEqual([entry["id"] for entry in ledger.read(self.path)], ["c1", "q2"])
 
+    def test_torn_final_line_is_skipped_on_read_and_dropped_on_append(self):
+        first = ledger.make_record("claim", "one", author="test")
+        first["id"] = "c1"
+        whole = json.dumps(first) + "\n"
+        self.path.write_text(whole + '{"id":"q2","kind":"quest')
+        from contextlib import redirect_stderr
+        from io import StringIO
+
+        err = StringIO()
+        with redirect_stderr(err):
+            self.assertEqual([e["id"] for e in ledger.read(self.path)], ["c1"])
+        self.assertIn("torn", err.getvalue())
+        with redirect_stderr(StringIO()):
+            second = ledger.append(self.path, ledger.make_record("question", "two", author="t"))
+        self.assertEqual(second["id"], "q2")
+        self.assertEqual(self.path.read_text().count("\n"), 2)
+        self.assertEqual([e["id"] for e in ledger.read(self.path)], ["c1", "q2"])
+
+    def test_bad_line_with_a_newline_is_not_treated_as_torn(self):
+        self.path.write_text('{"id":"c1"\n')
+        with self.assertRaisesRegex(ledger.LedgerError, "invalid JSON"):
+            ledger.read(self.path)
+
+    def test_a_newer_writers_fields_and_kinds_read_leniently_but_block_writes(self):
+        from contextlib import redirect_stderr
+        from io import StringIO
+
+        claim = ledger.make_record("claim", "one", author="test", record_id="c1")
+        claim["confidence"] = 0.9
+        future = {"schema": 2, "kind": "assumption", "id": "a2", "text": "later kind"}
+        self.path.write_text(json.dumps(claim) + "\n" + json.dumps(future) + "\n")
+        err = StringIO()
+        with redirect_stderr(err):
+            entries = ledger.read(self.path)
+        self.assertEqual([e["id"] for e in entries], ["c1"])
+        self.assertNotIn("confidence", entries[0])
+        self.assertIn("newer docket", err.getvalue())
+        with self.assertRaisesRegex(ledger.LedgerError, "unknown field"):
+            ledger.read(self.path, strict=True)
+        with self.assertRaisesRegex(ledger.LedgerError, "newer docket"):
+            self.add("claim", "two")
+
+    def test_a_nested_repository_does_not_use_its_parents_ledger(self):
+        import os
+        from unittest import mock
+
+        import docket.env as env
+
+        outer = Path(self.tmp.name) / "outer"
+        inner = outer / "vendor" / "inner"
+        (outer / ".git").mkdir(parents=True)
+        (outer / ".docket").mkdir()
+        (outer / ".docket" / "ledger.jsonl").write_text("")
+        (inner / ".git").mkdir(parents=True)
+        with mock.patch.dict(os.environ, {"DOCKET_HOME": str(Path(self.tmp.name) / "home")}):
+            self.assertEqual(env.ledger_path(outer / "vendor"), outer / ".docket" / "ledger.jsonl")
+            self.assertTrue(
+                str(env.ledger_path(inner)).startswith(str(Path(self.tmp.name) / "home"))
+            )
+
     def test_read_waits_for_an_exclusive_lock(self):
         import threading
         import time

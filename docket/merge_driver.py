@@ -67,7 +67,9 @@ def run(base: Path, ours: Path, theirs: Path) -> int:
     try:
         # lock=False: the default lock creates <file>.lock next to git's temp
         # files at the repository root, where nothing ignores it.
-        old, mine, incoming = (ledger.read(p, lock=False) for p in (base, ours, theirs))
+        old, mine, incoming = (
+            ledger.read(p, lock=False, strict=True) for p in (base, ours, theirs)
+        )
         tail, moved = rebase.merge(old, mine, incoming)
         ledger.validate_entries(mine + tail)
     except (ledger.LedgerError, rebase.RebaseError, OSError) as exc:

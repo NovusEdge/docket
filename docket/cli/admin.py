@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 from docket import env, feature_archive, feature_project, features, merge_setup
-from docket.ledger import ID_RE, LedgerError, _Prefix, append, validate_record
+from docket.ledger import ID_RE, LedgerError, _ledger_lock, _Prefix, append, validate_record
 
 
 def cmd_rebase(args: argparse.Namespace) -> int:
@@ -26,8 +26,8 @@ def cmd_rebase(args: argparse.Namespace) -> int:
         print(f"docket: no ledger at {other}", file=sys.stderr)
         return 1
     try:
-        mine = env.read(path)
-        theirs = env.read(other)
+        mine = env.read(path, strict=True)
+        theirs = env.read(other, strict=True)
         tail, mapping = renumber(mine, theirs)
     except (LedgerError, RebaseError, OSError) as exc:
         print(f"docket: {exc}", file=sys.stderr)
@@ -258,10 +258,12 @@ def cmd_init(args: argparse.Namespace) -> int:
         return 0
 
     global_dir = env.global_root() / env.slug(root)
-    existing = env.read(global_dir / "ledger.jsonl")
-    with target.open("w") as f:
-        for e in existing:
-            f.write(json.dumps(e) + "\n")
+    source = global_dir / "ledger.jsonl"
+    # Held across the copy so an append to the global ledger cannot land
+    # between the read and the moment ledger_path starts resolving to target.
+    with _ledger_lock(source):
+        existing = env.read(source, lock=False, strict=True)
+        feature_archive.write_lines(target, existing)
     moved = (
         f", moved {len(existing)} entr{'y' if len(existing) == 1 else 'ies'}" if existing else ""
     )
@@ -274,9 +276,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     events = features.read(global_dir / "features.jsonl")
     if events:
         store = root / env.LEDGER.parent / "features.jsonl"
-        with store.open("w", encoding="utf-8") as f:
-            for event in events:
-                f.write(json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n")
+        feature_archive.write_lines(store, events)
         print(f"docket: created {store}, moved {len(events)} feature event(s)")
     return 0
 

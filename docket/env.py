@@ -111,13 +111,19 @@ def ledger_path(start: Path | None = None) -> Path:
     committing decisions. Otherwise the ledger lives under the global root,
     keyed by project path, so a new project needs no setup and no gitignore
     entry.
+
+    The search stops at the project root: a nested repository or submodule
+    without its own .docket would otherwise write into its parent's ledger.
     """
     here = (start or Path.cwd()).resolve()
+    root = project_root(here)
     for d in (here, *here.parents):
         candidate = d / LEDGER
         if candidate.exists():
             return candidate
-    return global_root() / slug(project_root(here)) / "ledger.jsonl"
+        if d == root:
+            break
+    return global_root() / slug(root) / "ledger.jsonl"
 
 
 def features_path(start: Path | None = None) -> Path:
@@ -128,8 +134,8 @@ def features_path(start: Path | None = None) -> Path:
     return ledger_path(start).parent / "features.jsonl"
 
 
-def read(path: Path, lock: bool = True) -> list[dict]:
-    return ledger_read(path, lock=lock)
+def read(path: Path, lock: bool = True, strict: bool = False) -> list[dict]:
+    return ledger_read(path, lock=lock, strict=strict)
 
 
 def justification_sets(e: dict) -> list[list[str]]:

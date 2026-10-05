@@ -12,6 +12,7 @@ import copy
 import json
 import os
 import re
+import sys
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -45,6 +46,11 @@ COMMON_FIELDS = frozenset(
 DECISION_FIELDS = frozenset({"choice", "alternatives", "decided_by"})
 AUDIT_FIELDS = frozenset({"legacy"})
 ALLOWED_FIELDS = COMMON_FIELDS | DECISION_FIELDS | AUDIT_FIELDS | {"supersede_reason"}
+_LINE_FIELDS = {
+    **dict.fromkeys(KINDS, ALLOWED_FIELDS),
+    corrections.KIND: corrections.LINE_FIELDS,
+    reviews.KIND: reviews.LINE_FIELDS,
+}
 
 
 class LedgerError(ValueError):
@@ -487,12 +493,55 @@ def validate_entries(entries: Any) -> list[dict[str, Any]]:
 validate_records = validate_entries
 
 
-def read(path: Path | str, lock: bool = True) -> list[dict[str, Any]]:
-    """Read and strictly validate a ledger, raising on corruption.
+def _torn_tail(text: str) -> int | None:
+    """Where an interrupted append's partial last line starts, or None.
+
+    Every append ends its line with a newline, so an unparseable last line
+    without one is a write that died midway. A bad line followed by a newline
+    is corruption from somewhere else and stays an error.
+    """
+    if not text or text.endswith("\n"):
+        return None
+    start = text.rfind("\n") + 1
+    try:
+        json.loads(text[start:])
+    except json.JSONDecodeError:
+        return start
+    return None
+
+
+def _newer_than_us(value: Any) -> tuple[str, frozenset[str]] | None:
+    """What a newer docket added to this line: its unknown kind or fields.
+
+    Returns None for a line this version fully understands, or one too broken
+    to tell, which validation then reports.
+    """
+    if not isinstance(value, dict) or value.get("schema") in (None, 1):
+        return None
+    kind = value.get("kind")
+    if not isinstance(kind, str):
+        return None
+    allowed = _LINE_FIELDS.get(kind)
+    if allowed is None:
+        return f"unknown kind {kind!r}", frozenset()
+    extra = frozenset(k for k in value if isinstance(k, str)) - allowed
+    if extra:
+        return f"unknown field(s): {', '.join(sorted(extra))}", extra
+    return None
+
+
+def read(path: Path | str, lock: bool = True, strict: bool = False) -> list[dict[str, Any]]:
+    """Read and validate a ledger, raising on corruption.
 
     ``lock`` takes a shared lock for the duration of the file read, so a reader
     never sees a partially written line. Callers already holding the exclusive
     lock pass False.
+
+    A line from a newer docket, with a kind or field this version does not
+    know, is skipped or stripped with a warning so an older client can still
+    brief and list. ``strict`` refuses it instead: every caller that writes
+    records derived from this read passes it, because writing back a stripped
+    copy would destroy what the newer version recorded.
     """
     path = Path(path)
     if not path.exists():
@@ -505,9 +554,17 @@ def read(path: Path | str, lock: bool = True) -> list[dict[str, Any]]:
             text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
         raise _error("read", f"cannot read {path}: {exc}") from exc
+    torn = _torn_tail(text)
+    if torn is not None:
+        print(
+            f"docket: {path}: skipped a torn final line; the next append removes it",
+            file=sys.stderr,
+        )
+        text = text[:torn]
     lines = text.splitlines()
     entries: list[dict[str, Any]] = []
     prefix = _Prefix([])
+    newer = 0
     for line_number, line in enumerate(lines, 1):
         if not line.strip():
             continue
@@ -515,12 +572,31 @@ def read(path: Path | str, lock: bool = True) -> list[dict[str, Any]]:
             value = json.loads(line)
         except json.JSONDecodeError as exc:
             raise _error(f"line {line_number}", f"invalid JSON: {exc.msg}") from exc
+        unknown = _newer_than_us(value)
+        if unknown is not None:
+            reason, extra = unknown
+            if strict:
+                raise _error(
+                    f"line {line_number}",
+                    f"{reason}; a newer docket wrote this line, so run 'docket update' "
+                    "before writing to this ledger",
+                )
+            newer += 1
+            if not extra:
+                continue
+            value = {k: v for k, v in value.items() if k not in extra}
         try:
             record = validate_record(value, prefix=prefix)
         except LedgerError as exc:
             raise _error(f"line {line_number}", str(exc).removeprefix("docket: ")) from exc
         entries.append(record)
         prefix.add(record)
+    if newer:
+        print(
+            f"docket: {path}: {newer} line(s) come from a newer docket and were read "
+            "partially; run 'docket update' before writing",
+            file=sys.stderr,
+        )
     return entries
 
 
@@ -772,7 +848,7 @@ def append(path: Path | str, record: dict[str, Any]) -> dict[str, Any]:
     with _ledger_lock(path):
         # flock is per file description, not per thread, so a locking read here
         # would block against the lock this call already holds.
-        entries = read(path, lock=False)
+        entries = read(path, lock=False, strict=True)
         candidate = copy.deepcopy(record)
         if candidate.get("kind") == corrections.KIND:
             from_cli = not candidate.get("id")
@@ -795,6 +871,12 @@ def append(path: Path | str, record: dict[str, Any]) -> dict[str, Any]:
             validate_record(candidate, previous=entries)
         path.parent.mkdir(parents=True, exist_ok=True)
         try:
+            if path.exists():
+                with path.open("rb+") as raw:
+                    data = raw.read()
+                    torn = _torn_tail(data.decode("utf-8", errors="replace"))
+                    if torn is not None:
+                        raw.truncate(data.rfind(b"\n") + 1)
             with path.open("a+", encoding="utf-8") as stream:
                 if stream.tell() > 0:
                     stream.seek(0, os.SEEK_END)

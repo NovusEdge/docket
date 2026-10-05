@@ -16,7 +16,7 @@ from docket.support import INHERITED
 
 KIND = "review"
 REVIEW_RE = re.compile(r"([cdq](?:0|[1-9][0-9]*))\.r([1-9][0-9]*)")
-_LINE_FIELDS = frozenset(
+LINE_FIELDS = frozenset(
     {"schema", "kind", "id", "reviews", "grounds", "note", "ts", "author", "session", "branch"}
 )
 
@@ -40,7 +40,7 @@ def validate(record: dict[str, Any], prefix: Any) -> dict[str, Any]:
     ident = record.get("id")
     if not isinstance(ident, str) or (parts := split_id(ident)) is None:
         raise _error("record", "review id must match <record id>.r<n> with n from 1")
-    unknown = sorted(set(record) - _LINE_FIELDS)
+    unknown = sorted(set(record) - LINE_FIELDS)
     if unknown:
         raise _error(ident, f"unknown field(s): {', '.join(unknown)}")
     if type(record.get("schema")) is not int or record["schema"] != SCHEMA:

@@ -78,7 +78,7 @@ def faults(store: Path) -> list[str]:
     return problems
 
 
-def _write_lines(target: Path, events: list[dict[str, Any]]) -> None:
+def write_lines(target: Path, events: list[dict[str, Any]]) -> None:
     """Replace ``target`` with these events through a temporary file.
 
     A truncate in place loses every remaining event when the process dies or
@@ -137,8 +137,15 @@ def archive(store: Path, archive_dir: Path, *, keep: set[str]) -> tuple[int, Pat
                     )
                 stream.flush()
                 os.fsync(stream.fileno())
-        _write_lines(store, staying)
+        write_lines(store, staying)
     return len(moving), target
 
 
-__all__ = ["archive", "archive_dir_for", "archived_events", "faults", "highest_archived_id"]
+__all__ = [
+    "archive",
+    "archive_dir_for",
+    "archived_events",
+    "faults",
+    "highest_archived_id",
+    "write_lines",
+]
