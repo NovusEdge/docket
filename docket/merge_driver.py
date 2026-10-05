@@ -13,8 +13,10 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
-from docket import ledger, rebase
+from docket import env, feature_project, features, ledger, rebase
+from docket.feature_archive import highest_archived_id
 
 
 def _conflict(base: Path, ours: Path, theirs: Path) -> None:
@@ -61,19 +63,83 @@ def _terminated(data: bytes) -> bytes:
     return data if not data or data.endswith(b"\n") else data + b"\n"
 
 
+def _holds_features(*paths: Path) -> bool:
+    """Whether these are feature stores rather than ledgers.
+
+    Git hands the driver temp files with no path, so the first line decides:
+    a feature event carries "event", a ledger record does not.
+    """
+    for path in paths:
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeError):
+            continue
+        for line in lines:
+            if line.strip():
+                try:
+                    value = json.loads(line)
+                except json.JSONDecodeError:
+                    break
+                return isinstance(value, dict) and "event" in value
+    return False
+
+
+def _feature_tail(
+    base: list[dict[str, Any]], ours: list[dict[str, Any]], theirs: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """THEIRS events to append to OURS, under ids that do not collide.
+
+    The same match-then-renumber as rebase.merge: an event equal to one of
+    ours apart from its id is already here, and one equal to a base event was
+    dropped on our side. Feature events cite each other by slug, never by
+    id, so renumbering needs no rewriting.
+    """
+
+    def key(event: dict[str, Any]) -> str:
+        return json.dumps({k: v for k, v in event.items() if k != "id"}, sort_keys=True)
+
+    shared = rebase.common_prefix(ours, theirs)
+    waiting: dict[str, int] = {}
+    for event in ours[shared:]:
+        waiting[key(event)] = waiting.get(key(event), 0) + 1
+    in_base = {key(event) for event in base}
+    # git runs a merge driver from the top of the work tree, where
+    # features_path finds the store whose archive holds retired ids.
+    floor = highest_archived_id(env.features_path())
+    allocated = list(ours)
+    tail = []
+    for event in theirs[shared:]:
+        k = key(event)
+        if waiting.get(k):
+            waiting[k] -= 1
+            continue
+        if k in in_base:
+            continue
+        renumbered = dict(event, id=features.next_id(allocated, floor))
+        allocated.append(renumbered)
+        tail.append(renumbered)
+    feature_project.project(ours + tail)
+    return tail
+
+
 def run(base: Path, ours: Path, theirs: Path) -> int:
     """Merge THEIRS into OURS in place. 0 when merged, 1 when left in conflict."""
 
+    moved: dict[str, str] = {}
     try:
-        # lock=False: the default lock creates <file>.lock next to git's temp
-        # files at the repository root, where nothing ignores it.
-        old, mine, incoming = (
-            ledger.read(p, lock=False, strict=True) for p in (base, ours, theirs)
-        )
-        tail, moved = rebase.merge(old, mine, incoming)
-        ledger.validate_entries(mine + tail)
-    except (ledger.LedgerError, rebase.RebaseError, OSError) as exc:
-        print(f"docket: cannot merge the ledger: {exc}", file=sys.stderr)
+        if _holds_features(base, ours, theirs):
+            old, mine, incoming = (features.read(p, lock=False) for p in (base, ours, theirs))
+            tail = _feature_tail(old, mine, incoming)
+        else:
+            # lock=False: the default lock creates <file>.lock next to git's
+            # temp files at the repository root, where nothing ignores it.
+            old, mine, incoming = (
+                ledger.read(p, lock=False, strict=True) for p in (base, ours, theirs)
+            )
+            tail, moved = rebase.merge(old, mine, incoming)
+            ledger.validate_entries(mine + tail)
+    except (ledger.LedgerError, rebase.RebaseError, features.FeatureError, OSError) as exc:
+        print(f"docket: cannot merge {ours.name}: {exc}", file=sys.stderr)
         _conflict(base, ours, theirs)
         return 1
     if tail:

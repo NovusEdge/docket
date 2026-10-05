@@ -13,7 +13,15 @@ import sys
 from pathlib import Path
 
 from docket import env, feature_archive, feature_project, features, merge_setup
-from docket.ledger import ID_RE, LedgerError, _ledger_lock, _Prefix, append, validate_record
+from docket.ledger import (
+    ID_RE,
+    LedgerError,
+    _ledger_lock,
+    _Prefix,
+    append,
+    rebind,
+    validate_record,
+)
 
 
 def cmd_rebase(args: argparse.Namespace) -> int:
@@ -232,6 +240,14 @@ def cmd_check(args: argparse.Namespace) -> int:
                     unknown = [ident for ident in feature[field] if ident not in seen]
                     if unknown:
                         print(f"{store}: {feature['id']} {field} names {', '.join(unknown)}")
+                        failed = True
+                    rebound = rebind(feature[field], feature["keys"], good)
+                    moved = [f"{a} -> {b}" for a, b in zip(feature[field], rebound) if a != b]
+                    if moved:
+                        print(
+                            f"{store}: {feature['id']} {field} names records a merge "
+                            f"renumbered ({', '.join(moved)}); run docket feature remap"
+                        )
                         failed = True
 
     for fault in feature_archive.faults(store):

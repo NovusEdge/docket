@@ -9,6 +9,7 @@ as a partially valid one.
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import os
 import re
@@ -764,6 +765,47 @@ def project(entries: list[dict[str, Any]], *, validated: bool = False) -> list[d
             projected.update(statuses[entry["id"]])
         result.append(projected)
     return result
+
+
+def record_key(entry: dict[str, Any]) -> str:
+    """A record's identity that survives renumbering.
+
+    A merge or rebase gives the other branch's records fresh ids, so an id
+    cited outside the ledger can come to name a different record. Text is the
+    as-written text, from ``original`` once a correction has rewritten it in
+    the projection; ts alone collides whenever two branches record within one
+    second, which every scripted run does.
+    """
+    text = (entry.get("original") or {}).get("text", entry.get("text", ""))
+    fields = (entry.get("kind"), entry.get("ts"), entry.get("author"), entry.get("session"), text)
+    raw = "\0".join(str(value or "") for value in fields)
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
+
+
+def rebind(ids: list[str], keys: dict[str, str], entries: list[dict[str, Any]]) -> list[str]:
+    """``ids`` with each one whose key now belongs to another record repointed.
+
+    An id with no stored key, or whose record still carries the key, stays.
+    So does one whose key matches no record or more than one: two records
+    written in the same second by one session share a key, and guessing
+    between them would be worse than reporting the id as it was written.
+    """
+    if not keys:
+        return list(ids)
+    by_id = {str(entry.get("id")): entry for entry in entries}
+    holders: dict[str, list[str]] = {}
+    for entry in entries:
+        holders.setdefault(record_key(entry), []).append(str(entry.get("id")))
+    out = []
+    for ident in ids:
+        key = keys.get(ident)
+        current = by_id.get(ident)
+        if key is None or (current is not None and record_key(current) == key):
+            out.append(ident)
+            continue
+        found = holders.get(key, [])
+        out.append(found[0] if len(found) == 1 else ident)
+    return out
 
 
 def graph_payload(entries: list[dict[str, Any]]) -> dict[str, Any]:

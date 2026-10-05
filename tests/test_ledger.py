@@ -185,6 +185,16 @@ class LedgerTests(unittest.TestCase):
                 str(env.ledger_path(inner)).startswith(str(Path(self.tmp.name) / "home"))
             )
 
+    def test_rebind_follows_a_renumbered_record_by_its_key(self):
+        mine = self.add("claim", "ours")
+        moved = dict(mine, id="c7")
+        other = dict(mine, id="c1", ts="2020-01-01T00:00:00+00:00")
+        keys = {"c1": ledger.record_key(mine)}
+        self.assertEqual(ledger.rebind(["c1"], keys, [other, moved]), ["c7"])
+        self.assertEqual(ledger.rebind(["c1"], keys, [mine]), ["c1"])
+        self.assertEqual(ledger.rebind(["c1"], {}, [other, moved]), ["c1"])
+        self.assertEqual(ledger.rebind(["c1"], keys, [other]), ["c1"])
+
     def test_read_waits_for_an_exclusive_lock(self):
         import threading
         import time

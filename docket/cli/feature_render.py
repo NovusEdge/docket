@@ -31,7 +31,11 @@ def cmd_feature_brief(args) -> int:
     entries = ledger.project(ledger.read(env.ledger_path()), validated=True)
     files = feature_brief.expand(root, feature["paths"])
     attached = feature_brief.attach(
-        entries, files, include=feature["include"], exclude=feature["exclude"]
+        entries,
+        files,
+        include=feature["include"],
+        exclude=feature["exclude"],
+        keys=feature["keys"],
     )
     # Standalone brief takes the whole budget. budget_share is the slice the
     # briefing header gets, where the record selection needs the rest.

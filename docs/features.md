@@ -44,7 +44,7 @@ closed runs match, it exits 1 and lists their IDs.
 
 The composite form `f7@6f0898e2` appends eight characters of the feature's
 `base` SHA. It appears only when two features collide on the same bare ID,
-such as after a union merge.
+such as after a hand-resolved merge.
 
 ## Commands
 
@@ -57,7 +57,7 @@ docket feature amend <slug> [--status STATUS] [--path GLOB] [--intends TEXT] [--
 docket feature done <slug> [--held CSV] [--failed CSV]
 docket feature abandon <slug> --text REASON
 docket feature brief [<slug|id>]
-docket feature remap MAPFILE
+docket feature remap [MAPFILE]
 docket feature gc [--expire DAYS]
 ```
 
@@ -156,8 +156,9 @@ Two active features on different branches may declare overlapping paths.
 `done` prints an advisory when another open feature's declared paths overlap
 the actual changes. The advisory does not change the exit code.
 
-`features.jsonl` stays on `merge=union`, which keeps every line from both sides; the ledger has its own merge driver (see [Sharing a ledger](ledger.md#sharing-a-ledger)). Two branches that both start a feature duplicate an `f` ID, and then the store does not read and `feature remap` refuses it until the duplicate is renumbered by hand.
-`docket feature remap MAPFILE` repoints `include` and `exclude` lists through the ID map `docket rebase --emit-map PATH` writes, one new `amend` event per feature that needs one. Remapping preserves the original `start` and `amend` lines. It applies after a manual `docket rebase`: the merge driver writes no map file and only prints `old -> new` pairs on stderr, so after a driver merge, `include` and `exclude` lists from the other branch that name renumbered records must be repointed by hand until the feature store gets its own driver.
+`features.jsonl` merges through the same driver as the ledger (see [Sharing a ledger](ledger.md#sharing-a-ledger)). The other branch's new events are appended under fresh `f` IDs, so two branches that both started a feature merge cleanly. Two branches that both opened one slug leave a conflict, because the store cannot hold two open features with one slug.
+
+Every event that names ledger records stores a key for each one: a hash of the record's kind, timestamp, author, session and original text. When a ledger merge renumbers a record the other branch's feature cited, the brief follows the key to the record's new ID. `docket check` reports each such ID, and `docket feature remap` writes one `amend` event per feature that repoints its `include` and `exclude` lists. Remapping preserves the original `start` and `amend` lines. Events recorded before keys existed have none, and their IDs are taken as written. `docket feature remap MAPFILE` repoints through the ID map `docket rebase --emit-map PATH` writes instead.
 
 ## The briefing header
 

@@ -83,9 +83,14 @@ def add_feature_parser(sub) -> None:
     br.add_argument("name", nargs="?", default="", metavar="SLUG_OR_ID")
     br.set_defaults(func=cmd_feature_brief)
 
-    rm = verbs.add_parser("remap", help="repoint include and exclude lists through an id map")
+    rm = verbs.add_parser(
+        "remap", help="repoint include and exclude ids that a ledger merge renumbered"
+    )
     rm.add_argument(
-        "mapfile", help="JSON object of old id to new id, from 'docket rebase --emit-map'"
+        "mapfile",
+        nargs="?",
+        help="JSON object of old id to new id, from 'docket rebase --emit-map'; "
+        "without it, ids are followed by the record keys each feature stored",
     )
     rm.set_defaults(func=cmd_feature_remap)
 

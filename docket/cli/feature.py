@@ -24,6 +24,12 @@ def _csv(value: str) -> list[str]:
 
 
 def record_event(event: str, slug: str, **fields: Any) -> dict[str, Any]:
+    cited = {ident for field in features.LEDGER_REFS for ident in fields.get(field) or ()}
+    if cited:
+        from docket import ledger
+
+        by_id = {e["id"]: e for e in ledger.read(env.ledger_path())}
+        fields["keys"] = {i: ledger.record_key(by_id[i]) for i in sorted(cited) if i in by_id}
     return features.make_event(
         event,
         slug,

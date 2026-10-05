@@ -79,6 +79,7 @@ def project(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "held": [],
                 "failed": [],
                 "unanswered": [],
+                "keys": dict(event["keys"]),
                 **{field: copy.deepcopy(event[field]) for field in _CARRIED},
             }
             continue
@@ -87,6 +88,7 @@ def project(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if key is None:
             raise _error(slug, f"{verb} arrived with no open feature; it is closed or missing")
         feature = features_by_key[key]
+        feature["keys"].update(event["keys"])
 
         if verb == "amend":
             # Clearing runs first, so an amend that both clears and sets one
@@ -139,9 +141,16 @@ def resolve(features_list: list[dict[str, Any]], name: str) -> dict[str, Any]:
 
 
 def remap_changes(
-    current: list[dict[str, Any]], mapping: dict[str, str]
+    current: list[dict[str, Any]],
+    mapping: dict[str, str] | None = None,
+    entries: list[dict[str, Any]] | None = None,
 ) -> list[tuple[str, dict[str, list[str]]]]:
-    """Open features whose include/exclude ids the mapping rewrites, and to what."""
+    """Open features whose include/exclude ids move, and to what.
+
+    ``mapping`` is a rebase's old-to-new id map. ``entries`` is the ledger,
+    against which each id with a stored key is rebound instead.
+    """
+    from docket.ledger import rebind
 
     changes = []
     for feature in current:
@@ -149,7 +158,10 @@ def remap_changes(
             continue
         fields = {}
         for field in ("include", "exclude"):
-            remapped = [mapping.get(ident, ident) for ident in feature[field]]
+            if mapping is not None:
+                remapped = [mapping.get(ident, ident) for ident in feature[field]]
+            else:
+                remapped = rebind(feature[field], feature["keys"], entries or [])
             if remapped != feature[field]:
                 fields[field] = remapped
         if fields:

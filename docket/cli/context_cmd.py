@@ -98,7 +98,11 @@ def _feature_block(root, entries=None) -> str:
             entries = project(read(env.ledger_path()), validated=True)
         files = feature_brief.expand(root, feature["paths"])
         attached = feature_brief.attach(
-            entries, files, include=feature["include"], exclude=feature["exclude"]
+            entries,
+            files,
+            include=feature["include"],
+            exclude=feature["exclude"],
+            keys=feature["keys"],
         )
         blockers = feature_brief.blocking(attached)
         if blockers:

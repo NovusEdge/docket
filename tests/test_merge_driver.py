@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-from docket import corrections, merge_driver  # noqa: E402
+from docket import corrections, features, merge_driver  # noqa: E402
 from docket.ledger import make_record, read  # noqa: E402
 
 
@@ -94,6 +94,33 @@ class DriverTests(unittest.TestCase):
         write(self.theirs, shared + [claim("c2", "Theirs")])
         merge_driver.run(self.base, self.ours, self.theirs)
         self.assertEqual(sorted(p.name for p in self.tmp.iterdir()), ["A", "B", "O"])
+
+    def test_feature_stores_merge_with_colliding_ids_renumbered(self):
+        def start(ident, slug):
+            event = features.make_event("start", slug, text=slug, paths=["src/**"], ts="t")
+            return dict(event, id=ident)
+
+        shared = [start("f1", "shared")]
+        write(self.base, shared)
+        write(self.ours, shared + [start("f2", "ours")])
+        write(self.theirs, shared + [start("f2", "theirs")])
+        self.assertEqual(merge_driver.run(self.base, self.ours, self.theirs), 0)
+        merged = features.read(self.ours)
+        self.assertEqual(
+            [(e["id"], e["slug"]) for e in merged][1:], [("f2", "ours"), ("f3", "theirs")]
+        )
+        self.assertEqual(merge_driver.run(self.base, self.ours, self.theirs), 0)
+        self.assertEqual(len(features.read(self.ours)), 3)
+
+    def test_feature_stores_that_both_open_one_slug_conflict(self):
+        def start(ident):
+            return dict(features.make_event("start", "same", text="x", paths=["a/**"]), id=ident)
+
+        write(self.base, [])
+        write(self.ours, [start("f1")])
+        write(self.theirs, [dict(start("f1"), text="y")])
+        self.assertEqual(merge_driver.run(self.base, self.ours, self.theirs), 1)
+        self.assertIn("<<<<<<<", self.ours.read_text(encoding="utf-8"))
 
     def test_an_empty_base_merges_two_new_ledgers(self):
         self.base.write_text("", encoding="utf-8")
@@ -199,6 +226,33 @@ class GitTests(unittest.TestCase):
         self.record("Main claim", "main")
         self.assertEqual(self.git("cherry-pick", picked).returncode, 0)
         self.assertEqual(self.texts(), ["Shared", "Main claim", "Topic two"])
+
+    def test_a_feature_include_follows_its_record_through_a_renumbering_merge(self):
+        with (self.repo / ".gitattributes").open("a") as f:
+            f.write(".docket/features.jsonl merge=docket\n")
+        self.git("commit", "-qam", "attributes")
+        self.git("checkout", "-qb", "topic")
+        self.docket("claim", "Topic claim", "--state", "accepted")
+        self.docket("feature", "start", "work", "--text", "Work", "--path", "src/**")
+        self.docket("feature", "amend", "work", "--include", "c2")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "topic")
+        self.git("checkout", "-q", "main")
+        self.docket("feature", "start", "other", "--text", "Other", "--path", "lib/**")
+        self.record("Main claim", "main")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "main feature")
+        self.assertEqual(self.git("merge", "-q", "--no-edit", "topic").returncode, 0)
+        self.assertEqual(self.texts(), ["Shared", "Main claim", "Topic claim"])
+        check = subprocess.run(
+            [DOCKET, "check"], cwd=self.repo, env=self.env, capture_output=True, text=True
+        )
+        self.assertEqual(check.returncode, 1, check.stdout)
+        self.assertIn("c2 -> c3", check.stdout)
+        self.docket("feature", "remap")
+        shown = json.loads(self.docket("feature", "show", "work", "--json").stdout)
+        self.assertEqual(shown["include"], ["c3"])
+        self.assertEqual(self.docket("check").returncode, 0)
 
     def test_without_the_config_git_reports_a_conflict(self):
         # The whole section: a lone merge.docket.name makes git abort the merge

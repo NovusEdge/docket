@@ -203,7 +203,7 @@ docket feature amend <slug> [--status STATUS] [--path GLOB] [--intends TEXT] [--
 docket feature done <slug> [--held CSV] [--failed CSV]
 docket feature abandon <slug> --text REASON
 docket feature brief [<slug|id>]
-docket feature remap MAPFILE
+docket feature remap [MAPFILE]
 docket feature gc [--expire DAYS]
 ```
 
@@ -216,8 +216,9 @@ empties a list that a later amend must not carry forward. `--held` and
 `--failed` on `done` record a verdict on a claim the realized change set
 touched; anything attached but unanswered comes back `unanswered`. `brief`
 prints the ledger records governing a feature, strongest first; `remap`
-repoints `include`/`exclude` lists through the ID map `docket rebase
---emit-map` writes. `gc` moves closed, unreferenced features into
+repoints `include`/`exclude` IDs that a ledger merge renumbered, following
+the record keys each feature stored, or through the ID map `docket rebase
+--emit-map` writes when given one. `gc` moves closed, unreferenced features into
 `.docket/archive/`; `--expire DAYS` narrows which closed features qualify
 and never triggers a move by itself. See [Feature tracking](features.md).
 

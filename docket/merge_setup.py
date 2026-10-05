@@ -12,6 +12,9 @@ import subprocess
 from pathlib import Path
 
 ATTRIBUTE = ".docket/ledger.jsonl merge=docket"
+# One driver serves both files; it tells them apart by their first line.
+FEATURES_ATTRIBUTE = ".docket/features.jsonl merge=docket"
+_ATTRIBUTES = (ATTRIBUTE, FEATURES_ATTRIBUTE)
 # docket on PATH, never an absolute path: the plugin cache path changes with
 # every release, and a config naming a deleted version fails every merge.
 DRIVER = "docket merge-driver %O %A %B"
@@ -31,11 +34,16 @@ def _in_repository(root: Path) -> bool:
     return result is not None and result.returncode == 0
 
 
-def _has_attribute(root: Path) -> bool:
+def _missing_attributes(root: Path) -> list[str]:
     path = root / ".gitattributes"
     if not path.is_file():
-        return False
-    return ATTRIBUTE in (line.strip() for line in path.read_text(encoding="utf-8").splitlines())
+        return list(_ATTRIBUTES)
+    lines = {line.strip() for line in path.read_text(encoding="utf-8").splitlines()}
+    return [attribute for attribute in _ATTRIBUTES if attribute not in lines]
+
+
+def _has_attribute(root: Path) -> bool:
+    return ATTRIBUTE not in _missing_attributes(root)
 
 
 def setup(root: Path) -> list[str]:
@@ -46,14 +54,15 @@ def setup(root: Path) -> list[str]:
     messages: list[str] = []
     path = root / ".gitattributes"
     try:
-        if not _has_attribute(root):
+        missing = _missing_attributes(root)
+        if missing:
             text = path.read_text(encoding="utf-8") if path.is_file() else ""
             if text and not text.endswith("\n"):
                 text += "\n"
-            # Appended, not substituted: a later matching line overrides an earlier
-            # one, so a .docket/*.jsonl union line keeps covering features.jsonl.
-            path.write_text(text + ATTRIBUTE + "\n", encoding="utf-8")
-            messages.append(f"docket: added the ledger merge driver to {path}; commit it")
+            # Appended, not substituted: a later matching line overrides an
+            # earlier one, so these win over a .docket/*.jsonl union line.
+            path.write_text(text + "".join(line + "\n" for line in missing), encoding="utf-8")
+            messages.append(f"docket: added the docket merge driver to {path}; commit it")
     except (UnicodeError, OSError) as exc:
         messages.append(f"docket: could not update {path}: {exc}")
     if shutil.which("docket") is None:
@@ -91,4 +100,4 @@ def notice(root: Path) -> str | None:
     return "# merge driver not set up in this clone; run docket init"
 
 
-__all__ = ["ATTRIBUTE", "DRIVER", "notice", "setup"]
+__all__ = ["ATTRIBUTE", "DRIVER", "FEATURES_ATTRIBUTE", "notice", "setup"]

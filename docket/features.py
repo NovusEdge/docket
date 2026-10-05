@@ -52,8 +52,12 @@ DEFAULTS: dict[str, Any] = {
     "held": [],
     "failed": [],
     "unanswered": [],
+    # Ledger id -> ledger.record_key for every ledger id this event cites, so a
+    # merge that renumbers the ledger leaves a way back to the record meant.
+    "keys": {},
 }
 ALLOWED_FIELDS = frozenset(DEFAULTS)
+LEDGER_REFS = ("include", "exclude", "held", "failed", "unanswered")
 
 _STRING_FIELDS = (
     "id",
@@ -144,6 +148,11 @@ def validate_event(record: Any) -> dict[str, Any]:
     for field in _LIST_FIELDS:
         if not _is_string_list(record.get(field)):
             raise _error(slug, f"{field} must be a list of non-empty strings")
+    keys = record.get("keys")
+    if not isinstance(keys, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in keys.items()
+    ):
+        raise _error(slug, "keys must map ledger ids to strings")
 
     record_id = record["id"]
     if record_id and not ID_RE.fullmatch(record_id):
@@ -278,6 +287,7 @@ __all__ = [
     "CLEARABLE",
     "EVENTS",
     "ID_RE",
+    "LEDGER_REFS",
     "SCHEMA",
     "SLUG_RE",
     "STATUSES",

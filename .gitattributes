@@ -1,8 +1,6 @@
-# The ledger merges through `docket merge-driver`, which appends the other
-# side's new records under fresh ids. Each clone registers the driver with
-# `docket init`; without it git reports an ordinary conflict.
-# features.jsonl stays on union until it has a driver of its own: duplicate
-# feature ids after a union need renumbering by hand.
-.docket/*.jsonl merge=union
+# The ledger and the feature store merge through `docket merge-driver`, which
+# appends the other side's new lines under fresh ids. Each clone registers the
+# driver with `docket init`; without it git reports an ordinary conflict.
 .docket/ledger.jsonl merge=docket
+.docket/features.jsonl merge=docket
 docket/web/vendor/** -diff linguist-vendored

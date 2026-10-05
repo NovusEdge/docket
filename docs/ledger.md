@@ -331,7 +331,7 @@ exclusive lock on `ledger.jsonl.lock`. This prevents concurrent writers on
 one host from allocating the same sequence number. Readers take a shared lock
 on the same file so they do not read a partially written line.
 
-Two branches that both record append different lines after the same last line. `docket init` adds `.docket/ledger.jsonl merge=docket` to `.gitattributes` and registers `docket merge-driver` in the clone's git config, after which `git merge`, `git rebase` and `git cherry-pick` merge the ledger themselves: records on both sides are kept, the other side's new records take fresh IDs, and references follow. Git invokes `merge-driver`; it is not a command you run.
+Two branches that both record append different lines after the same last line. `docket init` adds `.docket/ledger.jsonl merge=docket` and `.docket/features.jsonl merge=docket` to `.gitattributes` and registers `docket merge-driver` in the clone's git config, after which `git merge`, `git rebase` and `git cherry-pick` merge the ledger themselves: records on both sides are kept, the other side's new records take fresh IDs, and references follow. Git invokes `merge-driver`; it is not a command you run.
 
 The driver recognises a record it already merged, even under its new ID, so merging the same branches again in either direction adds nothing twice. An incoming record that is found in the common ancestor but is no longer on our side was removed or rewritten by us, so it stays out; this is why a cherry-pick brings only the picked commit's records.
 

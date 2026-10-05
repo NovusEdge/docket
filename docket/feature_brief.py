@@ -88,13 +88,19 @@ def attach(
     *,
     include: Sequence[str] = (),
     exclude: Sequence[str] = (),
+    keys: dict[str, str] | None = None,
     weights=None,
 ) -> list[dict[str, Any]]:
-    """Ledger records governing these files, strongest first."""
+    """Ledger records governing these files, strongest first.
+
+    ``keys`` is the feature's stored record keys, which repoint an include or
+    exclude id that a ledger merge renumbered.
+    """
+    from docket.ledger import rebind
 
     weights = weights if weights is not None else DEFAULTS["weights"]
-    excluded = set(exclude)
-    forced = set(include) - excluded
+    excluded = set(rebind(list(exclude), keys or {}, entries))
+    forced = set(rebind(list(include), keys or {}, entries)) - excluded
     attached = []
     for entry in entries:
         ident = str(entry.get("id", ""))
@@ -195,7 +201,13 @@ def with_blocked(current: list[dict[str, Any]], root: Path) -> list[dict[str, An
         if feature["state"] in features.TERMINAL_STATES:
             continue
         files = expand(root, feature["paths"])
-        attached = attach(entries, files, include=feature["include"], exclude=feature["exclude"])
+        attached = attach(
+            entries,
+            files,
+            include=feature["include"],
+            exclude=feature["exclude"],
+            keys=feature["keys"],
+        )
         blockers = blocking(attached)
         if blockers:
             feature["state"] = "blocked"

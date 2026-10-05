@@ -49,19 +49,22 @@ def cmd_feature_remap(args) -> int:
     start or amend line in place is what hooks/guard_ledger.py exists to stop.
     """
 
+    from docket import ledger
     from docket.cli.feature import record_event
 
-    source = Path(args.mapfile)
-    try:
-        mapping = json.loads(source.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        print(f"docket: {source}: {exc}", file=sys.stderr)
-        return 1
-    if not isinstance(mapping, dict) or not all(
-        isinstance(k, str) and isinstance(v, str) for k, v in mapping.items()
-    ):
-        print(f"docket: {source}: expected a JSON object of old id to new id", file=sys.stderr)
-        return 1
+    mapping = None
+    if args.mapfile:
+        source = Path(args.mapfile)
+        try:
+            mapping = json.loads(source.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"docket: {source}: {exc}", file=sys.stderr)
+            return 1
+        if not isinstance(mapping, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) for k, v in mapping.items()
+        ):
+            print(f"docket: {source}: expected a JSON object of old id to new id", file=sys.stderr)
+            return 1
 
     path = env.features_path()
     # Read the raw events, never the projection. A union merge is the reason
@@ -82,7 +85,8 @@ def cmd_feature_remap(args) -> int:
         )
         return 1
 
-    changes = feature_project.remap_changes(feature_project.project(events), mapping)
+    entries = None if mapping is not None else ledger.read(env.ledger_path())
+    changes = feature_project.remap_changes(feature_project.project(events), mapping, entries)
     for slug, fields in changes:
         features.append(path, record_event("amend", slug, **fields))
     print(f"docket: remapped {len(changes)} feature(s)")
