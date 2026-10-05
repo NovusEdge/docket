@@ -87,17 +87,34 @@ def cmd_correct(args: argparse.Namespace) -> int:
 def add_correct_parser(sub) -> None:
     co = sub.add_parser("correct", help="fix a record's wording or metadata, keeping its id")
     co.add_argument("id", help="the claim, decision, or question to correct")
-    co.add_argument("--text")
-    co.add_argument("--rationale")
-    co.add_argument("--scope", action="append", default=[])
-    co.add_argument("--evidence", action="append", default=[])
-    co.add_argument("--revisit")
-    co.add_argument("--cost")
+    co.add_argument("--text", help="replace the headline")
+    co.add_argument("--rationale", help="replace the rationale")
+    co.add_argument(
+        "--scope",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="replace the whole scope list; repeat for more; quote globs",
+    )
+    co.add_argument(
+        "--evidence",
+        action="append",
+        default=[],
+        metavar="REF",
+        help="replace the whole evidence list; repeat for more",
+    )
+    co.add_argument("--revisit", help="replace the revisit condition")
+    co.add_argument("--cost", help="replace the cost if wrong")
     pin = co.add_mutually_exclusive_group()
-    pin.add_argument("--pin", action="store_true")
-    pin.add_argument("--unpin", action="store_true")
-    co.add_argument("--alternative", action="append", default=[])
-    co.add_argument("--decided-by")
+    pin.add_argument("--pin", action="store_true", help="pin it in briefings")
+    pin.add_argument("--unpin", action="store_true", help="unpin it")
+    co.add_argument(
+        "--alternative",
+        action="append",
+        default=[],
+        help="decision only: replace the whole alternatives list; repeat for more",
+    )
+    co.add_argument("--decided-by", help="decision only: replace who owns the decision")
     co.add_argument(
         "--supersede-reason", choices=REASONS, help="relabel why this record superseded another"
     )
