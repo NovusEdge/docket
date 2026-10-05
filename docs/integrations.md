@@ -29,6 +29,10 @@ Add the marketplace and install Docket:
 Start a new session after installation. The plugin loads `hooks/hooks.json` and
 the Docket skill.
 
+The plugin also registers a `PreToolUse` hook, `hooks/guard_ledger.py`, on file edits. Before an edit it names the current records whose scope is that exact file, or a directory scope at least two levels deep such as `docket/web/**` or `docket/web/`, one line each with the record ID, kind, state, and a clipped headline, up to eight, ending in a count of the rest. A scope on a top-level directory such as `docs/**` is too broad to name and is skipped. The agent sees each file once per session. The hook keeps that list in `$XDG_STATE_HOME/docket/hook-seen/` (`~/.local/state/docket/hook-seen/` when unset), outside the repository, and deletes entries older than a week. It prints nothing when no record matches, and an error in the hook never blocks the edit.
+
+The same hook asks you before any tool writes a ledger file directly, and tells the agent to use `docket record`, `docket correct`, or `--supersedes` instead.
+
 ### OpenAI Codex CLI
 
 The repository contains `.codex-plugin/plugin.json`. Add the marketplace and

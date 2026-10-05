@@ -1,6 +1,8 @@
 import json
+import os
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -17,7 +19,7 @@ def decide(tool, tool_input, cwd=CWD):
     )
     if not result.stdout.strip():
         return "allow"
-    return json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"]
+    return json.loads(result.stdout)["hookSpecificOutput"].get("permissionDecision", "allow")
 
 
 def bash(command):
@@ -158,6 +160,149 @@ class BashTests(unittest.TestCase):
         for command in ("python3 -c \"open('notes.txt','w')\"", "rm -rf build/", "git status"):
             with self.subTest(command=command):
                 self.assertEqual(bash(command), "allow")
+
+
+DOCKET = Path(__file__).parent.parent / "bin" / "docket"
+
+
+class GoverningRecordTests(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        base = Path(tmp.name)
+        self.project = base / "project"
+        (self.project / ".git").mkdir(parents=True)
+        (self.project / ".docket").mkdir()
+        self.env = {
+            **os.environ,
+            "XDG_STATE_HOME": str(base / "state"),
+            "DOCKET_HOME": str(base / "home"),
+            "DOCKET_AUTHOR": "tester",
+            "CLAUDE_SESSION_ID": "sess-1",
+        }
+        self.state = base / "state"
+
+    def record(self, text, *scopes, extra=()):
+        command = [sys.executable, str(DOCKET), "decision", text, "--choice", "c", "--json"]
+        for scope in scopes:
+            command += ["--scope", scope]
+        done = subprocess.run(
+            [*command, *extra], cwd=self.project, env=self.env, capture_output=True, text=True
+        )
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return json.loads(done.stdout)["id"]
+
+    def run_hook(self, path, tool="Edit", env=None):
+        payload = json.dumps(
+            {"tool_name": tool, "tool_input": {"file_path": path}, "cwd": str(self.project)}
+        )
+        done = subprocess.run(
+            [sys.executable, str(GUARD)],
+            input=payload,
+            capture_output=True,
+            text=True,
+            env=env or self.env,
+        )
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return json.loads(done.stdout)["hookSpecificOutput"] if done.stdout.strip() else None
+
+    def test_an_exact_scope_surfaces_without_deciding_permission(self):
+        ident = self.record("Cache in redis", "src/cache.py")
+        out = self.run_hook("src/cache.py")
+        self.assertEqual(out["hookEventName"], "PreToolUse")
+        self.assertNotIn("permissionDecision", out)
+        self.assertIn(f"{ident} decision adopted", out["additionalContext"])
+        self.assertIn("Cache in redis", out["additionalContext"])
+        self.assertIn("docket show", out["additionalContext"])
+
+    def test_an_absolute_path_matches_the_relative_scope(self):
+        self.record("Cache in redis", "src/cache.py")
+        self.assertIsNotNone(self.run_hook(str(self.project / "src" / "cache.py")))
+
+    def test_a_narrow_directory_scope_covers_its_files(self):
+        self.record("Web only", "docket/web/**")
+        self.record("Slash form", "docket/construct/")
+        self.assertIsNotNone(self.run_hook("docket/web/app/x.py"))
+        self.assertIsNotNone(self.run_hook("docket/construct/run.py"))
+
+    def test_a_top_level_directory_scope_is_package_wide_and_stays_quiet(self):
+        self.record("Everything in docs", "docs/**")
+        self.record("Everything in hooks", "hooks/")
+        self.assertIsNone(self.run_hook("docs/a.md"))
+        self.assertIsNone(self.run_hook("hooks/x.py"))
+
+    def test_a_glob_or_unrelated_path_stays_quiet(self):
+        self.record("Any python", "src/*.py")
+        self.record("Other file", "src/other.py")
+        self.assertIsNone(self.run_hook("src/cache.py"))
+
+    def test_a_retired_record_is_left_out(self):
+        old = self.record("Old", "src/cache.py")
+        new = self.record(
+            "New", "src/cache.py", extra=("--supersedes", old, "--supersede-reason", "revise")
+        )
+        context = self.run_hook("src/cache.py")["additionalContext"]
+        self.assertIn(new, context)
+        self.assertNotIn(f"{old} ", context)
+
+    def test_the_list_is_capped_and_says_so(self):
+        for n in range(11):
+            self.record(f"Rule {n}", "src/cache.py")
+        context = self.run_hook("src/cache.py")["additionalContext"]
+        self.assertLessEqual(len(context.splitlines()), 10)
+        self.assertIn("more", context)
+
+    def test_a_long_headline_is_clipped(self):
+        self.record("x" * 400, "src/cache.py")
+        self.assertLess(len(self.run_hook("src/cache.py")["additionalContext"]), 400)
+
+    def test_a_file_surfaces_once_per_session(self):
+        self.record("Cache in redis", "src/cache.py")
+        self.assertIsNotNone(self.run_hook("src/cache.py"))
+        self.assertIsNone(self.run_hook("src/cache.py"))
+        self.assertIsNone(self.run_hook(str(self.project / "src" / "cache.py")))
+        other = {**self.env, "CLAUDE_SESSION_ID": "sess-2"}
+        self.assertIsNotNone(self.run_hook("src/cache.py", env=other))
+
+    def test_state_lives_outside_the_repository(self):
+        self.record("Cache in redis", "src/cache.py")
+        self.run_hook("src/cache.py")
+        self.assertTrue(any(self.state.rglob("*sess-1*")))
+        self.assertFalse(any(p.name.startswith("sess") for p in self.project.rglob("*")))
+
+    def test_without_a_session_every_edit_surfaces(self):
+        self.record("Cache in redis", "src/cache.py")
+        env = {k: v for k, v in self.env.items() if k != "CLAUDE_SESSION_ID"}
+        self.assertIsNotNone(self.run_hook("src/cache.py", env=env))
+        self.assertIsNotNone(self.run_hook("src/cache.py", env=env))
+
+    def test_a_broken_ledger_fails_open(self):
+        (self.project / ".docket" / "ledger.jsonl").write_text("{not json\n")
+        self.assertIsNone(self.run_hook("src/cache.py"))
+
+    def test_a_ledger_edit_asks_and_tells_the_agent_what_to_run_instead(self):
+        out = self.run_hook(".docket/ledger.jsonl")
+        self.assertEqual(out["permissionDecision"], "ask")
+        for word in ("docket correct", "docket record", "--supersedes"):
+            self.assertIn(word, out["additionalContext"])
+
+    def test_bash_gets_no_record_context(self):
+        self.record("Cache in redis", "src/cache.py")
+        payload = json.dumps(
+            {
+                "tool_name": "Bash",
+                "tool_input": {"command": "ls src/cache.py"},
+                "cwd": str(self.project),
+            }
+        )
+        done = subprocess.run(
+            [sys.executable, str(GUARD)],
+            input=payload,
+            capture_output=True,
+            text=True,
+            env=self.env,
+        )
+        self.assertEqual(done.stdout.strip(), "")
 
 
 class RobustnessTests(unittest.TestCase):

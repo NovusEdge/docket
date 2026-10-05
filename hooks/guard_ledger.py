@@ -7,17 +7,21 @@ session start. This asks before any tool edits a ledger file, and says
 which command does the job properly.
 
 Reads the PreToolUse payload on stdin and prints an "ask" decision when the
-call targets a ledger. Anything else exits silently, because a hook that
-fails open costs a session nothing and a hook that fails closed costs it
-everything.
+call targets a ledger. For an edit of any other file it adds context naming
+the recorded decisions whose scope covers that file, once per session. Every
+other call exits silently, because a hook that fails open costs a session
+nothing and a hook that fails closed costs it everything.
 """
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import re
 import sys
+import time
 from pathlib import Path
 
 LEDGER_SUFFIXES = (".jsonl", ".jsonl.schema1", ".json")
@@ -238,6 +242,169 @@ def targeted_path(payload: dict) -> str:
     return ""
 
 
+FILE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
+MAX_RECORDS = 8
+HEADLINE = 90
+SEEN_TTL = 7 * 24 * 3600
+WILDCARDS = "*?[]"
+
+
+def _session() -> str:
+    # The names docket.env.session_id reads. Importing it would load the whole
+    # ledger module on every edit.
+    for var in ("CLAUDE_SESSION_ID", "CLAUDE_CODE_BRIDGE_SESSION_ID", "SESSION_ID"):
+        if value := os.environ.get(var):
+            return re.sub(r"[^\w.-]", "_", value)
+    return ""
+
+
+def _seen_file(session: str) -> Path:
+    # Per-user state, not the repository: the hook must not dirty a tree or need
+    # a gitignore entry, and the session's own id keys it so no cleanup is
+    # needed beyond ageing out old files.
+    base = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
+    return Path(base) / "docket" / "hook-seen" / session
+
+
+def _was_seen(path: Path, rel: str) -> bool:
+    try:
+        return rel in path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return False
+
+
+def _mark_seen(path: Path, rel: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fresh = not path.exists()
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(rel + "\n")
+    if fresh:
+        cutoff = time.time() - SEEN_TTL
+        for old in path.parent.iterdir():
+            try:
+                if old.stat().st_mtime < cutoff:
+                    old.unlink()
+            except OSError:
+                pass
+
+
+def _project_root(start: Path) -> Path:
+    for directory in (start, *start.parents):
+        if (directory / ".git").exists():
+            return directory
+    return start
+
+
+def _ledger_file(cwd: Path, root: Path) -> Path:
+    # Mirrors docket.env.ledger_path, which cannot be imported without loading
+    # the ledger module.
+    for directory in (cwd, *cwd.parents):
+        candidate = directory / ".docket" / "ledger.jsonl"
+        if candidate.exists():
+            return candidate
+        if directory == root:
+            break
+    slug = str(root).replace("/", "-").replace("\\", "-").strip("-") or "root"
+    return global_root() / slug / "ledger.jsonl"
+
+
+def _ancestors(rel: str) -> list[str]:
+    parts = rel.split("/")
+    return ["/".join(parts[:n]) for n in range(2, len(parts))]
+
+
+def _covers(scope: str, rel: str) -> bool:
+    """An exact file scope, or a directory scope at least two levels deep.
+
+    `docs/**` or `hooks/` governs a whole top-level tree, so it would attach to
+    nearly every edit there and drown the records that name the file.
+    """
+    scope = scope.strip().replace("\\", "/").casefold()
+    while scope.startswith("./"):
+        scope = scope[2:]
+    if scope == rel:
+        return True
+    if scope.endswith("/**"):
+        base = scope[:-3]
+    elif scope.endswith("/"):
+        base = scope.rstrip("/")
+    else:
+        return False
+    if "/" not in base or any(mark in base for mark in WILDCARDS):
+        return False
+    return rel.startswith(base + "/")
+
+
+def _clip(text: str) -> str:
+    text = " ".join(str(text).split())
+    return text if len(text) <= HEADLINE else text[: HEADLINE - 3] + "..."
+
+
+def governing_context(payload: dict) -> str:
+    args = payload.get("tool_input") or {}
+    value = next((args[k] for k in ("file_path", "notebook_path", "path") if args.get(k)), "")
+    if not isinstance(value, str):
+        return ""
+    cwd = Path(os.path.normpath(payload.get("cwd") or "."))
+    root = _project_root(cwd)
+    target = Path(os.path.normpath(cwd / value))
+    try:
+        rel = target.relative_to(root).as_posix().casefold()
+    except ValueError:
+        return ""
+
+    session = _session()
+    seen = _seen_file(session) if session else None
+    if seen and _was_seen(seen, rel):
+        return ""
+
+    ledger = _ledger_file(cwd, root)
+    try:
+        text = ledger.read_text(encoding="utf-8").casefold()
+    except OSError:
+        return ""
+    # A record can only cover this file if the ledger names the file or one of
+    # its directories somewhere, and a correction that changes a scope names it
+    # too. Most edits stop here and never pay for the docket import.
+    if not any(needle in text for needle in (rel, *_ancestors(rel))):
+        return ""
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from docket import ledger as store
+
+    with contextlib.redirect_stderr(io.StringIO()):
+        entries = store.project(store.read(ledger, lock=False), validated=True)
+    hits = [
+        e
+        for e in entries
+        if not e.get("retired_by") and any(_covers(s, rel) for s in e.get("scope") or [])
+    ]
+    if not hits:
+        return ""
+
+    if seen:
+        _mark_seen(seen, rel)
+    lines = [
+        f"Recorded decisions govern {value}; read one with `docket show ID`:",
+        *(
+            f"{e['id']} {e['kind']} {e.get('state', '')}: {_clip(e.get('text', ''))}"
+            for e in hits[:MAX_RECORDS]
+        ),
+    ]
+    if len(hits) > MAX_RECORDS:
+        lines.append(f"+{len(hits) - MAX_RECORDS} more")
+    return "\n".join(lines)
+
+
+LEDGER_GUIDANCE = (
+    "Do not edit the ledger file. Record a new claim, decision or question with "
+    "`docket record` (or `docket claim`, `docket decision`, `docket question`); "
+    "fix a recorded field with `docket correct`; replace a record by recording its "
+    "successor with `--supersedes ID`; repair with `docket check` and `docket "
+    "rebase`; convert an old ledger with `docket migrate`."
+)
+
+
 def main() -> int:
     try:
         payload = json.load(sys.stdin)
@@ -247,27 +414,34 @@ def main() -> int:
         return 0
 
     target = targeted_path(payload)
-    if not target:
+    if target:
+        output = {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "ask",
+            "permissionDecisionReason": (
+                f"This writes {target} directly. A ledger is append-only and is "
+                "validated on every read, so an edit made around the CLI can "
+                "break it. Record with `docket claim`, `docket decision` or "
+                "`docket question`; fix a recorded field with `docket correct`; "
+                "repair with `docket check` and `docket "
+                "rebase`; convert an old ledger with `docket migrate`. Approve "
+                "only if you mean to edit the file itself."
+            ),
+            "additionalContext": LEDGER_GUIDANCE,
+        }
+    elif payload.get("tool_name") in FILE_TOOLS:
+        # Fails open: a docket error must never cost an edit.
+        try:
+            context = governing_context(payload)
+        except Exception:
+            return 0
+        if not context:
+            return 0
+        output = {"hookEventName": "PreToolUse", "additionalContext": context}
+    else:
         return 0
 
-    json.dump(
-        {
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "ask",
-                "permissionDecisionReason": (
-                    f"This writes {target} directly. A ledger is append-only and is "
-                    "validated on every read, so an edit made around the CLI can "
-                    "break it. Record with `docket claim`, `docket decision` or "
-                    "`docket question`; fix a recorded field with `docket correct`; "
-                    "repair with `docket check` and `docket "
-                    "rebase`; convert an old ledger with `docket migrate`. Approve "
-                    "only if you mean to edit the file itself."
-                ),
-            }
-        },
-        sys.stdout,
-    )
+    json.dump({"hookSpecificOutput": output}, sys.stdout)
     return 0
 
 
