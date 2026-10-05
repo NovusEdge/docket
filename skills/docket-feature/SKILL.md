@@ -74,6 +74,16 @@ hand:
 docket feature amend opencode-discovery --status paused
 ```
 
+## After a ledger merge
+
+A ledger merge can renumber the records a feature cites in `--include` or `--exclude`. The feature store keeps a key for each cited record, so the brief follows a renumbered record to its new ID, and `docket check` reports each ID that moved. Repoint the stored lists with:
+
+```sh
+docket feature remap
+```
+
+`remap` needs no argument: it follows those keys. Pass the map file from `docket rebase --emit-map PATH` to repoint through that map instead. `features.jsonl` merges through the same git merge driver as the ledger; `docket init` registers it.
+
 ## Closing work
 
 Run `done` before squashing or rebasing the branch. Once the fork point is no

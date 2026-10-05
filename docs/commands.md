@@ -102,14 +102,17 @@ Record that you checked a claim or decision whose grounds changed. It appends a 
 | `--where QUERY` | Filter with the [query language](#query-language); ANDs with the other flags |
 | `--superseded` | Include records a later one retired |
 | `--oneline` | One line per record |
-| `--json` | Print records as JSON |
+| `--json` | Print records as a bare JSON array; see [JSON shapes](#json-shapes) |
+| `--fields CSV` | With `--json`, keep only the named fields, such as `id,kind,state,text`. An unknown name is an error that lists the valid ones. |
+| `--legacy` | With `--json`, keep the `legacy` audit field a schema 1 migration left on a record. Omitted by default. |
 | `--plain`, `--pretty` | Force colour off or on |
 
 `docket show ID`
 
 | Flag | Effect |
 |---|---|
-| `--json` | Print every field |
+| `--json` | Print every field except `legacy` |
+| `--legacy` | With `--json`, keep `legacy` |
 | `--at ID` | Show the record as history stood at that record |
 
 `docket graph`
@@ -152,6 +155,28 @@ Claims and decisions carry three derived fields in `--json` output and in `show`
 `context` prints `review_owed:` and `lost:` lines under an affected record and ends with `# owe review: N; docket list --where is:flagged`. `context --since` adds ", N newly owe review" to its summary and counts a newly unsupported record as no longer available. `show` prints "Review owed" and "Lost grounds" sections, and the text `graph` marks records `? review` or `! lost`. `export` draws a flagged record with a dashed border and an unsupported one with a dotted border, and the csv node table carries a `support` column.
 
 A decision's `depends_on` follows restatements and revisions to the head of the chain. A reversal, or a rejected or revoked head, blocks the decision; a revised prerequisite flags it. An unsupported prerequisite does not block.
+
+### JSON shapes
+
+`list --json` prints an array of the records below and `show --json` prints one. A field appears only when the record has it. For a ledger of a few hundred records the full array runs to hundreds of kilobytes; pass `--fields` to read only what the task needs.
+
+Every record has `schema`, `kind`, `id`, `text`, `state`, `ts`, `author`, `session`, `branch`, `scope`, `rationale`, `supports` (a list of AND sets), `depends_on`, `answers`, `supersedes`, `evidence`, `revisit`, `cost_if_wrong`, and `pinned`. `supersede_reason` appears on a record that supersedes another.
+
+A decision adds `choice`, `alternatives`, and `decided_by`.
+
+The projection adds derived fields. They are never stored in the ledger.
+
+| Field | On | Meaning |
+|---|---|---|
+| `state` | all | Effective state. For a question, `resolved` once a current accepted claim or applicable adopted decision answers it. |
+| `recorded_state` | all | The state as written on the record's line |
+| `retired_by` | all | ID of the record that superseded this one; present only on a retired record |
+| `resolved_by` | questions | IDs of the records that answer it |
+| `applicable` | decisions | `false` when the decision is retired, revoked, or blocked by a prerequisite |
+| `blocked_by` | decisions | IDs of the records that make it inapplicable. A retired or revoked decision lists its own ID, so test `applicable` rather than `blocked_by` to find a blocked adopted decision. |
+| `support`, `review_owed`, `lost_grounds` | claims, decisions | The support status fields in the table above |
+| `corrections`, `original` | corrected records | Correction IDs, and the values the corrections replaced |
+| `reviews` | records with review lines | Review lines recorded against the record |
 
 ### Query language
 
