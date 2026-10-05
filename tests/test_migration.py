@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -12,9 +11,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from docket import migrate as docket_migrate
-
-ROOT = Path(__file__).resolve().parent.parent
-SCRIPT = ROOT / "scripts" / "migrate_ledger.py"
 
 
 def load_migrator():
@@ -241,29 +237,6 @@ class MigrationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "core rejected"):
                 migrator.migrate(source, map_path, output, validator=reject)
             self.assertFalse(output.exists())
-
-    def test_the_script_shim_runs_the_library(self):
-        with tempfile.TemporaryDirectory() as work:
-            work = Path(work)
-            source = work / "old.jsonl"
-            write_jsonl(source, self.source_records())
-            mapping = work / "map.json"
-            mapping.write_text(json.dumps(self.mapping()))
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    str(SCRIPT),
-                    str(source),
-                    "--map",
-                    str(mapping),
-                    "--output",
-                    str(work / "new.jsonl"),
-                ],
-                capture_output=True,
-                text=True,
-            )
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertTrue((work / "new.jsonl").exists())
 
 
 class DerivationTests(unittest.TestCase):

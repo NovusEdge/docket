@@ -30,18 +30,6 @@ class RebaseError(ValueError):
 
 _REFERENCE_FIELDS = ("depends_on", "answers", "supersedes")
 
-# A migrated record carries legacy.relation_map, whose mapped_* fields
-# validation requires to equal the record's own relations
-# (docket/ledger.py:236-237). Rewriting the relations without the audit map
-# makes append reject the record. Every record in a migrated ledger carries
-# this, so a rebase that skipped it would fail on the first tail record.
-_AUDIT_FIELDS = {
-    "supports": "mapped_supports",
-    "depends_on": "mapped_depends_on",
-    "answers": "mapped_answers",
-    "supersedes": "mapped_supersedes",
-}
-
 
 def common_prefix(mine: Sequence[Mapping[str, Any]], theirs: Sequence[Mapping[str, Any]]) -> int:
     """How many leading records the two histories share exactly."""
@@ -79,7 +67,6 @@ def _translated(record: Mapping[str, Any], mapping: Mapping[str, str]) -> dict[s
             out[field] = [get(v) for v in out[field]]
     if out.get("supports"):
         out["supports"] = [[get(v) for v in group] for group in out["supports"]]
-    _rewrite_audit(out)
     return out
 
 
@@ -174,20 +161,3 @@ def renumber(
     """Return their tail with fresh IDs, and the old-to-new ID map."""
 
     return merge([], mine, theirs)
-
-
-def _rewrite_audit(record: dict[str, Any]) -> None:
-    """Keep a migrated record's relation_map equal to its rewritten relations.
-
-    source_* fields keep the original pre-migration IDs untouched: they record
-    what the schema 1 ledger said, which renumbering does not change.
-    """
-
-    audit = (record.get("legacy") or {}).get("relation_map")
-    if not isinstance(audit, Mapping):
-        return
-    updated = dict(audit)
-    for field, mapped in _AUDIT_FIELDS.items():
-        if mapped in updated:
-            updated[mapped] = copy.deepcopy(record.get(field))
-    record["legacy"] = {**record["legacy"], "relation_map": updated}

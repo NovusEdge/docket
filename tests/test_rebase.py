@@ -54,29 +54,6 @@ class RebaseTests(unittest.TestCase):
             renumber(mine, theirs)
         self.assertIn("c1", str(caught.exception))
 
-    def test_a_migrated_record_keeps_its_relation_map_consistent(self):
-        base = [claim("c1", "Shared premise")]
-        theirs = base + [
-            claim("c2", "Their premise"),
-            decision("d3", "Their decision", depends_on=["c2"]),
-        ]
-        # Every record in a migrated ledger carries this block, and validation
-        # requires mapped_* to equal the record's relations.
-        theirs[2]["legacy"] = {
-            "raw": {"because": ["c2"]},
-            "relation_map": {
-                "source_because": ["c2"],
-                "mapped_depends_on": ["c2"],
-                "overrides": [],
-            },
-        }
-        mine = base + [claim("c2", "Mine")]
-        tail, _ = renumber(mine, theirs)
-        self.assertEqual(tail[1]["depends_on"], ["c3"])
-        self.assertEqual(tail[1]["legacy"]["relation_map"]["mapped_depends_on"], ["c3"])
-        # The pre-migration record is history and does not move.
-        self.assertEqual(tail[1]["legacy"]["relation_map"]["source_because"], ["c2"])
-
     def test_identical_histories_produce_an_empty_tail(self):
         base = [claim("c1", "Shared premise")]
         tail, mapping = renumber(base, base)

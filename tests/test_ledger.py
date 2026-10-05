@@ -60,30 +60,12 @@ class LedgerTests(unittest.TestCase):
         with self.assertRaisesRegex(ledger.LedgerError, "decision-only"):
             ledger.make_record("claim", "claim", author="test", decided_by="someone")
 
-    def test_legacy_audit_metadata_has_a_strict_shape(self):
+    def test_legacy_audit_metadata_is_an_opaque_object(self):
         claim = ledger.make_record("claim", "claim", author="test", record_id="c1")
-        claim["legacy"] = {
-            "source_id": "d1",
-            "raw": {"id": "d1"},
-            "relation_map": {
-                "source_because": [],
-                "source_depends_on": [],
-                "source_answers": [],
-                "source_supersedes": [],
-                "mapped_supports": [],
-                "mapped_depends_on": [],
-                "mapped_answers": [],
-                "mapped_supersedes": [],
-                "overrides": [],
-            },
-        }
+        claim["legacy"] = {"source_id": "d1", "relation_map": {"mapped_answers": ["q99"]}}
         self.assertEqual(ledger.validate_record(claim)["legacy"]["source_id"], "d1")
-        claim["legacy"]["relation_map"]["mapped_answers"] = ["q99"]
-        with self.assertRaisesRegex(ledger.LedgerError, "mapped relations"):
-            ledger.validate_record(claim)
-        claim["legacy"]["relation_map"]["mapped_answers"] = []
-        claim["legacy"]["raw"] = "not an object"
-        with self.assertRaisesRegex(ledger.LedgerError, "raw/relation_map"):
+        claim["legacy"] = "not an object"
+        with self.assertRaisesRegex(ledger.LedgerError, "legacy must be an object"):
             ledger.validate_record(claim)
 
     def test_supersession_and_resolution_are_derived(self):

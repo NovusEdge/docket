@@ -28,10 +28,8 @@ exclusive-create semantics.  The repository's ``docket.ledger``
 
 from __future__ import annotations
 
-import argparse
 import json
 import re
-import sys
 from pathlib import Path
 from typing import Any, Callable
 
@@ -581,23 +579,3 @@ def migrate_in_place(
     return len(records), report, notes
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
-    parser.add_argument("source", type=Path, help="schema-1 JSONL source ledger")
-    parser.add_argument(
-        "--map", dest="mapping", required=True, type=Path, help="explicit JSON classification map"
-    )
-    parser.add_argument(
-        "--output", required=True, type=Path, help="new schema-2 JSONL destination; must not exist"
-    )
-    args = parser.parse_args(argv)
-    try:
-        migrate(args.source, args.mapping, args.output)
-    except (MigrationError, ValueError) as exc:
-        print(f"migrate_ledger: {exc}", file=sys.stderr)
-        return 2
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

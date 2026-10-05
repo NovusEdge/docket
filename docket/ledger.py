@@ -66,19 +66,6 @@ def _is_string_list(value: Any) -> bool:
     return isinstance(value, list) and all(isinstance(item, str) and item for item in value)
 
 
-def _csv(value: str | None) -> list[str]:
-    if value is None:
-        return []
-    return [item.strip() for item in value.split(",") if item.strip()]
-
-
-def _copy_defaults(record: dict[str, Any]) -> dict[str, Any]:
-    result = dict(record)
-    for key, value in COMMON_DEFAULTS.items():
-        result.setdefault(key, copy.deepcopy(value))
-    return result
-
-
 def _normalized(value: str) -> str:
     return " ".join(value.split()).casefold()
 
@@ -298,13 +285,19 @@ class _Prefix:
 
 
 def validate_record(
-    record: Any, *, previous: list[dict[str, Any]] | None = None, prefix: _Prefix | None = None
+    record: Any,
+    *,
+    previous: list[dict[str, Any]] | None = None,
+    prefix: _Prefix | None = None,
+    copy_result: bool = True,
 ) -> dict[str, Any]:
     """Validate and return a record without mutating the caller's object.
 
     ``previous`` enables the ordering and cross-record relation checks used by
     both reads and appends. ``prefix`` supplies the same information already
     indexed, for a caller that validates many records in sequence.
+    ``copy_result=False`` returns the object itself, for read(), whose input
+    json.loads just built and nobody else holds; the copy was half its cost.
     """
     if not isinstance(record, dict):
         raise _error("record", "each JSONL line must be an object")
@@ -387,45 +380,12 @@ def validate_record(
         raise _error(record_id, "choice and alternatives are decision-only fields")
     elif "decided_by" in record:
         raise _error(record_id, "decided_by is a decision-only field")
-    if "legacy" in record:
-        legacy = record["legacy"]
-        if not isinstance(legacy, dict) or set(legacy) != {"source_id", "raw", "relation_map"}:
-            raise _error(record_id, "legacy must contain source_id, raw, and relation_map")
-        if (
-            not isinstance(legacy["source_id"], str)
-            or not isinstance(legacy["raw"], dict)
-            or not isinstance(legacy["relation_map"], dict)
-        ):
-            raise _error(
-                record_id, "legacy source_id must be a string and raw/relation_map must be objects"
-            )
-        if (
-            not re.fullmatch(r"d[1-9][0-9]*", legacy["source_id"])
-            or legacy["raw"].get("id") != legacy["source_id"]
-        ):
-            raise _error(record_id, "legacy source_id must identify its raw source record")
-        audit = legacy["relation_map"]
-        source_fields = {
-            "because": "supports",
-            "depends_on": "depends_on",
-            "answers": "answers",
-            "supersedes": "supersedes",
-        }
-        expected = (
-            {"overrides"}
-            | {"source_" + name for name in source_fields}
-            | {"mapped_" + name for name in source_fields.values()}
-        )
-        if set(audit) != expected:
-            raise _error(record_id, "legacy relation_map has missing or unknown audit fields")
-        overrides = audit["overrides"]
-        if not _is_string_list(overrides) or not set(overrides) <= set(source_fields.values()):
-            raise _error(record_id, "legacy relation_map overrides must name valid relations")
-        for source_name, mapped_name in source_fields.items():
-            if audit["source_" + source_name] != legacy["raw"].get(source_name, []):
-                raise _error(record_id, "legacy relation_map does not preserve source relations")
-            if audit["mapped_" + mapped_name] != record[mapped_name]:
-                raise _error(record_id, "legacy relation_map differs from the mapped relations")
+    # legacy is the schema 1 migration's audit trail. Nothing reads it, so its
+    # shape is checked once, by the migration that writes it, and a rebase
+    # carries it through untouched: its mapped_* lists keep the ids the
+    # migration assigned.
+    if "legacy" in record and not isinstance(record["legacy"], dict):
+        raise _error(record_id, "legacy must be an object")
     if kind == "question" and state != "open":
         raise _error(
             record_id, "questions have recorded state open; resolution is derived from answers"
@@ -472,7 +432,7 @@ def validate_record(
                     raise _error(record_id, f"supersedes target {ref!r} is a different kind")
                 if field == "supersedes" and ref in prefix.retired:
                     raise _error(record_id, f"supersedes target {ref!r} is already retired")
-    return copy.deepcopy(record)
+    return copy.deepcopy(record) if copy_result else record
 
 
 def validate_entries(entries: Any) -> list[dict[str, Any]]:
@@ -489,9 +449,6 @@ def validate_entries(entries: Any) -> list[dict[str, Any]]:
         prefix.add(record)
     return validated
 
-
-# Public plural spelling is convenient for migration and import callers.
-validate_records = validate_entries
 
 
 def _torn_tail(text: str) -> int | None:
@@ -587,7 +544,7 @@ def read(path: Path | str, lock: bool = True, strict: bool = False) -> list[dict
                 continue
             value = {k: v for k, v in value.items() if k not in extra}
         try:
-            record = validate_record(value, prefix=prefix)
+            record = validate_record(value, prefix=prefix, copy_result=False)
         except LedgerError as exc:
             raise _error(f"line {line_number}", str(exc).removeprefix("docket: ")) from exc
         entries.append(record)
