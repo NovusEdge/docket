@@ -249,11 +249,16 @@ SEEN_TTL = 7 * 24 * 3600
 WILDCARDS = "*?[]"
 
 
-def _session() -> str:
-    # The names docket.env.session_id reads. Importing it would load the whole
-    # ledger module on every edit.
-    for var in ("CLAUDE_SESSION_ID", "CLAUDE_CODE_BRIDGE_SESSION_ID", "SESSION_ID"):
-        if value := os.environ.get(var):
+def _session(payload: dict) -> str:
+    # Claude Code puts session_id in every hook payload. The environment names
+    # are the ones docket.env.session_id reads, for harnesses that do not;
+    # importing it would load the whole ledger module on every edit.
+    candidates = (payload.get("session_id"),) + tuple(
+        os.environ.get(var)
+        for var in ("CLAUDE_SESSION_ID", "CLAUDE_CODE_BRIDGE_SESSION_ID", "SESSION_ID")
+    )
+    for value in candidates:
+        if isinstance(value, str) and value:
             return re.sub(r"[^\w.-]", "_", value)
     return ""
 
@@ -353,7 +358,7 @@ def governing_context(payload: dict) -> str:
     except ValueError:
         return ""
 
-    session = _session()
+    session = _session(payload)
     seen = _seen_file(session) if session else None
     if seen and _was_seen(seen, rel):
         return ""

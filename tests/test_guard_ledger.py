@@ -192,10 +192,11 @@ class GoverningRecordTests(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         return json.loads(done.stdout)["id"]
 
-    def run_hook(self, path, tool="Edit", env=None):
-        payload = json.dumps(
-            {"tool_name": tool, "tool_input": {"file_path": path}, "cwd": str(self.project)}
-        )
+    def run_hook(self, path, tool="Edit", env=None, session=None):
+        body = {"tool_name": tool, "tool_input": {"file_path": path}, "cwd": str(self.project)}
+        if session:
+            body["session_id"] = session
+        payload = json.dumps(body)
         done = subprocess.run(
             [sys.executable, str(GUARD)],
             input=payload,
@@ -269,6 +270,12 @@ class GoverningRecordTests(unittest.TestCase):
         self.run_hook("src/cache.py")
         self.assertTrue(any(self.state.rglob("*sess-1*")))
         self.assertFalse(any(p.name.startswith("sess") for p in self.project.rglob("*")))
+
+    def test_the_payload_session_id_dedupes_without_an_environment_variable(self):
+        self.record("Cache in redis", "src/cache.py")
+        env = {k: v for k, v in self.env.items() if k != "CLAUDE_SESSION_ID"}
+        self.assertIsNotNone(self.run_hook("src/cache.py", env=env, session="from-payload"))
+        self.assertIsNone(self.run_hook("src/cache.py", env=env, session="from-payload"))
 
     def test_without_a_session_every_edit_surfaces(self):
         self.record("Cache in redis", "src/cache.py")
