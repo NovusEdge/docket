@@ -577,5 +577,3 @@ def migrate_in_place(
         path.rename(backup)
         temp.rename(path)
     return len(records), report, notes
-
-

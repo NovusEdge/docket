@@ -19,7 +19,7 @@ from docket.cli.export import add_export_parser
 from docket.cli.feature_parser import add_feature_parser
 from docket.cli.graph import cmd_graph
 from docket.cli.query import cmd_filter_ids, cmd_list, cmd_show, cmd_where
-from docket.cli.record import cmd_claim, cmd_decision, cmd_question
+from docket.cli.record import cmd_claim, cmd_decision, cmd_question, cmd_record
 from docket.cli.review import add_review_parser
 from docket.cli.selfupdate import cmd_update, cmd_update_fetch
 from docket.cli.web import port_arg, web_conflict
@@ -41,18 +41,71 @@ class HelpAction(argparse.Action):
         parser.exit()
 
 
-def _add_shared_args(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--scope", action="append", default=[])
-    p.add_argument("--rationale", default="")
-    p.add_argument("--supports", action="append", default=[], metavar="CSV")
-    p.add_argument("--depends-on", default="", metavar="CSV")
-    p.add_argument("--answers", default="", metavar="CSV")
-    p.add_argument("--supersedes", default="", metavar="CSV")
-    p.add_argument("--supersede-reason", choices=REASONS, help="restate, revise or reverse")
-    p.add_argument("--evidence", action="append", default=[])
-    p.add_argument("--revisit", default="")
-    p.add_argument("--cost", default="")
-    p.add_argument("--pin", action="store_true")
+def _add_shared_args(p: argparse.ArgumentParser, kind: str) -> None:
+    """The flags a record of this kind accepts.
+
+    A flag a kind cannot carry is not registered, so argparse rejects it with
+    usage instead of validation rejecting the finished record.
+    """
+    p.add_argument(
+        "--scope",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="file, directory/ or glob this record governs; repeat for more",
+    )
+    p.add_argument("--rationale", default="", help="why, when the text does not already say")
+    p.add_argument(
+        "--supports",
+        action="append",
+        default=[],
+        metavar="IDS",
+        help="claim or decision IDs that ground this one; a comma list is one AND set, "
+        "and repeating the flag adds an OR alternative",
+    )
+    if kind != "question":
+        p.add_argument(
+            "--answers",
+            action="append",
+            default=[],
+            metavar="IDS",
+            help="question IDs this resolves; repeat or comma-separate",
+        )
+    if kind == "decision":
+        p.add_argument(
+            "--depends-on",
+            action="append",
+            default=[],
+            metavar="IDS",
+            help="operational prerequisites only, never a second --supports; repeat or "
+            "comma-separate",
+        )
+    p.add_argument(
+        "--supersedes",
+        action="append",
+        default=[],
+        metavar="IDS",
+        help=f"earlier {kind} IDs this replaces; repeat or comma-separate",
+    )
+    p.add_argument(
+        "--supersede-reason",
+        choices=REASONS,
+        help="restate: wording or links only; revise: substance changed; reverse: it was wrong",
+    )
+    p.add_argument(
+        "--evidence",
+        action="append",
+        default=[],
+        metavar="REF",
+        help='a URL or path, or a JSON object {"ref":..,"checked_at":..,"commit":..}; repeat',
+    )
+    p.add_argument("--revisit", default="", help="the condition that should reopen this")
+    p.add_argument("--cost", default="", help="what breaks, or must be redone, if this is wrong")
+    p.add_argument("--pin", action="store_true", help="always include it in the briefing")
+    p.add_argument(
+        "--dry-run", action="store_true", help="validate and print the record; write nothing"
+    )
+    p.add_argument("--json", action="store_true", help="print the written record as JSON")
 
 
 def _add_filter_args(p: argparse.ArgumentParser) -> None:
@@ -75,30 +128,55 @@ def main(argv: list[str] | None = None) -> int:
     sub = p.add_subparsers(
         dest="cmd",
         metavar=(
-            "{claim,decision,question,correct,review,list,show,graph,export,context,where,check,"
-            "rebase,migrate,init,feature,completion,update}"
+            "{claim,decision,question,record,correct,review,list,show,graph,export,context,where,"
+            "check,rebase,migrate,init,construct,feature,completion,update}"
         ),
     )
 
     cl = sub.add_parser("claim", help="record a proposition")
-    cl.add_argument("text")
+    cl.add_argument("text", help="the proposition, as a statement")
     cl.add_argument("--state", choices=STATES["claim"], default="unassessed")
-    _add_shared_args(cl)
+    _add_shared_args(cl, "claim")
     cl.set_defaults(func=cmd_claim)
 
     dec = sub.add_parser("decision", help="record a commitment")
-    dec.add_argument("text", metavar="QUESTION")
-    dec.add_argument("--choice", required=True)
-    dec.add_argument("--alternative", action="append", default=[])
+    dec.add_argument(
+        "text", help="what the decision commits to, as a statement; never the question it settles"
+    )
+    dec.add_argument("--choice", required=True, help="the option chosen, in detail")
+    dec.add_argument(
+        "--alternative",
+        action="append",
+        default=[],
+        help="an option that was live and lost; repeat; leave off if none was",
+    )
     dec.add_argument("--state", choices=STATES["decision"], default="adopted")
-    dec.add_argument("--decided-by", default="")
-    _add_shared_args(dec)
+    dec.add_argument(
+        "--decided-by", default="", help="who owns the decision, when not the recorder"
+    )
+    _add_shared_args(dec, "decision")
     dec.set_defaults(func=cmd_decision)
 
     qu = sub.add_parser("question", help="record an unresolved inquiry")
-    qu.add_argument("text")
-    _add_shared_args(qu)
+    qu.add_argument("text", help="the open question")
+    _add_shared_args(qu, "question")
     qu.set_defaults(func=cmd_question)
+
+    rc = sub.add_parser("record", help="append a batch of records from JSONL, all or nothing")
+    rc.add_argument(
+        "file",
+        nargs="?",
+        default="-",
+        help="JSONL, one record per line, or - for stdin. Fields are the record's own: "
+        "kind, text, choice, alternatives, scope, supports, answers, depends_on, "
+        "supersedes, rationale, evidence, revisit, cost_if_wrong, ... "
+        "An ID written @N names the Nth record of the batch",
+    )
+    rc.add_argument(
+        "--dry-run", action="store_true", help="validate and print the records; write nothing"
+    )
+    rc.add_argument("--json", action="store_true", help="print the written records as JSONL")
+    rc.set_defaults(func=cmd_record)
 
     add_correct_parser(sub)
     add_review_parser(sub)

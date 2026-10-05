@@ -44,10 +44,20 @@ Ledger commands use the file that `docket where` reports. Run
 | `--supersedes IDS` | all | Same-kind records this one retires |
 | `--supersede-reason R` | all | `restate`, `revise`, or `reverse`. Refused without `--supersedes`. Omitting it with `--supersedes` prints a hint and reads as `revise`. |
 | `--pin` | all | Add a ranking bonus in briefings; inclusion is not guaranteed |
+| `--dry-run` | all | Validate against the ledger and print the record as JSON; write nothing |
+| `--json` | all | Print the written record as JSON |
 
-Every ID flag takes a comma-separated list. Repeat `--supports` for alternative
-sets of grounds: `--supports c1,c2 --supports c3` means `(c1 AND c2) OR c3`.
-Repeat `--scope`, `--evidence`, or `--alternative` for more than one value.
+Every ID flag takes a comma-separated list and may be repeated; `--depends-on c1 --depends-on c2,c3` collects all three. `--supports` is the exception: each occurrence is one AND set, so `--supports c1,c2 --supports c3` means `(c1 AND c2) OR c3`. Repeat `--scope`, `--evidence`, or `--alternative` for more than one value. A flag the kind cannot carry, such as `--depends-on` on a claim, is a usage error.
+
+`docket record [FILE] [--dry-run] [--json]`
+
+Append a batch of records from JSONL, one record per line, read from FILE or stdin. Each line holds a record's own fields: `kind`, `text`, and any of `state`, `choice`, `alternatives`, `scope`, `rationale`, `supports`, `depends_on`, `answers`, `supersedes`, `supersede_reason`, `evidence`, `revisit`, `cost_if_wrong`, `pinned`, `decided_by`. An ID written `@N` names the Nth record of the batch, counted from 1. Every line is validated before any is written, so one bad line writes nothing.
+
+```jsonl
+{"kind": "question", "text": "Which cache should we use?"}
+{"kind": "claim", "text": "Redis already runs in production", "state": "accepted"}
+{"kind": "decision", "text": "Sessions live in Redis.", "choice": "Redis", "supports": [["@2"]], "answers": ["@1"]}
+```
 
 A prerequisite is followed through restatements and revisions to the head of
 its chain. That head must be adopted and applicable for a decision, or accepted

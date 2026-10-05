@@ -450,7 +450,6 @@ def validate_entries(entries: Any) -> list[dict[str, Any]]:
     return validated
 
 
-
 def _torn_tail(text: str) -> int | None:
     """Where an interrupted append's partial last line starts, or None.
 
@@ -832,7 +831,7 @@ def _ledger_lock(path: Path, exclusive: bool = True) -> Iterator[None]:
 ledger_lock = _ledger_lock
 
 
-def append(path: Path | str, record: dict[str, Any]) -> dict[str, Any]:
+def append(path: Path | str, record: dict[str, Any], *, dry_run: bool = False) -> dict[str, Any]:
     """Validate and append one record under a process lock.
 
     The caller may supply an empty id; the record id, or a correction's
@@ -843,31 +842,83 @@ def append(path: Path | str, record: dict[str, Any]) -> dict[str, Any]:
     pre-numbered correction, arriving through rebase, skips them, the same way
     a pre-numbered record does.
     """
+    return append_many(path, [record], dry_run=dry_run)[0]
+
+
+_BATCH_REF = re.compile(r"@([1-9][0-9]*)$")
+
+
+def _batch_refs(record: dict[str, Any], written: list[dict[str, Any]]) -> dict[str, Any]:
+    """``record`` with each ``@N`` reference replaced by the id batch record N took."""
+
+    def get(value: str) -> str:
+        match = _BATCH_REF.fullmatch(value)
+        if not match:
+            return value
+        index = int(match.group(1))
+        if index > len(written):
+            raise _error("batch", f"{value} names a record that is not earlier in this batch")
+        return str(written[index - 1]["id"])
+
+    for field in ("depends_on", "answers", "supersedes"):
+        if isinstance(record.get(field), list):
+            record[field] = [get(v) if isinstance(v, str) else v for v in record[field]]
+    if isinstance(record.get("supports"), list):
+        record["supports"] = [
+            [get(v) if isinstance(v, str) else v for v in group]
+            if isinstance(group, list)
+            else group
+            for group in record["supports"]
+        ]
+    for field in ("corrects", "reviews"):
+        if isinstance(record.get(field), str):
+            record[field] = get(record[field])
+    return record
+
+
+def append_many(
+    path: Path | str, records: list[dict[str, Any]], *, dry_run: bool = False
+) -> list[dict[str, Any]]:
+    """Validate every record, then append them all, under one lock.
+
+    Nothing is written unless every record validates, so a batch is all or
+    nothing. A reference written ``@N`` names the Nth record of the batch,
+    counted from 1, which lets a batch cite a record it is creating.
+    ``dry_run`` returns the numbered records and writes nothing.
+    """
     path = Path(path)
     with _ledger_lock(path):
         # flock is per file description, not per thread, so a locking read here
         # would block against the lock this call already holds.
         entries = read(path, lock=False, strict=True)
-        candidate = copy.deepcopy(record)
-        if candidate.get("kind") == corrections.KIND:
-            from_cli = not candidate.get("id")
-            if from_cli:
-                candidate["id"] = corrections.allocate(entries, str(candidate.get("corrects", "")))
-            validate_record(candidate, previous=entries)
-            if from_cli:
-                corrections.refuse(entries, candidate)
-        elif candidate.get("kind") == reviews.KIND:
-            if not candidate.get("id"):
-                candidate["id"] = reviews.allocate(entries, str(candidate.get("reviews", "")))
-                # Grounds are what the record owes under this lock, not what the
-                # caller saw before it.
-                reviews.refuse(entries, candidate)
-            validate_record(candidate, previous=entries)
-        else:
-            if not candidate.get("id"):
-                kind = candidate.get("kind") or ""
-                candidate["id"] = allocate_id(entries, kind)
-            validate_record(candidate, previous=entries)
+        written: list[dict[str, Any]] = []
+        for record in records:
+            candidate = _batch_refs(copy.deepcopy(record), written)
+            if candidate.get("kind") == corrections.KIND:
+                from_cli = not candidate.get("id")
+                if from_cli:
+                    candidate["id"] = corrections.allocate(
+                        entries, str(candidate.get("corrects", ""))
+                    )
+                validate_record(candidate, previous=entries)
+                if from_cli:
+                    corrections.refuse(entries, candidate)
+            elif candidate.get("kind") == reviews.KIND:
+                if not candidate.get("id"):
+                    candidate["id"] = reviews.allocate(entries, str(candidate.get("reviews", "")))
+                    # Grounds are what the record owes under this lock, not what
+                    # the caller saw before it.
+                    reviews.refuse(entries, candidate)
+                validate_record(candidate, previous=entries)
+            else:
+                if not candidate.get("id"):
+                    kind = candidate.get("kind") or ""
+                    candidate["id"] = allocate_id(entries, kind)
+                validate_record(candidate, previous=entries)
+            entries.append(candidate)
+            written.append(candidate)
+        if dry_run:
+            return written
         path.parent.mkdir(parents=True, exist_ok=True)
         try:
             if path.exists():
@@ -886,13 +937,16 @@ def append(path: Path | str, record: dict[str, Any]) -> dict[str, Any]:
                     else:
                         stream.seek(0, os.SEEK_END)
                 stream.write(
-                    json.dumps(candidate, ensure_ascii=False, separators=(",", ":")) + "\n"
+                    "".join(
+                        json.dumps(c, ensure_ascii=False, separators=(",", ":")) + "\n"
+                        for c in written
+                    )
                 )
                 stream.flush()
                 os.fsync(stream.fileno())
         except OSError as exc:
             raise _error("append", f"cannot write {path}: {exc}") from exc
-    return candidate
+    return written
 
 
 def parse_evidence(value: str) -> dict[str, str]:

@@ -118,6 +118,71 @@ class CliTests(unittest.TestCase):
             self.assertIn("migrate", result.stderr)
             self.assertNotIn("Traceback", result.stderr)
 
+    def test_repeated_and_comma_list_flags_both_collect_every_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".git").mkdir()
+            run(root, "claim", "One", "--state", "accepted")
+            run(root, "claim", "Two", "--state", "accepted")
+            run(root, "claim", "Three", "--state", "accepted")
+            result = run(
+                root, "decision", "Pick", "--choice", "A", "--depends-on", "c1",
+                "--depends-on", "c2,c3", "--json",
+            )  # fmt: skip
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)["depends_on"], ["c1", "c2", "c3"])
+
+    def test_a_flag_the_kind_cannot_carry_is_a_usage_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".git").mkdir()
+            result = run(root, "claim", "A claim", "--depends-on", "c1")
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("unrecognized arguments", result.stderr)
+            result = run(root, "question", "Which?", "--answers", "q1")
+            self.assertEqual(result.returncode, 2)
+
+    def test_dry_run_validates_and_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".git").mkdir()
+            result = run(root, "claim", "A claim", "--dry-run")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)["id"], "c1")
+            self.assertEqual(run(root, "list", "--json").stdout.strip(), "[]")
+            result = run(root, "claim", "Bad", "--supports", "c9", "--dry-run")
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("unknown or later", result.stderr)
+
+    def test_a_batch_is_all_or_nothing_and_resolves_batch_references(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".git").mkdir()
+            batch = root / "batch.jsonl"
+            lines = [
+                {"kind": "question", "text": "Which cache?"},
+                {"kind": "claim", "text": "Redis is already deployed", "state": "accepted"},
+                {
+                    "kind": "decision",
+                    "text": "Sessions live in Redis.",
+                    "choice": "Redis",
+                    "supports": [["@2"]],
+                    "answers": ["@1"],
+                },
+            ]
+            bad = [*lines, {"kind": "claim", "text": "Dangling", "supports": [["c99"]]}]
+            batch.write_text("".join(json.dumps(line) + "\n" for line in bad))
+            result = run(root, "record", str(batch))
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(run(root, "list", "--json").stdout.strip(), "[]")
+            batch.write_text("".join(json.dumps(line) + "\n" for line in lines))
+            result = run(root, "record", str(batch))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            records = json.loads(run(root, "list", "--json").stdout)
+            decision = next(r for r in records if r["kind"] == "decision")
+            self.assertEqual(decision["supports"], [["c2"]])
+            self.assertEqual(decision["answers"], ["q1"])
+
     def test_symlinked_cli_resolves_lib_from_real_executable(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
