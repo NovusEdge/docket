@@ -37,11 +37,9 @@ DEFAULTS: dict[str, dict[str, int]] = {
         "detail_max": 140,
         # Most records the index names. Beyond this it prints a count and points
         # at `docket list`, because several hundred identifiers are not
-        # something an agent can act on. Measured in experiments/context-scale:
-        # the admission gate prices the index at one bare identifier per record,
-        # so each index line adds about 40 characters past budget.target. At 40
-        # lines a thousand-record ledger renders 9,500 characters; at 120 it
-        # renders 12,400.
+        # something an agent can act on. The admission gate prices each index
+        # line at its rendered detail, so raising this leaves less of
+        # budget.target for full-text records.
         "max_lines": 40,
     },
     "weights": {

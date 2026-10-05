@@ -247,6 +247,11 @@ def main(argv: list[str] | None = None) -> int:
     ctx.add_argument(
         "--since", default="", help="report what changed after this record ID or ID@DIGEST"
     )
+    ctx.add_argument(
+        "--explain",
+        action="store_true",
+        help="print each record's selection score and the selection rule",
+    )
     ctx.set_defaults(func=cmd_context)
 
     wh = sub.add_parser("where", help="print which ledger file is in use")

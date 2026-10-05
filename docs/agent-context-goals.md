@@ -62,8 +62,8 @@ A briefing should make these items easy to find:
 - Missing information that requires retrieval before proceeding.
 
 Use task text, affected files, explicit record IDs, and relationships to select
-records. Make selection reasons inspectable so an agent can refine an unhelpful
-query. Keep historical explanations available without allowing old defect
+records. Make selection reasons inspectable on request (`docket context --explain`)
+so an agent can refine an unhelpful query without paying for them in every briefing. Keep historical explanations available without allowing old defect
 reports to crowd out current commitments.
 
 ## Explain dependencies and coverage

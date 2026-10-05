@@ -143,20 +143,23 @@ class ContextTests(unittest.TestCase):
     def test_budget_is_hard_unicode_safe_and_never_splits_a_block(self):
         records = [
             entry("c1", "claim", "Unicode premise: café 東京 漢", state="accepted", pinned=True),
-            entry(
-                "c2",
-                "claim",
-                "A second long premise that should be omitted",
-                state="accepted",
-                pinned=True,
+            *(
+                entry(
+                    f"c{n}",
+                    "claim",
+                    f"A later long premise number {n} that should be omitted",
+                    state="accepted",
+                    pinned=True,
+                )
+                for n in range(2, 7)
             ),
         ]
-        rendered = build_context(projected(records), ledger="repo", max_chars=700)
-        self.assertLessEqual(len(rendered), 700)
-        # c2 outranks c1 on recency, so it takes the single full-text slot.
-        self.assertIn("A second long premise", rendered)
+        rendered = build_context(projected(records), ledger="repo", max_chars=1000)
+        self.assertLessEqual(len(rendered), 1000)
+        # Recency ranks the later records first, so c1 is left to the index.
+        self.assertIn("A later long premise number 6", rendered)
         self.assertNotIn("### c1 ", rendered)
-        self.assertIn("c1", rendered)
+        self.assertRegex(rendered, r"(?m)^c1 claim ")
         self.assertIn("index:", rendered)
 
     def test_all_records_and_task_briefing_have_fixed_fixture_coverage(self):
@@ -201,7 +204,7 @@ class ContextTests(unittest.TestCase):
         ]
         output = build_context(projected(records), query="Which backend")
         self.assertIn("### q1 | question | resolved", output)
-        self.assertIn("role: inquiry", output)
+        self.assertNotIn("role:", output)
         self.assertIn("### d3 | decision | adopted [related record]", output)
         self.assertNotIn("related premise", output)
         reverse = build_context(projected(records), query="Unique prerequisite")
@@ -319,9 +322,13 @@ class ContextTests(unittest.TestCase):
 
     def test_selection_reason_names_the_score_and_components(self):
         records = [entry("d1", "decision", "Renderer budget", choice="y", scope=("docket/**",))]
-        rendered = build_context(projected(records), files=("docket/context.py",), ledger="repo")
+        history = projected(records)
+        rendered = build_context(history, files=("docket/context.py",), ledger="repo", explain=True)
         self.assertRegex(rendered, r"selection: score \d+ \| ")
         self.assertIn("scope=", rendered)
+        quiet = build_context(history, files=("docket/context.py",), ledger="repo")
+        self.assertNotIn("selection:", quiet)
+        self.assertNotIn("scope=", quiet)
 
     def test_rare_term_outranks_a_term_present_in_most_records(self):
         records = [
@@ -403,7 +410,7 @@ class ContextTests(unittest.TestCase):
 
     def test_header_names_the_latest_record_and_the_real_selection(self):
         records = [entry("c1", "claim", "A premise", state="accepted")]
-        rendered = build_context(projected(records), ledger="repo")
+        rendered = build_context(projected(records), ledger="repo", explain=True)
         self.assertRegex(rendered, r"\| latest: c1@[0-9a-f]{12}")
         self.assertIn("no task scope given", rendered)
 
@@ -471,7 +478,7 @@ class ContextTests(unittest.TestCase):
     def test_index_caps_and_counts_the_remainder(self):
         from docket.config import merge
 
-        records = [entry(f"c{n}", "claim", f"Premise {n}", state="accepted") for n in range(1, 101)]
+        records = [entry(f"c{n}", "claim", f"Premise {n}", state="accepted") for n in range(1, 401)]
         settings = merge({"index": {"max_lines": 10}})
         rendered = build_context(projected(records), ledger="repo", settings=settings)
         listed = [l for l in rendered.splitlines() if re.match(r"^c\d+ claim ", l)]
@@ -481,7 +488,7 @@ class ContextTests(unittest.TestCase):
     def test_the_capped_index_keeps_the_highest_scoring_records(self):
         from docket.config import merge
 
-        records = [entry(f"c{n}", "claim", f"Premise {n}", state="accepted") for n in range(1, 101)]
+        records = [entry(f"c{n}", "claim", f"Premise {n}", state="accepted") for n in range(1, 401)]
         settings = merge({"index": {"max_lines": 5}})
         rendered = build_context(projected(records), ledger="repo", settings=settings)
         listed = [int(n) for n in re.findall(r"^c(\d+) claim ", rendered, re.M)]
@@ -804,7 +811,7 @@ class DegreeTests(unittest.TestCase):
             entry("d6", "decision", "Fourth", choice="d", supersedes=("d3",)),
         ]
         rendered = build_context(
-            projected(records), query="premise", ledger="repo", all_records=True
+            projected(records), query="premise", ledger="repo", all_records=True, explain=True
         )
         degrees = {}
         for block in rendered.split("### ")[1:]:
@@ -842,6 +849,63 @@ class DegreeTests(unittest.TestCase):
             context._relation_ids = original
 
         self.assertLess(calls, 4 * len(records))
+
+
+def _bulky(scope, text="Premise"):
+    return projected(
+        [
+            entry(
+                f"c{n}", "claim", f"{text} {n}", state="accepted", scope=scope, rationale="r" * 400
+            )
+            for n in range(1, 61)
+        ]
+    )
+
+
+class OverTargetAllowanceTests(unittest.TestCase):
+    def test_a_glob_scope_match_cannot_pass_the_target(self):
+        for scope in (("lib/**",), ("lib/",)):
+            rendered = build_context(_bulky(scope), files=("lib/x.py",), ledger="repo")
+            self.assertLessEqual(len(rendered), 8000, scope)
+
+    def test_an_exact_scope_match_may_pass_the_target_and_keeps_a_detailed_index(self):
+        rendered = build_context(_bulky(("lib/x.py",)), files=("lib/x.py",), ledger="repo")
+        self.assertGreater(len(rendered), 8000)
+        self.assertLessEqual(len(rendered), 24000)
+        self.assertRegex(rendered, r"(?m)^c\d+ claim accepted  \S")
+        self.assertNotRegex(rendered, r"# index: c\d+, ")
+
+    def test_a_query_hit_may_pass_the_target(self):
+        rendered = build_context(_bulky((), text="needle"), query="needle", ledger="repo")
+        self.assertGreater(len(rendered), 8000)
+        self.assertLessEqual(len(rendered), 24000)
+        self.assertRegex(rendered, r"(?m)^c\d+ claim accepted  \S")
+
+
+class BoilerplateTests(unittest.TestCase):
+    def test_per_record_boilerplate_is_gone(self):
+        records = [
+            entry(
+                "d1",
+                "decision",
+                "Use the cache",
+                choice="cache",
+                evidence=({"ref": "issue-7"},),
+            )
+        ]
+        rendered = build_context(projected(records), ledger="repo")
+        for noise in ("role:", "applicable:", "evidence note:", "provenance:", "selection:"):
+            self.assertNotIn(noise, rendered)
+        self.assertIn("evidence: ", rendered)
+        self.assertEqual(rendered.count("not freshly verified"), 1)
+        self.assertIn("decisions are commitments, claims are premises", rendered)
+
+    def test_the_header_names_the_launcher_command(self):
+        rendered = build_context(
+            projected([entry("c1", "claim", "A premise")]), ledger="repo", command="/x/bin/docket"
+        )
+        self.assertIn("\n# command: /x/bin/docket\n", rendered)
+        self.assertNotIn("# command:", build_context(projected([entry("c1", "claim", "A")])))
 
 
 class DeltaTests(unittest.TestCase):

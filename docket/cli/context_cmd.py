@@ -195,6 +195,8 @@ def cmd_context(args: argparse.Namespace) -> int:
             settings_id=settings_id,
             feature=_feature_block(env.project_root(), entries),
             latest_id=raw[-1]["id"] if raw else "",
+            command=str(ROOT / "bin" / "docket"),
+            explain=args.explain,
         )
     except (LedgerError, OSError) as exc:
         print(str(exc), file=sys.stderr)
