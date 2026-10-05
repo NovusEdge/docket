@@ -83,9 +83,14 @@ class ConfigTests(unittest.TestCase):
         ]
         history = projected(records)
         tuned = merge({"weights": {"scope_glob": 10}})
-        plain = build_context(history, files=("lib/render.py",), ledger="repo")
+        plain = build_context(history, files=("lib/render.py",), ledger="repo", explain=True)
         changed = build_context(
-            history, files=("lib/render.py",), ledger="repo", settings=tuned, settings_id="abcd1234"
+            history,
+            files=("lib/render.py",),
+            ledger="repo",
+            settings=tuned,
+            settings_id="abcd1234",
+            explain=True,
         )
         self.assertIn("scope=700", plain)
         self.assertIn("scope=10", changed)

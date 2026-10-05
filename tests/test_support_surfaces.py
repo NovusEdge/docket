@@ -59,7 +59,7 @@ class BriefingTests(unittest.TestCase):
             )
         ]
         text = build_context(ledger.project(entries), all_records=True)
-        self.assertIn("applicable: true", text)
+        self.assertNotIn("applicable:", text)
         self.assertNotIn("blocked:", text)
 
 

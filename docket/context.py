@@ -84,13 +84,16 @@ def build_context(
     settings_id: str = "default",
     feature: str = "",
     latest_id: str = "",
+    command: str = "",
+    explain: bool = False,
 ) -> str:
     """Render whole records under tiered budget rules.
 
     Every current record appears, in full text or as an index line. A record
-    that matches the task scope or query renders in full even when that
-    exceeds the default target, up to budget.outer_multiple times the target.
-    Everything else competes for the remaining target by score.
+    with an exact path scope or a query hit renders in full even when that
+    exceeds the default target, up to budget.outer_multiple times the target;
+    the index at its documented detail is priced in before it does. Everything
+    else competes for the remaining target by score.
 
     A caller that names ``max_chars`` gets a hard ceiling instead, and no rule
     may exceed it.
@@ -122,7 +125,7 @@ def build_context(
     for targets in relations.values():
         in_degrees.update(targets)
 
-    scores, reasons, task_matched = rank_records(
+    scores, reasons, task_matched, strong = rank_records(
         current,
         query=query,
         files=file_list,
@@ -167,7 +170,17 @@ def build_context(
     prefix = (
         feature_prefix
         + "\n".join(
-            _header(ledger, revision, query, tuple(file_list), all_records, latest, settings_id)
+            _header(
+                ledger,
+                revision,
+                query,
+                tuple(file_list),
+                all_records,
+                latest,
+                settings_id,
+                command,
+                explain,
+            )
         )
         + "\n\n"
     )
@@ -185,7 +198,7 @@ def build_context(
         current_ids=current_ids,
         relations=relations,
         scores=scores,
-        reasons=reasons,
+        reasons=reasons if explain else {},
         task_matched=task_matched,
         prefix=prefix,
         cfg=cfg,
@@ -200,7 +213,7 @@ def build_context(
     budget.shrink_prefix(feature_prefix + short)
 
     for ident in root_ids:
-        budget.admit(ident, "selected", mandatory=ident in task_matched)
+        budget.admit(ident, "selected", mandatory=ident in strong)
 
     # A blocked decision's explanation inherits the decision's own budget
     # standing, ahead of the frontier: a neighbour that scores higher would
@@ -210,7 +223,7 @@ def build_context(
             continue
         for path in _blocking_paths(ident, by_id, cache=blocking_cache):
             for step in path:
-                budget.admit(step, "blocking prerequisite", mandatory=ident in task_matched)
+                budget.admit(step, "blocking prerequisite", mandatory=ident in strong)
 
     def expand(seeds):
         # Adjacency order is an artefact of insertion, so a flat cap on it

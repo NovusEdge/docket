@@ -262,8 +262,12 @@ docket context --query "billing" --max-chars 4000
 ```
 
 The limit is measured in characters. The default minimum is 512. Without an
-explicit limit, Docket aims for 8,000 characters and can use more space for
-matching records.
+explicit limit, Docket aims for 8,000 characters. Only a record with an exact
+path scope for a requested file, or a hit on `--query`, can use more space. A
+glob or directory scope ranks a record higher but does not unlock extra space.
+
+The header names the command path to run (`# command:`). Add `--explain` to see
+each record's selection score and the selection rule.
 
 To ask for the whole ledger within a budget:
 

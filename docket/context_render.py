@@ -24,14 +24,6 @@ from docket.context_model import (
 from docket.context_select import _blocking_paths, _unavailable_reason
 
 
-def _role(kind: str) -> str:
-    return {
-        "claim": "premise",
-        "decision": "commitment",
-        "question": "inquiry",
-    }.get(kind.casefold(), "record")
-
-
 def _index_line(entry: Mapping[str, Any], detail: int = 40) -> str:
     """One line naming a record the briefing did not render in full."""
 
@@ -53,6 +45,8 @@ def _header(
     all_records: bool,
     latest: str = "",
     settings_id: str = "default",
+    command: str = "",
+    explain: bool = False,
 ) -> list[str]:
     identity = _clip_metadata(ledger or "ledger", 180)
     lines = [
@@ -64,6 +58,8 @@ def _header(
         + ("" if settings_id == "default" else f" | settings: {settings_id}"),
         "# Context: decisions are commitments, claims are premises, questions are inquiries; states are not truth and authors are recorders.",
     ]
+    if command:
+        lines.append(f"# command: {command}")
     if query.strip():
         lines.append(f"# query: {_clip_metadata(query, 140)}")
     if files:
@@ -75,6 +71,8 @@ def _header(
             # reproducible from its own header.
             digest = hashlib.sha256("\0".join(files).encode("utf-8")).hexdigest()[:8]
             lines.append(f"# files: {len(files)} paths, {digest}: {_clip_metadata(joined, 150)}")
+    if not explain:
+        return lines
     if all_records:
         lines.append("# selection: all current records")
     elif query.strip() or files:
@@ -124,7 +122,9 @@ def _footer(
             else "task matches and their prerequisites covered"
         )
     lines.append(f"# Coverage: {coverage}. Selected ledger data only.")
-    lines.append("# Declared grounds; evidence not freshly verified.")
+    lines.append(
+        "# Declared grounds; evidence references are supplied provenance, not freshly verified."
+    )
     lines.append("# Retrieve full record: docket show RECORD_ID --json")
     return "\n\n" + "\n".join(lines) + "\n"
 
@@ -140,7 +140,6 @@ def _render_record(
     state = _effective_state(entry)
     recorded_state = _recorded_state(entry)
     ident = _id(entry) or "(missing id)"
-    role = _role(kind)
     tags = [relation]
     if bool(entry.get("pinned")):
         tags.append("pinned")
@@ -148,7 +147,7 @@ def _render_record(
         tags.append("historical")
     if _list(entry.get("corrections")):
         tags.append("corrected")
-    lines = [f"### {ident} | {kind} | {state} [{', '.join(tags)}]", f"role: {role}"]
+    lines = [f"### {ident} | {kind} | {state} [{', '.join(tags)}]"]
     lines.append(f"text: {_text(entry.get('text'))}")
     if recorded_state != state:
         lines.append(f"recorded state: {recorded_state}")
@@ -163,8 +162,8 @@ def _render_record(
         ]
         if alternatives:
             lines.append(f"alternatives: {_json(alternatives)}")
-        if "applicable" in entry and entry.get("applicable") is not None:
-            lines.append(f"applicable: {str(bool(entry.get('applicable'))).lower()}")
+        if entry.get("applicable") is False:
+            lines.append("applicable: false")
         if _list(entry.get("blocked_by")):
             lines.append(f"blocked_by: {_json(_list(entry.get('blocked_by')))}")
         if by_id:
@@ -189,17 +188,6 @@ def _render_record(
             lines.append(f"{field}: {value}")
     if _list(entry.get("evidence")):
         lines.append(f"evidence: {_json(_list(entry.get('evidence')))}")
-        lines.append(
-            "evidence note: references are supplied provenance and were not freshly verified by this context renderer."
-        )
-
-    provenance = []
-    for field in ("author", "ts", "session", "branch"):
-        value = _text(entry.get(field))
-        if value:
-            provenance.append(f"{field}={value}")
-    if provenance:
-        lines.append("provenance: " + ", ".join(provenance))
     if _is_retired(entry):
         lines.append(
             f"warning: retired by {_text(entry.get('retired_by'))}; this historical record is not current support."

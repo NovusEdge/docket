@@ -11,9 +11,10 @@
 [budget]
 # Characters the briefing aims for.
 target = 8000
-# A record matching the task scope or query renders in full even past the
-# target, up to this multiple of it. Raise it for a large ledger where many
-# records share one scope.
+# A record with an exact path scope for a requested file, or a hit on --query,
+# renders in full even past the target, up to this multiple of it. A glob or
+# directory scope ranks a record but never lifts it past the target. Raise this
+# for a large ledger where many records share one file.
 outer_multiple = 3
 # The smallest budget --max-chars accepts.
 minimum = 512
@@ -26,8 +27,8 @@ detail_min = 40
 detail_max = 140
 # Most records the index names. Past this it prints a count and points at
 # `docket list`. Several hundred identifiers cost characters an agent cannot
-# act on. Each line adds about 40 characters past budget.target, so raising
-# this raises the briefing.
+# act on. The budget reserves each index line at its rendered length, so
+# raising this leaves less room for full-text records.
 max_lines = 40
 
 [weights]

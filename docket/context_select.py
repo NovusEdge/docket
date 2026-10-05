@@ -227,18 +227,21 @@ def rank_records(
     rank_of: Mapping[str, int],
     total_ranks: int,
     in_degrees: Mapping[str, int],
-) -> tuple[dict[str, int], dict[str, str], set[str]]:
-    """Score every current record: the scores, the printed reasons, the hits.
+) -> tuple[dict[str, int], dict[str, str], set[str], set[str]]:
+    """Score every current record: the scores, the printed reasons, the hits, the strong hits.
 
     A hit is a record the caller's own task named, through scope or through
-    text. It decides which records may exceed the soft budget, so it is
-    returned rather than recomputed from the scores, where a scope component
-    of zero is indistinguishable from no scope at all.
+    text. A strong hit is the subset that may exceed the soft budget: an exact
+    path scope or a query match. A glob or directory scope is a guess at the
+    task, so it ranks without earning the allowance. Both are returned rather
+    than recomputed from the scores, where a scope component of zero is
+    indistinguishable from no scope at all.
     """
 
     scores: dict[str, int] = {}
     reasons: dict[str, str] = {}
     hits: set[str] = set()
+    strong: set[str] = set()
     term_weights = _term_weights(current, query)
     for item in current:
         ident = _id(item)
@@ -255,9 +258,12 @@ def rank_records(
         scores[ident] = score
         reasons[ident] = _selection_reason(score, components)
         # _score drops zero components, so a scope entry means a scope match.
-        if any(name == "scope" for name, _ in components) or text_points:
+        scope_points = dict(components).get("scope", 0)
+        if scope_points or text_points:
             hits.add(ident)
-    return scores, reasons, hits
+        if scope_points == weights["scope_exact"] or text_points:
+            strong.add(ident)
+    return scores, reasons, hits, strong
 
 
 __all__ = [

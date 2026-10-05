@@ -83,6 +83,7 @@ class Admission:
         # The index names at most max_lines records, so the gate prices a
         # sliding window over current_ids instead of the whole list. The cursor
         # only moves forward, which keeps the whole admission pass linear.
+        self.line_cache: dict[str, int] = {}
         self.window: list[str] = []
         self.window_length = 0
         self.cursor = 0
@@ -178,13 +179,18 @@ class Admission:
                 parts.append(f"# and {len(deferred) - len(shown)} more; docket list")
         return "\n".join(parts).rstrip("\n") + self.footer(candidate_set, len(shown))
 
+    def line_length(self, ident):
+        if ident not in self.line_cache:
+            self.line_cache[ident] = len(_index_line(self.by_id[ident], self.detail_of(ident)))
+        return self.line_cache[ident]
+
     def _fill_window(self):
         while len(self.window) < self.max_lines and self.cursor < len(self.current_ids):
             candidate = self.current_ids[self.cursor]
             self.cursor += 1
             if candidate not in self.included:
                 self.window.append(candidate)
-                self.window_length += len(candidate)
+                self.window_length += self.line_length(candidate)
 
     def _next_after_window(self, exclude):
         """The name that would enter the window if one left it."""
@@ -200,23 +206,26 @@ class Admission:
     def trial_length(self, ident):
         """Length of the briefing that admitting ident would produce.
 
-        This mirrors render(order + [ident], included | {ident}, names_only=True)
-        exactly. A rendered record is never empty, so the full-text block is
-        always present and only the index part varies.
+        This mirrors render(order + [ident], included | {ident}) exactly, index
+        lines at their documented detail. Pricing the index as bare IDs let
+        full text take the whole budget and left the final render over the
+        ceiling, where degrade() flattened every index line. A rendered record
+        is never empty, so the full-text block is always present and only the
+        index part varies.
         """
 
         full = self.body_length + len(self.rendered_record(ident)) + 2 * len(self.order)
         deferred = self.deferred_count - (1 if ident in self.current_id_set else 0)
         length, shown = self.window_length, len(self.window)
         if ident in self.window:
-            length -= len(ident)
+            length -= self.line_length(ident)
             shown -= 1
             entering = self._next_after_window(ident)
             if entering:
-                length += len(entering)
+                length += self.line_length(entering)
                 shown += 1
         if shown:
-            index = self.index_head + length + 2 * (shown - 1)
+            index = len(f"# index: {shown} more current records") + 1 + length + (shown - 1)
             total = self.base_length + full + index + 4
             if deferred > shown:
                 total += len(f"# and {deferred - shown} more; docket list") + 1
@@ -255,9 +264,7 @@ class Admission:
         # ceiling, which equals the target whenever the caller named one.
         limit = self.hard_limit if mandatory else self.soft_limit
         if self.verify:
-            measured = len(
-                self.render(self.order + [ident], self.included | {ident}, names_only=True)
-            )
+            measured = len(self.render(self.order + [ident], self.included | {ident}))
             computed = self.trial_length(ident)
             if measured != computed:
                 raise AssertionError(
@@ -276,7 +283,7 @@ class Admission:
             self.deferred_count -= 1
         if ident in self.window:
             self.window.remove(ident)
-            self.window_length -= len(ident)
+            self.window_length -= self.line_length(ident)
             self._fill_window()
         self.related_pending.discard(ident)
         self.related_pending.update(
