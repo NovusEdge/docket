@@ -10,8 +10,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `docket export --include-orphans` also draws records with no relation, in all three formats.
+- `docket record [FILE|-]` appends a JSONL batch of records, validating every line before writing any. An ID written `@N` names the Nth record of the batch.
+- `claim`, `decision` and `question` take `--dry-run`, which validates against the ledger and prints the record without writing, and `--json`.
+- The pre-edit hook names the records whose exact file scope, or a directory scope at least two levels deep, covers the file being edited, once per file per session.
+- `docket context --explain` prints each record's `selection:` score line, which the briefing now leaves out by default.
+- `docket list --json --fields CSV` keeps only the named fields. `--legacy` on `list` and `show` brings back the migration audit block.
+- `features.jsonl` merges through the docket merge driver, which renumbers the other branch's colliding feature IDs. `docket init` adds the attribute.
+- Feature events store a key for each ledger ID they cite. The brief follows the key when a ledger merge renumbered the record, `docket check` reports such IDs, and `docket feature remap` with no map file repoints them.
 
 ### Changed
+
+- Every ID flag on `claim`, `decision` and `question` accepts repeats and comma lists. A flag the kind cannot carry, such as `--depends-on` on a claim, is a usage error. Every record flag has help text.
+- The briefing stays within its target unless an exact path scope or a query hit needs more room; a glob or directory scope no longer unlocks the overflow. Index lines keep their ID, kind, state and headline. Records drop the `role`, `provenance`, true `applicable` and repeated evidence lines, and the header names the docket command path.
+- `list` and `show` JSON leave out the `legacy` migration audit block unless `--legacy` is passed.
+- A ledger line written by a newer docket, with a kind or field this version does not know, is skipped or stripped with a warning on read. Writing to such a ledger asks for `docket update`.
+- The `legacy` audit block is validated only as an object, and a rebase carries it through unchanged.
+- The docket skill says when to load it and links to the docs for scoring, export, ledger location, migration and repair.
 
 - `docket graph --web` run in a terminal no longer opens a browser on its own. It prints the URL and waits for `o` and Enter to open one, or `q` and Enter to quit. The terminal viewer's `w` key still opens a browser.
 - The `docket graph --web` page draws every current record, including records with no relation. Its `orphans` chip hides those and lays the graph out again without them.
@@ -22,10 +36,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - The web view's Radial and Circular engines no longer accept a grouping. Graphviz draws no boxes for them and spread the grouped records out along spokes.
-
-### Fixed
-
+- A crash midway through an append no longer leaves the ledger unreadable. Reads skip the torn final line and the next append removes it.
+- A repeated `--depends-on`, `--answers` or `--supersedes` kept only its last value.
+- `docket init` copies the global ledger under its lock and through an atomic replace.
+- A nested repository or submodule without its own `.docket` no longer writes into its parent project's ledger.
 - The web view and `docket export` drew no node for a current record whose only relations pointed at retired records, such as a record that superseded another and had no other link.
+
+### Removed
+
+- The ledger backups and v0.8 migration map in `.docket/`, and `scripts/migrate_ledger.py`, `scripts/rescope_ledger.py` and `scripts/declarative_ledger.py`. `docket migrate` and `docket correct` replace the scripts.
 
 ## [0.24.0] - 2026-10-03
 
