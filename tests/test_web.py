@@ -326,6 +326,9 @@ class WebCliTests(unittest.TestCase):
         from docket.cli import web
 
         env = {k: v for k, v in os.environ.items() if k not in ("DISPLAY", "WAYLAND_DISPLAY")}
+        # The fake stdout is a tty, so outside an agent session the banner is
+        # coloured and its escape codes split the strings asserted below.
+        env["NO_COLOR"] = "1"
         if display:
             env["DISPLAY"] = ":0"
         server = mock.Mock()
