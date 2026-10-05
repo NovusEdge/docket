@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The 0.25.0 release build failed on a terminal banner test that assumed colour was off, so 0.25.0 was tagged but never published. 0.25.1 is the first release carrying the 0.25.0 changes.
+
 ## [0.25.0] - 2026-10-05
 
 ### Added
