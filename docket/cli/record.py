@@ -123,17 +123,16 @@ def _batch_record(line_number: int, value: Any) -> dict[str, Any]:
     unknown = sorted(set(value) - _BATCH_FIELDS)
     if unknown:
         raise LedgerError(f"{where}: unknown field(s): {', '.join(unknown)}")
-    fields = {k: v for k, v in value.items() if k not in ("kind", "text")}
+    fields: dict[str, Any] = {k: v for k, v in value.items() if k not in ("kind", "text")}
     fields["evidence"] = [
         parse_evidence(item) if isinstance(item, str) else item
         for item in fields.get("evidence") or []
     ]
+    fields.update(_provenance())
     try:
         # make_record checks shape only; relation targets, @N included, are
         # resolved and checked by append_many against the ledger.
-        record = make_record(
-            str(value.get("kind", "")), value.get("text", ""), **fields, **_provenance()
-        )
+        record = make_record(str(value.get("kind", "")), value.get("text", ""), **fields)
     except (LedgerError, TypeError) as exc:
         raise LedgerError(f"{where}: {str(exc).removeprefix('docket: ')}") from exc
     record["id"] = ""
