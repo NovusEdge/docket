@@ -22,6 +22,7 @@
 * [Commands](commands.md)
 * [Environment variables](environment.md)
 * [Ledger format and rules](ledger.md)
+* [Schema versions](schemas.md)
 * [Installer options and behavior](installer-reference.md)
 * [Manual agent setup](integrations.md)
 * [Setup instructions for agents](agent-setup.md)

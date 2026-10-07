@@ -176,3 +176,4 @@ records, reports what was omitted, and includes a command to retrieve more.
 **Upgrading from before 0.8?** The ledger format and commands changed.
 Follow the [migration guide](docs/ledger.md#migrating-a-schema-1-ledger)
 before using an existing ledger.
+Moving from 0.25 or earlier to per-kind ids? See [Schema versions](docs/schemas.md).

@@ -414,6 +414,8 @@ docket migrate --map map.json
 
 ## Migrating to schema 3
 
+[Schema versions](schemas.md) gives the full upgrade procedure, including branches and interrupted runs.
+
 Schema 3 numbers each kind on its own: the first claim is `c1`, the first decision `d1`, the first question `q1`. A schema 2 ledger fails to read until you run `docket migrate`, which renumbers every record, retired ones included, in one pass and keeps each record's schema 2 ID in `migrated_from`.
 
     docket migrate --dry-run
