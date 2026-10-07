@@ -18,14 +18,14 @@ Every command refuses a ledger older than the docket reading it, and `docket mig
 | --- | --- |
 | `schema` | 3 on every line, corrections and reviews included |
 | Record ids | Count per kind (`c1`, `d1`, `q1`); a new record gets that kind's highest number plus one |
-| `migrated_from` | Holds a migrated record's schema 2 id. Briefings, and `list` and `show` JSON, hide it unless you pass `--legacy`. Records created later never carry it |
+| `migrated_from` | Holds a migrated record's schema 2 id. Briefings never show it, and `list` and `show` JSON include it only with `--legacy`. Records created later never carry it |
 | Correction and review ids | Follow their target: `d12.1` becomes `d5.1` |
 | `legacy` | Left as it was |
 | `.docket/features.jsonl` and its archive | Move to features schema 2, with the ledger ids they cite remapped |
 | Feature keys | Ignore id tokens in a headline, so they survive the renumber |
 | Merge and `docket rebase` | Require both sides at the same schema |
 
-The migration rewrites every place a record names another by id: relations, correction and review targets, and id mentions in record prose. The prose fields are `text`, `choice`, `alternatives`, `rationale`, `cost` and `revisit`, a correction's fields and reason, and a review's note. Each mention is replaced once, so shifted ids never chain: `d4` becoming `d2` does not then become `d1`. A schema 1 record resolves its old ids through `legacy.source_id` first.
+The migration rewrites every place a record names another by id: relations, correction and review targets, and id mentions in record prose. The prose fields are `text`, `choice`, `alternatives`, `rationale`, `cost_if_wrong` and `revisit`, a correction's fields and reason, and a review's note. Each mention is replaced once, so shifted ids never chain: `d4` becoming `d2` does not then become `d1`. A schema 1 record resolves its old ids through `legacy.source_id` first.
 
 ## Upgrading a project
 
