@@ -35,13 +35,15 @@ import json
 import os
 import re
 import shutil
+import subprocess
+from collections.abc import Mapping
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
 from docket import feature_archive, features
-from docket.ledger import ledger_lock, project, validate_entries
+from docket.ledger import ID_TOKEN, ledger_lock, project, validate_entries
 from docket.ledger import read as read_ledger
 from docket.rebase import ProseChange, RebaseError, renumber_per_kind
 
@@ -731,6 +733,95 @@ def _commit(
     return sum(len(events) for _, events in pending)
 
 
+def rewrite_text(text: str, mapping: Mapping[str, str]) -> tuple[str, int]:
+    """Replace every mapped id token once; return the new text and how many changed.
+
+    One substitution pass with a dict lookup per token, so d4 -> d2 never feeds
+    d2 -> d1. A token with a suffix (`d2.1`, `d72.r1`) matches on its leading id
+    and keeps the suffix, which is how corrections and reviews renumber.
+    """
+    changed = 0
+
+    def swap(match: re.Match[str]) -> str:
+        nonlocal changed
+        old = match.group(0)
+        new = mapping.get(old, old)
+        if new != old:
+            changed += 1
+        return new
+
+    return ID_TOKEN.sub(swap, text), changed
+
+
+def _is_store_file(file: Path, ledger: Path) -> bool:
+    """The ledger and features files, which the migration already rewrites itself."""
+    directory = ledger.parent.resolve()
+    return (
+        file.parent == directory and file.name.startswith(("ledger.jsonl", "features.jsonl"))
+    ) or file.parent == directory / "archive"
+
+
+def _tracked_and_clean(file: Path) -> None:
+    """Refuse a file git cannot restore.
+
+    The rewritten file replaces the original before the ledger changes, so a
+    crash between the two leaves it at new ids beside a schema 2 ledger. A rerun
+    would map it again. A clean tracked file makes that visible as a modification
+    to undo with `git checkout -- FILE`, and holds the old text for review.
+    """
+
+    def run(*argv: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", "-C", str(file.parent), *argv, "--", file.name],
+            capture_output=True,
+            text=True,
+        )
+
+    try:
+        tracked = run("ls-files", "--error-unmatch")
+        status = run("status", "--porcelain")
+    except OSError as exc:
+        raise MigrationError(f"--rewrite needs git to check {file}: {exc}") from exc
+    if tracked.returncode != 0:
+        raise MigrationError(
+            f"--rewrite: {file} is not tracked by git; commit it first so the old text is kept"
+        )
+    if status.stdout.strip():
+        raise MigrationError(f"--rewrite: {file} has uncommitted changes; commit or stash them")
+
+
+def _plan_rewrites(
+    files: Sequence[Path | str], mapping: Mapping[str, str], ledger: Path
+) -> list[tuple[Path, str, int]]:
+    """Read every named file and return (path, new text, ids changed) for those that change.
+
+    Nothing is written here, so a file that cannot be read fails the run before
+    the write phase starts.
+    """
+    plans: list[tuple[Path, str, int]] = []
+    seen: set[Path] = set()
+    for item in files:
+        file = Path(item)
+        resolved = file.resolve()
+        if resolved in seen:
+            raise MigrationError(f"--rewrite names {file} twice")
+        seen.add(resolved)
+        if _is_store_file(resolved, ledger):
+            raise MigrationError(f"--rewrite cannot rewrite {file}; migrate rewrites it itself")
+        if not file.is_file():
+            raise MigrationError(f"--rewrite: {file} is not a file")
+        _tracked_and_clean(file)
+        try:
+            # Bytes in and out: read_text would turn CRLF into LF.
+            text = file.read_bytes().decode("utf-8")
+        except (OSError, UnicodeError) as exc:
+            raise MigrationError(f"--rewrite: cannot read {file}: {exc}") from exc
+        new, count = rewrite_text(text, mapping)
+        if new != text:
+            plans.append((file, new, count))
+    return plans
+
+
 def migrate_in_place(
     path: Path | str,
     mapping_path: Path | str | None = None,
@@ -750,6 +841,11 @@ def migrate_in_place(
     source = read_source(path)
     version = detect_version(source)
     backup = Path(f"{path}{BACKUP_SUFFIX}{version}")
+    if rewrite and version == SCHEMA_LATEST:
+        raise MigrationError(
+            f"--rewrite runs alongside a migration, and this ledger is already at schema "
+            f"{SCHEMA_LATEST}; its ids in your files are already current"
+        )
     if version == SCHEMA_LATEST:
         result = MigrationResult(0, [], [], {}, {}, [])
         records = read_ledger(path, lock=False)
@@ -790,12 +886,19 @@ def migrate_in_place(
         prose_changes=prose_changes,
         backup=str(backup),
     )
+    plans = _plan_rewrites(rewrite, renumbered, path) if rewrite else []
+    result.rewritten = [str(file) for file, _, _ in plans]
+    result.rewrite_counts = {str(file): count for file, _, count in plans}
     if dry_run:
         pending = _remap_features(path, renumbered, records)
         result.features_events = sum(len(events) for _, events in pending)
         return result
 
     result.features_events = _commit(
-        path, backup, records, lambda: _remap_features(path, renumbered, records)
+        path,
+        backup,
+        records,
+        lambda: _remap_features(path, renumbered, records),
+        extra=tuple((file, text) for file, text, _ in plans),
     )
     return result

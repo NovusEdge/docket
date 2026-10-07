@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -960,6 +961,139 @@ class FeaturesMoveTests(unittest.TestCase):
             {"id": "c1"},
         ]
         self.assertEqual(docket_migrate._migrated_map(records), {"d2": "d1"})
+
+
+def s2(kind: str, ident: str, text: str, **fields) -> dict:
+    if kind == "decision":
+        fields.setdefault("choice", "chosen")
+    record = make_record(
+        kind, text, record_id=ident, ts="2026-09-12T00:00:00+00:00", author="t", **fields
+    )
+    return {**record, "schema": 2}
+
+
+def schema2_ledger() -> list[dict]:
+    # One global counter with gaps. Per kind: c1->c1, d2->d1, c3->c2, d4->d2, q5->q1.
+    return [
+        s2("claim", "c1", "First claim"),
+        s2("decision", "d2", "Use the first claim", supports=[["c1"]]),
+        s2("claim", "c3", "Second claim"),
+        s2("decision", "d4", "Follows d2 and c3", supports=[["c3"]]),
+        s2("question", "q5", "What next"),
+    ]
+
+
+def git(work: Path, *args: str) -> None:
+    base = ["git", "-c", "user.name=t", "-c", "user.email=t@example.com"]
+    subprocess.run([*base, *args], cwd=work, check=True, capture_output=True)
+
+
+class ReadSourceTests(unittest.TestCase):
+    def test_typed_schema_2_lines_skip_the_old_id_check(self):
+        with tempfile.TemporaryDirectory() as work:
+            path = Path(work) / "ledger.jsonl"
+            write_jsonl(path, schema2_ledger())
+            records = docket_migrate.read_source(path)
+            self.assertEqual([r["id"] for r in records], ["c1", "d2", "c3", "d4", "q5"])
+            self.assertEqual(docket_migrate.detect_version(records), 2)
+
+
+class RewriteTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.work = Path(self._tmp.name)
+        self.path = self.work / "ledger.jsonl"
+        write_jsonl(self.path, schema2_ledger())
+        self.doc = self.work / "notes.md"
+        self.doc.write_text("d4 then d2, see c3 and q5. Keep c9 and d2.1.\n")
+        git(self.work, "init", "-q")
+        git(self.work, "add", "-A")
+        git(self.work, "commit", "-q", "-m", "fixture")
+
+    def test_rewrite_text_is_one_lookup_per_token(self):
+        mapping = {"d4": "d2", "d2": "d1"}
+        self.assertEqual(
+            docket_migrate.rewrite_text("d4 then d2; d4x, d2.1, d20", mapping),
+            ("d2 then d1; d4x, d1.1, d20", 3),
+        )
+
+    def test_an_identity_mapping_counts_nothing(self):
+        self.assertEqual(docket_migrate.rewrite_text("c1 and c1", {"c1": "c1"}), ("c1 and c1", 0))
+
+    def test_rewrite_rewrites_named_files_in_the_migration_run(self):
+        other = self.work / "plain.md"
+        other.write_text("no ids here\n")
+        git(self.work, "add", "-A")
+        git(self.work, "commit", "-q", "-m", "plain")
+        result = docket_migrate.migrate_in_place(self.path, rewrite=[self.doc, other])
+        self.assertEqual(self.doc.read_text(), "d2 then d1, see c2 and q1. Keep c9 and d1.1.\n")
+        self.assertEqual(other.read_text(), "no ids here\n")
+        self.assertEqual(result.rewritten, [str(self.doc)])
+        self.assertEqual(result.rewrite_counts, {str(self.doc): 5})
+        self.assertTrue(Path(str(self.path) + ".schema2").exists())
+
+    def test_dry_run_plans_the_rewrite_and_writes_nothing(self):
+        before = (self.path.read_bytes(), self.doc.read_bytes())
+        result = docket_migrate.migrate_in_place(self.path, dry_run=True, rewrite=[self.doc])
+        self.assertEqual(result.rewritten, [str(self.doc)])
+        self.assertEqual(result.rewrite_counts, {str(self.doc): 5})
+        self.assertEqual((self.path.read_bytes(), self.doc.read_bytes()), before)
+
+    def test_rewrite_is_refused_on_a_ledger_already_at_schema_3(self):
+        docket_migrate.migrate_in_place(self.path)
+        migrated = self.path.read_bytes()
+        with self.assertRaisesRegex(docket_migrate.MigrationError, "already at schema 3"):
+            docket_migrate.migrate_in_place(self.path, rewrite=[self.doc])
+        with self.assertRaisesRegex(docket_migrate.MigrationError, "already at schema 3"):
+            docket_migrate.migrate_in_place(self.path, dry_run=True, rewrite=[self.doc])
+        self.assertEqual(self.path.read_bytes(), migrated)
+        self.assertEqual(self.doc.read_text(), "d4 then d2, see c3 and q5. Keep c9 and d2.1.\n")
+
+    def test_an_untracked_file_is_refused_before_anything_is_written(self):
+        fresh = self.work / "fresh.md"
+        fresh.write_text("d4\n")
+        before = self.path.read_bytes()
+        with self.assertRaisesRegex(docket_migrate.MigrationError, "not tracked"):
+            docket_migrate.migrate_in_place(self.path, rewrite=[self.doc, fresh])
+        self.assertEqual(self.path.read_bytes(), before)
+        self.assertFalse(Path(str(self.path) + ".schema2").exists())
+        self.assertEqual(fresh.read_text(), "d4\n")
+
+    def test_a_file_with_uncommitted_changes_is_refused(self):
+        self.doc.write_text("d4 edited\n")
+        before = self.path.read_bytes()
+        with self.assertRaisesRegex(docket_migrate.MigrationError, "uncommitted"):
+            docket_migrate.migrate_in_place(self.path, rewrite=[self.doc])
+        self.assertEqual(self.path.read_bytes(), before)
+        self.assertEqual(self.doc.read_text(), "d4 edited\n")
+
+    def test_a_file_outside_a_git_repository_is_refused(self):
+        with tempfile.TemporaryDirectory() as elsewhere:
+            loose = Path(elsewhere) / "loose.md"
+            loose.write_text("d4\n")
+            with self.assertRaisesRegex(docket_migrate.MigrationError, "not tracked"):
+                docket_migrate.migrate_in_place(self.path, rewrite=[loose])
+
+    def test_a_missing_directory_or_ledger_target_is_refused(self):
+        before = self.path.read_bytes()
+        for bad in (self.work / "missing.md", self.work, self.path):
+            with self.assertRaises(docket_migrate.MigrationError, msg=str(bad)):
+                docket_migrate.migrate_in_place(self.path, rewrite=[self.doc, bad])
+        self.assertEqual(self.path.read_bytes(), before)
+        self.assertFalse(Path(str(self.path) + ".schema2").exists())
+
+    def test_naming_a_file_twice_is_refused(self):
+        with self.assertRaisesRegex(docket_migrate.MigrationError, "twice"):
+            docket_migrate.migrate_in_place(self.path, rewrite=[self.doc, self.doc])
+
+    def test_map_is_refused_on_a_schema_2_ledger(self):
+        mapping = self.work / "map.json"
+        mapping.write_text("{}")
+        before = self.path.read_bytes()
+        with self.assertRaisesRegex(docket_migrate.MigrationError, "schema 1"):
+            docket_migrate.migrate_in_place(self.path, mapping_path=mapping)
+        self.assertEqual(self.path.read_bytes(), before)
 
 
 if __name__ == "__main__":
