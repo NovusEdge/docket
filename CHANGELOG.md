@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-10-07
+
 ### Added
 
 - `docket context` prints a one-line hint above the records when no feature is open and the working tree has uncommitted changes outside `.docket/`. The hint tells the agent to load the docket-feature skill if the work continues past the session. A clean tree, changes only under `.docket/`, or any git failure prints nothing.
@@ -757,7 +759,8 @@ the breaking-change notes before upgrading.
 
 Versions before 0.6.1 carry no git tag. Their history is in the commit log.
 
-[Unreleased]: https://github.com/NovusEdge/docket/compare/v0.26.0...HEAD
+[Unreleased]: https://github.com/NovusEdge/docket/compare/v0.27.0...HEAD
+[0.27.0]: https://github.com/NovusEdge/docket/compare/v0.26.0...v0.27.0
 [0.26.0]: https://github.com/NovusEdge/docket/compare/v0.25.1...v0.26.0
 [0.25.1]: https://github.com/NovusEdge/docket/compare/v0.25.0...v0.25.1
 [0.25.0]: https://github.com/NovusEdge/docket/compare/v0.24.0...v0.25.0
