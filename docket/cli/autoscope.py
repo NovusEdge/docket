@@ -41,24 +41,41 @@ def _uncommitted() -> tuple[str, list[str]] | None:
     root = top.stdout.strip()
 
     groups: list[list[str]] = []
-    for command in (
+    commands = [
         ["git", "diff", "--name-only", "-z", "HEAD"],
         ["git", "ls-files", "--others", "--exclude-standard", "-z"],
-    ):
+    ]
+    for command in commands:
         try:
             # Bytes, not text: the locale codec decodes strictly, and a path
             # carrying an invalid byte would raise UnicodeDecodeError, which is
             # neither OSError nor SubprocessError and would kill every
             # docket context in that repository.
             done = subprocess.run(command, cwd=root, capture_output=True, timeout=3)
+            if done.returncode != 0 and command[1] == "diff":
+                # A repository with no commits has no HEAD, so the diff fails.
+                # Only that case is benign: the index then holds every tracked
+                # file, so the cached diff lists the staged ones. A diff that
+                # fails with HEAD resolving (corrupt object, broken index) is a
+                # real failure and must not be passed off as a clean tree.
+                head = subprocess.run(
+                    ["git", "rev-parse", "--verify", "-q", "HEAD"],
+                    cwd=root,
+                    capture_output=True,
+                    timeout=3,
+                )
+                if head.returncode == 0:
+                    return None
+                done = subprocess.run(
+                    ["git", "diff", "--cached", "--name-only", "-z"],
+                    cwd=root,
+                    capture_output=True,
+                    timeout=3,
+                )
         except (OSError, subprocess.SubprocessError):
             return None
-        # A repository with no commits has no HEAD, so the diff fails while
-        # ls-files still reports every untracked file. Skip the failed command
-        # and keep what the other one found.
         if done.returncode != 0:
-            groups.append([])
-            continue
+            return None
         text = done.stdout.decode("utf-8", errors="surrogateescape")
         # git collapses an untracked nested repository to a directory entry
         # with a trailing slash. A scope matches files, so such an entry can

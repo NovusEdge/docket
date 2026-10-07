@@ -48,6 +48,19 @@ class NoFeatureHintTests(unittest.TestCase):
         git(self.root, "add", "work.txt")
         self.assertEqual(self.block(), _NO_FEATURE_HINT)
 
+    def test_a_staged_new_file_before_the_first_commit_gets_the_hint(self):
+        (self.root / "work.txt").write_text("x\n", encoding="utf-8")
+        git(self.root, "add", "work.txt")
+        self.assertEqual(self.block(), _NO_FEATURE_HINT)
+
+    def test_a_head_pointing_at_a_missing_object_gets_no_hint(self):
+        (self.root / "work.txt").write_text("x\n", encoding="utf-8")
+        git(self.root, "add", "work.txt")
+        git(self.root, "commit", "-m", "base")
+        (self.root / "other.txt").write_text("y\n", encoding="utf-8")
+        (self.root / ".git" / "refs" / "heads" / "main").write_text("1" * 40 + "\n")
+        self.assertEqual(self.block(), "")
+
     def test_a_gitignored_file_gets_no_hint(self):
         (self.root / ".gitignore").write_text("out/\n", encoding="utf-8")
         git(self.root, "add", ".gitignore")
