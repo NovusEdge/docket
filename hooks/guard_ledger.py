@@ -24,7 +24,9 @@ import sys
 import time
 from pathlib import Path
 
-LEDGER_SUFFIXES = (".jsonl", ".jsonl.schema1", ".jsonl.schema2", ".json")
+# migrate keeps the original at ledger.jsonl.schemaN, N the starting version,
+# so a fixed suffix list goes stale with every schema bump.
+LEDGER_NAME = re.compile(r"\.(?:jsonl(?:\.schema[0-9]+)?|json)$")
 
 # Allowlist, because a command string cannot be read for intent. Anything that
 # names a ledger and is not on this list gets the prompt, including every
@@ -158,7 +160,7 @@ def is_ledger(path: str, cwd: str) -> bool:
     # pattern it never spells out, as `find .docket -name 'ledger.jsonl'` does.
     if name == ".docket":
         return True
-    if not name.endswith(LEDGER_SUFFIXES):
+    if not LEDGER_NAME.search(name):
         return False
     if ".docket" in resolved.parts:
         return True
