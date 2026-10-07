@@ -1,10 +1,15 @@
 import copy
+import io
 import json
+import os
+import subprocess
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
-from docket import corrections, reviews
+from docket import corrections, migrate, reviews
+from docket.cli import main
 from docket.ledger import make_record, read
 from docket.rebase import (
     PROSE_FIELDS,
@@ -581,6 +586,71 @@ class MergeProseTests(unittest.TestCase):
         self.assertEqual([r["text"] for r in tail], ["Branch claim", "Builds on d1"])
         self.assertEqual(tail[1]["depends_on"], ["d1"])
         self.assertEqual(merge(base_m, main_m + tail, branch_m), ([], {}))
+
+
+def v2(records):
+    return [dict(r, schema=2) for r in records]
+
+
+def upgraded(records):
+    return migrate.renumber_step(v2(records))[0]
+
+
+def write_lines(path, records):
+    path.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+
+
+class RebaseAcrossMigrationTests(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        subprocess.run(
+            ["git", "-C", str(self.root), "init", "-b", "main"], check=True, capture_output=True
+        )
+        (self.root / ".docket").mkdir()
+        self.ledger = self.root / ".docket" / "ledger.jsonl"
+        self.other = self.root / "other.jsonl"
+        cwd = Path.cwd()
+        os.chdir(self.root)
+        self.addCleanup(os.chdir, cwd)
+        self.shared = [
+            claim("c1", "Shared premise"),
+            decision("d2", "Cache layer sits behind reads", supports=[["c1"]]),
+        ]
+
+    def run_cli(self, *argv):
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = main(list(argv))
+        return code, out.getvalue(), err.getvalue()
+
+    def test_two_ledgers_migrated_separately_rebase_cleanly(self):
+        write_lines(self.ledger, upgraded(self.shared + [claim("c3", "Ours only")]))
+        write_lines(self.other, upgraded(self.shared + [claim("c3", "Their premise")]))
+        code, _, _ = self.run_cli("rebase", str(self.other))
+        self.assertEqual(code, 0)
+        merged = read(self.ledger)
+        self.assertEqual([r["id"] for r in merged], ["c1", "d1", "c2", "c3"])
+        self.assertEqual(merged[3]["text"], "Their premise")
+
+    def test_a_schema_2_other_is_refused_and_the_ledger_left_alone(self):
+        write_lines(self.ledger, upgraded(self.shared))
+        write_lines(self.other, v2(self.shared + [claim("c3", "Their premise")]))
+        before = self.ledger.read_bytes()
+        code, _, err = self.run_cli("rebase", str(self.other))
+        self.assertEqual(code, 1)
+        self.assertIn("docket migrate", err)
+        self.assertEqual(self.ledger.read_bytes(), before)
+
+    def test_a_schema_2_working_ledger_is_refused_and_left_alone(self):
+        write_lines(self.ledger, v2(self.shared))
+        write_lines(self.other, upgraded(self.shared))
+        before = self.ledger.read_bytes()
+        code, _, err = self.run_cli("rebase", str(self.other))
+        self.assertEqual(code, 1)
+        self.assertIn("docket migrate", err)
+        self.assertEqual(self.ledger.read_bytes(), before)
 
 
 if __name__ == "__main__":
