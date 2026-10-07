@@ -311,7 +311,7 @@ blocker will surface there as well.
 
 ### Required fields
 
-Every schema 2 record contains these fields:
+Every record contains these fields:
 
 - `schema`: schema version.
 - `kind`: record type.
@@ -323,8 +323,7 @@ Every schema 2 record contains these fields:
 - `session`: session metadata.
 - `branch`: branch metadata.
 
-IDs use `c`, `d`, or `q` followed by a positive integer. Allocation uses the
-next global sequence across all types.
+IDs use `c`, `d`, or `q` followed by a positive integer. Allocation uses the next number within the record's own kind, so claims, decisions, and questions each count from 1.
 
 ### Fields with defaults
 

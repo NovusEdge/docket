@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Explicitly migrate a schema-1 Docket JSONL ledger to schema 2.
+"""Explicitly migrate a Docket JSONL ledger to the current schema.
+
+Schema 1 becomes schema 2 through the classification map described below. Schema 2
+becomes schema 3 by renumbering each kind from 1 (docket.rebase.renumber_per_kind).
 
 The classification map is a JSON object keyed by every source ID.  Each map
 value must contain ``kind``, ``state``, and ``text`` and may contain any typed
@@ -29,11 +32,20 @@ exclusive-create semantics.  The repository's ``docket.ledger``
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
+import subprocess
+from collections.abc import Mapping
+from contextlib import ExitStack
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
-from docket.ledger import ledger_lock, validate_entries
+from docket import feature_archive, features
+from docket.ledger import ID_TOKEN, ledger_lock, project, validate_entries
+from docket.ledger import read as read_ledger
+from docket.rebase import ProseChange, RebaseError, renumber_per_kind
 
 OLD_ID = re.compile(r"^d[1-9][0-9]*$")
 NEW_ID = re.compile(r"^[cdq][1-9][0-9]*$")
@@ -67,7 +79,7 @@ OPTIONAL_FIELDS = {
     "decided_by",
     *RELATION_FIELDS,
 }
-SCHEMA_LATEST = 2
+SCHEMA_LATEST = 3
 
 # Schema 1 typed the difference between settling on doing something and
 # settling on not doing it. Schema 2 does not, and the choice text carries it.
@@ -111,7 +123,7 @@ def read_source(path: Path) -> list[dict[str, Any]]:
         if not isinstance(raw, dict):
             raise MigrationError(f"malformed input at line {lineno}: record must be an object")
         old_id = raw.get("id")
-        if raw.get("schema") == SCHEMA_LATEST:
+        if isinstance(raw.get("schema"), int) and raw["schema"] >= 2:
             records.append(raw)
             continue
         if not isinstance(old_id, str) or not OLD_ID.fullmatch(old_id):
@@ -489,7 +501,15 @@ def build_records(
 
 
 def core_validator() -> Callable[[list[dict[str, Any]]], Any]:
-    return validate_entries
+    """Validate schema-2 records as the schema-3 ledger they would become.
+
+    Returns None, so migrate() keeps the schema-2 records it was given.
+    """
+
+    def check(records: list[dict[str, Any]]) -> None:
+        validate_entries(renumber_step(records)[0])
+
+    return check
 
 
 def migrate(
@@ -518,62 +538,394 @@ def migrate(
         raise MigrationError(f"cannot create output {output_path}: {exc}") from exc
 
 
-STEPS = {1: build_records}
+def renumber_step(
+    records: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, str], list[ProseChange]]:
+    """Schema 2 to 3: per-kind ids, with schema 3 stamped on every line."""
+    renumbered, mapping, prose_changes = renumber_per_kind(records)
+    return [{**record, "schema": SCHEMA_LATEST} for record in renumbered], mapping, prose_changes
 
-BACKUP_SUFFIX = ".schema1"
+
+STEPS = {1: build_records, 2: renumber_step}
+
+BACKUP_SUFFIX = ".schema"
 TEMP_SUFFIX = ".migrating"
 
 
+@dataclass
+class MigrationResult:
+    count: int
+    report: list[str]
+    notes: list[str]
+    mapping: dict[str, str]
+    per_kind: dict[str, int]
+    prose_changes: list[ProseChange]
+    features_events: int = 0
+    rewritten: list[str] = field(default_factory=list)
+    rewrite_counts: dict[str, int] = field(default_factory=dict)
+    backup: str = ""
+
+
 def _report_line(old_id: str, record: dict[str, Any]) -> str:
-    return f"{old_id} -> {record['id']} {record['kind']}/{record['state']}"
+    # Correction and review lines carry no state.
+    state = record.get("state")
+    return f"{old_id} -> {record['id']} {record['kind']}" + (f"/{state}" if state else "")
+
+
+def _run_step(
+    version: int,
+    records: list[dict[str, Any]],
+    mapping_path: Path | str | None,
+    notes: list[str],
+) -> tuple[list[dict[str, Any]], dict[str, str], list[ProseChange]]:
+    if version != 1:
+        try:
+            return renumber_step(records)
+        except RebaseError as exc:
+            raise MigrationError(
+                f"cannot renumber this ledger: {exc}; run docket check and repair it first"
+            ) from exc
+    # The classification map exists only for schema 1: it assigns the kinds that
+    # schema never recorded. Every later step is mechanical.
+    if mapping_path is None:
+        classes = derive_mapping(records, notes=notes)
+    else:
+        classes = read_mapping(Path(mapping_path), {raw["id"] for raw in records})
+    return build_records(records, classes), {}, []
+
+
+def _feature_files(ledger_path: Path) -> list[Path]:
+    store = ledger_path.parent / "features.jsonl"
+    found = [store] if store.exists() else []
+    return found + sorted(feature_archive.archive_dir_for(store).glob("features-*.jsonl"))
+
+
+def _read_events(path: Path) -> list[dict[str, Any]]:
+    """Raw events, unvalidated: features.read refuses the schema this step upgrades."""
+    events: list[dict[str, Any]] = []
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise MigrationError(f"{path}: line {number}: invalid JSON: {exc.msg}") from exc
+        if not isinstance(event, dict):
+            raise MigrationError(f"{path}: line {number}: event must be an object")
+        events.append(event)
+    return events
+
+
+def _migrated_map(records: list[dict[str, Any]]) -> dict[str, str]:
+    """Old id to new id, from the ledger's own ``migrated_from``.
+
+    An old id held by two records is left out: a merge from a schema-2 branch
+    can give one old id to a record on each side, and guessing would point an
+    event at the wrong one. ``docket check`` reports the id it leaves behind.
+    """
+    held: dict[str, list[str]] = {}
+    for record in records:
+        if record.get("migrated_from"):
+            held.setdefault(record["migrated_from"], []).append(record["id"])
+    return {old: ids[0] for old, ids in held.items() if len(ids) == 1}
+
+
+def _remap_features(
+    ledger_path: Path, mapping: dict[str, str], records: list[dict[str, Any]]
+) -> list[tuple[Path, list[dict[str, Any]]]]:
+    """Every features file still at schema 1, with its events remapped.
+
+    A file at schema 2 was rewritten by an earlier run that died before the
+    ledger swap; its ids are already new, and mapping them again would send
+    each to a different record.
+    """
+    by_id = {entry["id"]: entry for entry in project(records, validated=True)}
+    pending = []
+    for target in _feature_files(ledger_path):
+        events = _read_events(target)
+        if any(event.get("schema") == 1 for event in events):
+            pending.append((target, features.remap_events(events, mapping, by_id)))
+    return pending
+
+
+def _events_text(events: list[dict[str, Any]]) -> str:
+    return "".join(json.dumps(e, ensure_ascii=False, separators=(",", ":")) + "\n" for e in events)
+
+
+def _write_synced(temp: Path, text: str) -> None:
+    with temp.open("w", encoding="utf-8") as handle:
+        handle.write(text)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def _check_backup(path: Path, backup: Path) -> None:
+    """Refuse a backup that is not a copy of the ledger being migrated.
+
+    An identical one is what a crashed run leaves behind, and the rerun accepts it.
+    """
+    if backup.exists() and backup.read_bytes() != path.read_bytes():
+        raise MigrationError(
+            f"{backup} already exists and differs from {path}; a second migration "
+            "would overwrite the original. If another branch's migration left the backup, "
+            "delete or move it and run docket migrate again"
+        )
+
+
+def _link_backup(path: Path, backup: Path) -> None:
+    try:
+        os.link(path, backup)
+    except FileExistsError:
+        _check_backup(path, backup)
+    except OSError:
+        # No hard links on this filesystem. Copy through a temp so a crash
+        # cannot leave a half-written backup that the next run would refuse.
+        staging = backup.with_name(backup.name + TEMP_SUFFIX)
+        shutil.copyfile(path, staging)
+        os.replace(staging, backup)
+
+
+def _commit(
+    path: Path,
+    backup: Path,
+    records: list[dict[str, Any]] | None,
+    remap: Callable[[], list[tuple[Path, list[dict[str, Any]]]]],
+    extra: tuple[tuple[Path, str], ...] = (),
+    expected: bytes | None = None,
+) -> int:
+    """Write every file the migration touches. Returns the features events rewritten.
+
+    Ledger lock, then the features lock. Every temp is written and fsynced
+    before the first rename, so a failure while writing leaves nothing moved.
+    Features and ``extra`` files go first; the ledger goes last, as a
+    hard-linked backup and then one os.replace, so a crash anywhere leaves the
+    ledger at its old schema and a rerun repeats the work, skipping the
+    features files that already moved. ``records`` is None when the ledger is
+    already current and only features files move. ``expected`` is the ledger's
+    bytes as the migration read them; the ledger is compared with it under the
+    lock, because the renumbered file would otherwise erase a line an older
+    docket appended since.
+    """
+    store = path.parent / "features.jsonl"
+    temp = Path(str(path) + TEMP_SUFFIX)
+    with ExitStack() as locks:
+        locks.enter_context(ledger_lock(path))
+        if store.exists():
+            locks.enter_context(ledger_lock(store))
+        if expected is not None and path.read_bytes() != expected:
+            raise MigrationError("the ledger changed while migrating; run docket migrate again")
+        pending = remap()
+        staged = [
+            (target.with_name(target.name + TEMP_SUFFIX), target, _events_text(events))
+            for target, events in pending
+        ]
+        staged += [(t.with_name(t.name + TEMP_SUFFIX), t, text) for t, text in extra]
+        temps = [staging for staging, _, _ in staged] + ([temp] if records is not None else [])
+        try:
+            for staging, _, text in staged:
+                _write_synced(staging, text)
+            if records is not None:
+                _write_synced(
+                    temp,
+                    "".join(
+                        json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n" for r in records
+                    ),
+                )
+        except BaseException:
+            for stale in temps:
+                stale.unlink(missing_ok=True)
+            raise
+        for staging, target, _ in staged:
+            os.replace(staging, target)
+        if records is not None:
+            _link_backup(path, backup)
+            os.replace(temp, path)
+    return sum(len(events) for _, events in pending)
+
+
+def rewrite_text(text: str, mapping: Mapping[str, str]) -> tuple[str, int]:
+    """Replace every mapped id token once; return the new text and how many changed.
+
+    One substitution pass with a dict lookup per token, so d4 -> d2 never feeds
+    d2 -> d1. A token with a suffix (`d2.1`, `d72.r1`) matches on its leading id
+    and keeps the suffix, which is how corrections and reviews renumber.
+    """
+    changed = 0
+
+    def swap(match: re.Match[str]) -> str:
+        nonlocal changed
+        old = match.group(0)
+        new = mapping.get(old, old)
+        if new != old:
+            changed += 1
+        return new
+
+    return ID_TOKEN.sub(swap, text), changed
+
+
+def _is_store_file(file: Path, ledger: Path) -> bool:
+    """The ledger and features files, which the migration already rewrites itself."""
+    directory = ledger.parent.resolve()
+    return (
+        file.parent == directory and file.name.startswith(("ledger.jsonl", "features.jsonl"))
+    ) or file.parent == directory / "archive"
+
+
+def _tracked_and_clean(file: Path) -> None:
+    """Refuse a file git cannot restore.
+
+    The rewritten file replaces the original before the ledger changes, so a
+    crash between the two leaves it at new ids beside a schema 2 ledger. A rerun
+    would map it again. A clean tracked file makes that visible as a modification
+    to undo with `git checkout -- FILE`, and holds the old text for review.
+    """
+
+    def run(*argv: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["git", "-C", str(file.parent), *argv, "--", file.name],
+            capture_output=True,
+            text=True,
+        )
+
+    try:
+        tracked = run("ls-files", "--error-unmatch")
+        status = run("status", "--porcelain")
+    except OSError as exc:
+        raise MigrationError(f"--rewrite needs git to check {file}: {exc}") from exc
+    if tracked.returncode != 0:
+        raise MigrationError(
+            f"--rewrite: {file} is not tracked by git; commit it first so the old text is kept"
+        )
+    if status.stdout.strip():
+        raise MigrationError(f"--rewrite: {file} has uncommitted changes; commit or stash them")
+
+
+def _plan_rewrites(
+    files: Sequence[Path | str], mapping: Mapping[str, str], ledger: Path
+) -> list[tuple[Path, str, int]]:
+    """Read every named file and return (path, new text, ids changed) for those that change.
+
+    Nothing is written here, so a file that cannot be read fails the run before
+    the write phase starts.
+    """
+    plans: list[tuple[Path, str, int]] = []
+    seen: set[Path] = set()
+    for item in files:
+        file = Path(item)
+        resolved = file.resolve()
+        if resolved in seen:
+            raise MigrationError(f"--rewrite names {file} twice")
+        seen.add(resolved)
+        if _is_store_file(resolved, ledger):
+            raise MigrationError(f"--rewrite cannot rewrite {file}; migrate rewrites it itself")
+        if not file.is_file():
+            raise MigrationError(f"--rewrite: {file} is not a file")
+        _tracked_and_clean(file)
+        try:
+            # Bytes in and out: read_text would turn CRLF into LF.
+            text = file.read_bytes().decode("utf-8")
+        except (OSError, UnicodeError) as exc:
+            raise MigrationError(f"--rewrite: cannot read {file}: {exc}") from exc
+        new, count = rewrite_text(text, mapping)
+        if new != text:
+            plans.append((file, new, count))
+    return plans
 
 
 def migrate_in_place(
-    path: Path | str, mapping_path: Path | str | None = None, dry_run: bool = False
-) -> tuple[int, list[str], list[str]]:
+    path: Path | str,
+    mapping_path: Path | str | None = None,
+    dry_run: bool = False,
+    rewrite: Sequence[Path | str] = (),
+) -> MigrationResult:
     """Convert a ledger to the current schema, keeping the original beside it.
 
-    Both renames happen inside one directory, so each is atomic. A crash
-    between them leaves the source at BACKUP_SUFFIX and the result at
-    TEMP_SUFFIX, and neither file is truncated.
+    Every step runs in memory before anything is written, so a failure at any
+    version leaves the ledger as it was. The backup is named after the starting
+    schema. The features store and archives move with the ledger; see ``_commit``
+    for the write order and what a crash leaves behind. A ledger already current
+    still gets its features files remapped when they are at schema 1.
     """
     path = Path(path)
-    backup = Path(str(path) + BACKUP_SUFFIX)
-    temp = Path(str(path) + TEMP_SUFFIX)
 
+    # Taken before the parse, so a line appended in between shows up as a
+    # difference at commit time rather than being absorbed into the snapshot.
+    try:
+        snapshot = path.read_bytes()
+    except OSError as exc:
+        raise MigrationError(f"cannot read source {path}: {exc}") from exc
     source = read_source(path)
     version = detect_version(source)
-    if version == SCHEMA_LATEST:
-        return 0, [], []
-    step = STEPS.get(version)
-    if step is None:
-        raise MigrationError(f"no migration from schema {version} to {SCHEMA_LATEST}")
-
-    # Checked only once a conversion is actually needed: a ledger already at
-    # schema 2 must exit clean even if an earlier migration left a backup.
-    if not dry_run and backup.exists():
+    backup = Path(f"{path}{BACKUP_SUFFIX}{version}")
+    if rewrite and version == SCHEMA_LATEST:
         raise MigrationError(
-            f"{backup} already exists; a second migration would overwrite the original"
+            f"--rewrite runs alongside a migration, and this ledger is already at schema "
+            f"{SCHEMA_LATEST}; its ids in your files are already current"
+        )
+    if version == SCHEMA_LATEST:
+        result = MigrationResult(0, [], [], {}, {}, [])
+        records = read_ledger(path, lock=False)
+        mapping = _migrated_map(records)
+        if dry_run:
+            pending = _remap_features(path, mapping, records)
+            result.features_events = sum(len(events) for _, events in pending)
+        else:
+            result.features_events = _commit(
+                path, backup, None, lambda: _remap_features(path, mapping, records)
+            )
+        return result
+    if version not in STEPS:
+        raise MigrationError(f"no migration from schema {version} to {SCHEMA_LATEST}")
+    if mapping_path is not None and version != 1:
+        raise MigrationError(
+            f"a classification map applies only to schema 1; this ledger is schema {version}"
         )
 
-    old_ids = {raw["id"] for raw in source}
-    notes: list[str] = []
-    if mapping_path is None:
-        mapping = derive_mapping(source, notes=notes)
-    else:
-        mapping = read_mapping(Path(mapping_path), old_ids)
-    records = step(source, mapping)
-    records = core_validator()(records) or records
-    report = [_report_line(raw["id"], record) for raw, record in zip(source, records)]
-    if dry_run:
-        return len(records), report, notes
+    # Checked only once a conversion is actually needed: a ledger already at
+    # the latest schema must exit clean even if an earlier migration left a backup.
+    if not dry_run:
+        _check_backup(path, backup)
 
-    with ledger_lock(path):
-        if temp.exists():
-            raise MigrationError(f"{temp} already exists; remove it and retry")
-        with temp.open("x", encoding="utf-8") as handle:
-            for record in records:
-                handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
-        path.rename(backup)
-        temp.rename(path)
-    return len(records), report, notes
+    notes: list[str] = []
+    records = source
+    renumbered: dict[str, str] = {}
+    prose_changes: list[ProseChange] = []
+    for current in range(version, SCHEMA_LATEST):
+        records, renumbered, prose_changes = _run_step(current, records, mapping_path, notes)
+    records = validate_entries(records)
+    result = MigrationResult(
+        count=len(records),
+        report=[_report_line(raw["id"], record) for raw, record in zip(source, records)],
+        notes=notes,
+        mapping=renumbered,
+        per_kind={kind: sum(r["kind"] == kind for r in records) for kind in PREFIX},
+        prose_changes=prose_changes,
+        backup=str(backup),
+    )
+    cited = renumbered
+    if version == 1:
+        # Files in a schema 1 project cite schema 1 ids, which renumbered
+        # (the schema 2 to 3 step only) does not know.
+        cited = {
+            record["legacy"]["source_id"]: record["id"]
+            for record in records
+            if isinstance(record.get("legacy"), dict)
+            and isinstance(record["legacy"].get("source_id"), str)
+        }
+    plans = _plan_rewrites(rewrite, cited, path) if rewrite else []
+    result.rewritten = [str(file) for file, _, _ in plans]
+    result.rewrite_counts = {str(file): count for file, _, count in plans}
+    if dry_run:
+        pending = _remap_features(path, renumbered, records)
+        result.features_events = sum(len(events) for _, events in pending)
+        return result
+
+    result.features_events = _commit(
+        path,
+        backup,
+        records,
+        lambda: _remap_features(path, renumbered, records),
+        extra=tuple((file, text) for file, text, _ in plans),
+        expected=snapshot,
+    )
+    return result

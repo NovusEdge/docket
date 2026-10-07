@@ -53,11 +53,11 @@ _DERIVED_FIELDS = frozenset(
 JSON_FIELDS = tuple(sorted(ledger.ALLOWED_FIELDS - ledger.AUDIT_FIELDS | _DERIVED_FIELDS))
 
 
-def _without_legacy(entry: dict, keep: bool) -> dict:
-    """Schema 1 migration audit blobs are about a tenth of a ledger's JSON and nothing reads them."""
-    if keep or "legacy" not in entry:
+def _without_audit(entry: dict, keep: bool) -> dict:
+    """Migration audit fields (legacy alone is about a tenth of a ledger's JSON) are read by nothing but --legacy."""
+    if keep or ledger.AUDIT_FIELDS.isdisjoint(entry):
         return entry
-    return {k: v for k, v in entry.items() if k != "legacy"}
+    return {k: v for k, v in entry.items() if k not in ledger.AUDIT_FIELDS}
 
 
 def fields_arg(value: str) -> list[str]:
@@ -93,7 +93,7 @@ def cmd_list(args: argparse.Namespace) -> int:
         print("docket: nothing recorded")
         return 0
     if getattr(args, "json", False):
-        rows = [_without_legacy(e, args.legacy) for e in entries]
+        rows = [_without_audit(e, args.legacy) for e in entries]
         if args.fields:
             rows = [{k: e[k] for k in args.fields if k in e} for e in rows]
         print(json.dumps(rows, ensure_ascii=False, indent=2))
@@ -160,10 +160,18 @@ def cmd_show(args: argparse.Namespace) -> int:
     e = by_id.get(args.id)
     if not e:
         print(f"docket: no entry {args.id}", file=sys.stderr)
+        # A current id never reaches this branch, so an old id that is also a
+        # new id resolves above and stays silent.
+        if any(args.id in where.old_ids(item) for item in entries):
+            print(
+                f"docket: {args.id} was renumbered by a migration; "
+                f"find it with: docket list --where was:{args.id}",
+                file=sys.stderr,
+            )
         return 1
 
     if args.json:
-        print(json.dumps(_without_legacy(e, getattr(args, "legacy", False)), indent=2))
+        print(json.dumps(_without_audit(e, getattr(args, "legacy", False)), indent=2))
         return 0
 
     def cite(i: str) -> str:

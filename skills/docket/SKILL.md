@@ -5,7 +5,7 @@ description: Use when making a design choice, relying on a premise that may need
 
 # docket
 
-Docket is an append-only schema 2 ledger of typed claims, decisions, and questions that survives conversation compaction. Read the current context before starting work. Run docket by the absolute command path on the `# command:` line of the briefing header; the examples say `docket`.
+Docket is an append-only ledger of typed claims, decisions, and questions that survives conversation compaction. Read the current context before starting work. Run docket by the absolute command path on the `# command:` line of the briefing header; the examples say `docket`.
 
 ## Record types and states
 
@@ -120,7 +120,7 @@ Work the briefing in this order:
 
 A delegated agent runs step 3 for its own scope and reports the revision it used, so the delegator knows which briefing the work rests on.
 
-`list` and `graph` accept `--kind`, `--state`, and `--where QUERY`, which combines words with `kind:`, `state:`, `scope:PATH`, `is:pinned`, `is:retired`, `author:`, and `after:YYYY-MM-DD`; see [the query language](../../docs/commands.md#query-language). `scope:PATH` asks which records govern that file; `scope:DIR/` covers a directory.
+`list` and `graph` accept `--kind`, `--state`, and `--where QUERY`, which combines words with `kind:`, `state:`, `scope:PATH`, `is:pinned`, `is:retired`, `author:`, `after:YYYY-MM-DD`, and `was:ID`, which finds a record by the ID it had before a migration; see [the query language](../../docs/commands.md#query-language). `scope:PATH` asks which records govern that file; `scope:DIR/` covers a directory.
 
 `list --json` prints every field of every record, which is large: pass `--fields id,kind,state,text` for what you need. It and `show --json` drop the schema 1 `legacy` field unless you pass `--legacy`. See [the JSON shapes](../../docs/commands.md#json-shapes) for derived fields such as `recorded_state`, `applicable`, and `blocked_by`.
 
@@ -130,5 +130,5 @@ Evidence is recorder-supplied provenance; docket does not check it. Re-run `dock
 
 - Graph export and `graph --web`, for a person to read: [reading your ledger](../../docs/reading.md#export-the-graph).
 - Ledger location, `docket init`, `DOCKET_HOME`: [environment](../../docs/environment.md).
-- A schema 1 ledger needs `docket migrate`; never guess record types from prose. [Migrating](../../docs/ledger.md#migrating-a-schema-1-ledger).
+- A ledger older than this docket needs `docket migrate`; add `--rewrite FILE...` for tracked, clean files that cite ledger IDs, and never guess record types from prose. After a migration an old ID can name a different record: `docket list --where was:ID` finds the record that carried it. [Migrating](../../docs/ledger.md#migrating-to-schema-3).
 - An unreadable ledger: `docket check`. A git conflict after two branches both recorded: `docket rebase OTHER --dry-run`, never a hand edit. Two branches that decided one question differently leave two adopted decisions; supersede one. [Sharing and maintenance](../../docs/maintenance.md).

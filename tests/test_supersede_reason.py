@@ -15,7 +15,7 @@ def claim(ident, **kwargs):
 
 def correction(ident, target, fields):
     return {
-        "schema": 2,
+        "schema": ledger.SCHEMA,
         "kind": "correction",
         "id": ident,
         "corrects": target,

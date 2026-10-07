@@ -13,12 +13,13 @@ import copy
 import json
 import os
 import re
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from docket.ledger import ledger_lock
+from docket.ledger import ledger_lock, record_key
 
-SCHEMA = 1
+SCHEMA = 2
 EVENTS = ("start", "amend", "note", "done", "abandon")
 STATUSES = ("active", "paused", "review")
 TERMINAL_STATES = ("done", "abandoned")
@@ -90,6 +91,10 @@ class FeatureError(ValueError):
     """A feature event that cannot be used as written."""
 
 
+class FeatureSchemaTooOld(FeatureError):
+    """A features event written before the per-kind id migration."""
+
+
 def _error(where: str, message: str) -> FeatureError:
     return FeatureError(f"docket: {where}: {message}")
 
@@ -131,6 +136,12 @@ def validate_event(record: Any) -> dict[str, Any]:
         **{key: copy.deepcopy(value) for key, value in DEFAULTS.items() if key != "schema"},
         **record,
     }
+    if type(record.get("schema")) is int and record["schema"] == 1:
+        name = record.get("slug") if isinstance(record.get("slug"), str) else "event"
+        raise FeatureSchemaTooOld(
+            f"docket: {name}: feature events are schema 1; run `docket migrate` "
+            "to move them to schema 2"
+        )
     if type(record.get("schema")) is not int or record["schema"] != SCHEMA:
         raise _error("schema", f"expected schema {SCHEMA}, got {record.get('schema')!r}")
 
@@ -194,6 +205,33 @@ def validate_event(record: Any) -> dict[str, Any]:
     return record
 
 
+def remap_events(
+    events: list[dict[str, Any]], mapping: Mapping[str, str], by_id: Mapping[str, dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Schema-1 events with every cited ledger id passed through ``mapping``.
+
+    ``by_id`` holds the projected records under their new ids; each stored key
+    is recomputed from the record its id now names, or kept when that record
+    is missing. An event already at schema 2 passes through untouched, which
+    is what stops a rerun after a crash from mapping an id twice.
+    """
+    out = []
+    for event in events:
+        if type(event.get("schema")) is not int or event["schema"] != 1:
+            out.append(event)
+            continue
+        moved = copy.deepcopy(event)
+        for field in LEDGER_REFS:
+            moved[field] = [mapping.get(ident, ident) for ident in moved.get(field, [])]
+        moved["keys"] = {}
+        for old, key in event.get("keys", {}).items():
+            new = mapping.get(old, old)
+            moved["keys"][new] = record_key(by_id[new]) if new in by_id else key
+        moved["schema"] = SCHEMA
+        out.append(validate_event(moved))
+    return out
+
+
 def next_id(events: list[dict[str, Any]], floor: int = 0) -> str:
     """Allocate the next sequence number, local to this file.
 
@@ -242,7 +280,10 @@ def read(path: Path | str, lock: bool = True) -> list[dict[str, Any]]:
         try:
             events.append(validate_event(value))
         except FeatureError as exc:
-            raise _error(f"line {line_number}", str(exc).removeprefix("docket: ")) from exc
+            # type(exc): a schema-1 line stays FeatureSchemaTooOld for callers.
+            raise type(exc)(
+                _error(f"line {line_number}", str(exc).removeprefix("docket: ")).args[0]
+            ) from exc
     return events
 
 
@@ -293,10 +334,12 @@ __all__ = [
     "STATUSES",
     "TERMINAL_STATES",
     "FeatureError",
+    "FeatureSchemaTooOld",
     "append",
     "make_event",
     "next_id",
     "qualified",
     "read",
+    "remap_events",
     "validate_event",
 ]

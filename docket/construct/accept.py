@@ -30,8 +30,8 @@ def _question_shaped(proposals: list[dict]) -> list[str]:
 def _chronological(proposals: list[dict]) -> list[dict]:
     """Oldest document first.
 
-    The briefing scores recency from the numeric record id, never from `ts`, so
-    the order records enter the ledger is the only thing that makes a newer
+    The briefing scores recency from file position, never from `ts`, so the
+    order records enter the ledger is the only thing that makes a newer
     decision outrank an older one. A run that accepts in staging order leaves
     887 records the walker cannot tell apart by age.
 

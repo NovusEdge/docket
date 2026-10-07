@@ -17,7 +17,7 @@ from docket import ROOT, env, version
 from docket.cli.autoscope import auto_scope_files
 from docket.context_model import positions
 from docket.env import read
-from docket.ledger import LedgerError, project
+from docket.ledger import SCHEMA, LedgerError, SchemaTooOld, project
 
 # Harnesses that want context as their own hook envelope instead of plain
 # text, keyed by the --for value. docs/installation.md is the source for
@@ -123,6 +123,17 @@ def _feature_block(root, entries=None) -> str:
         return ""
 
 
+def migrate_instruction(exc: SchemaTooOld) -> str:
+    command = ROOT / "bin" / "docket"
+    return (
+        f"docket: this project's ledger is schema {exc.version} and this docket reads "
+        f"schema {SCHEMA}. Run `{command} migrate` to convert it. If any files cite "
+        "ledger ids, add `--rewrite FILE...` to rewrite them in the same run. "
+        "Then commit ledger.jsonl and the features files, but not the ledger.jsonl.schema* "
+        "backup.\n"
+    )
+
+
 def cmd_context(args: argparse.Namespace) -> int:
     from docket.config import ConfigError
     from docket.config import load as load_settings
@@ -146,6 +157,8 @@ def cmd_context(args: argparse.Namespace) -> int:
 
         try:
             raw = read(env.ledger_path())
+        except SchemaTooOld as exc:
+            return _print_context(migrate_instruction(exc), args, line)
         except (LedgerError, OSError) as exc:
             print(str(exc), file=sys.stderr)
             return 1
@@ -198,10 +211,12 @@ def cmd_context(args: argparse.Namespace) -> int:
             command=str(ROOT / "bin" / "docket"),
             explain=args.explain,
         )
+    except SchemaTooOld as exc:
+        return _print_context(migrate_instruction(exc), args, line)
     except (LedgerError, OSError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
     return _print_context(text, args, line)
 
 
-__all__ = ["CONTEXT_ENVELOPES", "cmd_context", "update_line"]
+__all__ = ["CONTEXT_ENVELOPES", "cmd_context", "migrate_instruction", "update_line"]

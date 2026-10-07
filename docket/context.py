@@ -1,7 +1,7 @@
 """Deterministic, character-bounded context for projected Docket history.
 
 The context renderer deliberately knows nothing about storage or CLI path
-discovery.  Its input is the projected schema 2 history produced by the ledger
+discovery.  Its input is the projected history produced by the ledger
 module, which keeps selection and rendering easy to exercise independently.
 
 The work splits by responsibility, each part in its own module: context_model

@@ -1,3 +1,5 @@
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -10,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-from docket import corrections, features, merge_driver  # noqa: E402
+from docket import corrections, features, merge_driver, migrate, reviews  # noqa: E402
 from docket.ledger import make_record, read  # noqa: E402
 
 
@@ -20,6 +22,34 @@ def claim(ident, text, **kwargs):
 
 def write(path, records):
     path.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+
+
+def decision(ident, text, **kwargs):
+    return make_record(
+        "decision",
+        text,
+        state="adopted",
+        choice="Cache",
+        alternatives=["No cache"],
+        rationale="Reads dominate",
+        author="t",
+        record_id=ident,
+        **kwargs,
+    )
+
+
+def v2(records):
+    return [dict(r, schema=2) for r in records]
+
+
+def upgraded(records):
+    """What a schema-2 ledger holds after `docket migrate`."""
+    return migrate.renumber_step(v2(records))[0]
+
+
+def features_event(ident, slug, schema, **fields):
+    made = features.make_event("start", slug, text=slug, paths=["src/**"], ts="t", **fields)
+    return dict(made, id=ident, schema=schema)
 
 
 class DriverTests(unittest.TestCase):
@@ -128,6 +158,201 @@ class DriverTests(unittest.TestCase):
         write(self.theirs, [claim("c1", "Theirs")])
         self.assertEqual(merge_driver.run(self.base, self.ours, self.theirs), 0)
         self.assertEqual([r["text"] for r in read(self.ours)], ["Ours", "Theirs"])
+
+
+class CrossMigrationTests(unittest.TestCase):
+    """Two branches that each ran `docket migrate`, from a schema-2 BASE.
+
+    Schema-2 ids are one global sequence: c1 d2 c3. After the migration they
+    are per kind: c1 d1 c2.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.base, self.ours, self.theirs = (self.tmp / n for n in ("O", "A", "B"))
+        self.shared = [
+            claim("c1", "Shared premise"),
+            decision("d2", "Cache layer sits behind reads", supports=[["c1"]]),
+        ]
+
+    def run_driver(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code = merge_driver.run(self.base, self.ours, self.theirs)
+        return code, err.getvalue()
+
+    def ids(self):
+        return [r["id"] for r in read(self.ours)]
+
+    def test_both_sides_migrated_separately_merge_without_duplicates(self):
+        write(self.base, v2(self.shared))
+        write(self.ours, upgraded(self.shared + [claim("c3", "Ours only")]))
+        write(self.theirs, upgraded(self.shared + [claim("c3", "Theirs only")]))
+        before = self.ours.read_text(encoding="utf-8")
+        self.assertEqual(self.run_driver()[0], 0)
+        self.assertTrue(self.ours.read_text(encoding="utf-8").startswith(before))
+        merged = read(self.ours)
+        self.assertEqual(self.ids(), ["c1", "d1", "c2", "c3"])
+        # One old id on two records, one per branch.
+        self.assertEqual([merged[2]["migrated_from"], merged[3]["migrated_from"]], ["c3", "c3"])
+        self.assertEqual([merged[2]["text"], merged[3]["text"]], ["Ours only", "Theirs only"])
+        once = self.ours.read_text(encoding="utf-8")
+        self.assertEqual(self.run_driver()[0], 0)
+        self.assertEqual(self.ours.read_text(encoding="utf-8"), once)
+
+    def test_a_correction_and_a_review_of_a_shared_record_merge_once(self):
+        fix = corrections.make("d2", {"scope": ["a.py"]}, author="t")
+        fix["id"] = "d2.1"
+        look = reviews.make("d2", author="t")
+        look["id"] = "d2.r1"
+        look["grounds"] = {"c1": "c1"}
+        write(self.base, v2(self.shared))
+        write(self.ours, upgraded(self.shared + [claim("c3", "Ours only")]))
+        write(self.theirs, upgraded(self.shared + [fix, look]))
+        self.assertEqual(self.run_driver()[0], 0)
+        merged = read(self.ours)
+        self.assertEqual(self.ids(), ["c1", "d1", "c2", "d1.1", "d1.r1"])
+        self.assertEqual(merged[3]["corrects"], "d1")
+        self.assertEqual((merged[4]["reviews"], merged[4]["grounds"]), ("d1", {"c1": "c1"}))
+        once = self.ours.read_text(encoding="utf-8")
+        self.assertEqual(self.run_driver()[0], 0)
+        self.assertEqual(self.ours.read_text(encoding="utf-8"), once)
+
+    def test_a_branch_that_merged_main_before_the_migration_merges_back_without_duplicates(self):
+        base = [claim("c1", "Shared premise")]
+        main = base + [decision("d2", "Cache layer sits behind reads", supports=[["c1"]])]
+        branch = base + [claim("c2", "Branch only")]
+        # A schema-2 `docket rebase` appended main's decision to the branch
+        # under the next global id, d3.
+        branch = branch + [dict(main[1], id="d3")]
+        branch = branch + [claim("c4", "Cites the cache", supports=[["d3"]])]
+        write(self.base, v2(base))
+        write(self.ours, upgraded(main))
+        write(self.theirs, upgraded(branch))
+        self.assertEqual(self.run_driver()[0], 0)
+        merged = read(self.ours)
+        self.assertEqual(self.ids(), ["c1", "d1", "c2", "c3"])
+        self.assertEqual([r["text"] for r in merged][2:], ["Branch only", "Cites the cache"])
+        self.assertEqual(merged[3]["supports"], [["d1"]])
+        once = self.ours.read_text(encoding="utf-8")
+        self.assertEqual(self.run_driver()[0], 0)
+        self.assertEqual(self.ours.read_text(encoding="utf-8"), once)
+
+    def test_ours_migrated_and_theirs_not_is_refused_with_markers(self):
+        write(self.base, v2(self.shared))
+        write(self.ours, upgraded(self.shared) + [claim("c2", "Ours only")])
+        write(self.theirs, v2(self.shared + [claim("c3", "Theirs only")]))
+        code, err = self.run_driver()
+        self.assertEqual(code, 1)
+        self.assertIn("<<<<<<<", self.ours.read_text(encoding="utf-8"))
+        self.assertIn("the other branch's ledger is schema 2", err)
+        self.assertIn("docket migrate", err)
+
+    def test_theirs_migrated_and_ours_not_is_refused_with_markers(self):
+        write(self.base, v2(self.shared))
+        write(self.ours, v2(self.shared + [claim("c3", "Ours only")]))
+        write(self.theirs, upgraded(self.shared) + [claim("c2", "Theirs only")])
+        code, err = self.run_driver()
+        self.assertEqual(code, 1)
+        self.assertIn("<<<<<<<", self.ours.read_text(encoding="utf-8"))
+        self.assertIn("this branch's ledger is schema 2", err)
+
+    def test_an_unreadable_base_is_refused_with_markers(self):
+        for label, content in (
+            ("non-UTF-8", b'{"id":"c1"}\n\xff\xfe\n'),
+            ("non-object", b"[1, 2]\n"),
+            ("non-object after a record", json.dumps(claim("c1", "x")).encode() + b"\n7\n"),
+        ):
+            with self.subTest(label):
+                self.base.write_bytes(content)
+                write(self.ours, [claim("c1", "Ours")])
+                write(self.theirs, [claim("c1", "Theirs")])
+                code, _ = self.run_driver()
+                self.assertEqual(code, 1)
+                self.assertIn("<<<<<<<", self.ours.read_text(encoding="utf-8"))
+
+    def test_an_unreadable_base_beside_feature_stores_is_refused_with_markers(self):
+        good = json.dumps(features_event("f1", "shared", 2)).encode()
+        for label, content in (
+            ("non-UTF-8", good + b"\n\xff\xfe\n"),
+            ("non-object", good + b"\n[1]\n"),
+        ):
+            with self.subTest(label):
+                self.base.write_bytes(content)
+                write(self.ours, [features_event("f1", "ours", 2)])
+                write(self.theirs, [features_event("f1", "theirs", 2)])
+                code, _ = self.run_driver()
+                self.assertEqual(code, 1)
+                self.assertIn("<<<<<<<", self.ours.read_text(encoding="utf-8"))
+
+    def test_a_schema_2_base_with_a_non_object_line_is_refused_with_markers(self):
+        self.base.write_bytes(json.dumps(v2(self.shared)[0]).encode() + b"\n[1]\n")
+        write(self.ours, upgraded(self.shared))
+        write(self.theirs, upgraded(self.shared))
+        code, _ = self.run_driver()
+        self.assertEqual(code, 1)
+        self.assertIn("<<<<<<<", self.ours.read_text(encoding="utf-8"))
+
+    def test_an_empty_base_still_merges_two_migrated_ledgers(self):
+        self.base.write_text("", encoding="utf-8")
+        write(self.ours, [claim("c1", "Ours")])
+        write(self.theirs, [claim("c1", "Theirs")])
+        self.assertEqual(self.run_driver()[0], 0)
+        self.assertEqual(self.ids(), ["c1", "c2"])
+
+    def test_features_base_at_schema_1_matches_its_migrated_copy(self):
+        # ours archived the old feature; theirs still carries it, migrated.
+        # A strict key would see a new event and resurrect it.
+        old = features_event("f1", "old", 1, include=["d2"], keys={"d2": "a" * 12})
+        migrated = dict(old, schema=2, include=["d1"], keys={"d1": "b" * 12})
+        write(self.base, [old])
+        write(self.ours, [features_event("f1", "ours", 2)])
+        write(self.theirs, [migrated, features_event("f2", "theirs", 2)])
+        self.assertEqual(self.run_driver()[0], 0)
+        merged = features.read(self.ours)
+        self.assertEqual([(e["id"], e["slug"]) for e in merged], [("f1", "ours"), ("f2", "theirs")])
+
+    def test_one_feature_event_carried_by_both_sides_under_different_ids_merges_once(self):
+        # A pre-migration features merge copied the event across verbatim; each
+        # branch's migration then mapped its include through its own ledger.
+        ours_copy = features_event("f1", "shared", 2, include=["d1"], keys={"d1": "a" * 12})
+        theirs_copy = dict(ours_copy, include=["d2"], keys={"d2": "a" * 12})
+        write(self.base, [features_event("f1", "shared", 1, include=["d3"])])
+        write(self.ours, [ours_copy])
+        write(self.theirs, [theirs_copy, features_event("f2", "theirs", 2)])
+        self.assertEqual(self.run_driver()[0], 0)
+        merged = features.read(self.ours)
+        self.assertEqual(
+            [(e["id"], e["slug"]) for e in merged], [("f1", "shared"), ("f2", "theirs")]
+        )
+        self.assertEqual(merged[0]["include"], ["d1"])
+
+    def test_features_sides_at_different_schemas_are_refused_with_markers(self):
+        for ours_schema, theirs_schema in ((1, 2), (2, 1), (1, 1)):
+            write(self.base, [features_event("f1", "shared", 1)])
+            write(self.ours, [features_event("f1", "shared", ours_schema)])
+            write(
+                self.theirs,
+                [
+                    features_event("f1", "shared", theirs_schema),
+                    features_event("f2", "t", theirs_schema),
+                ],
+            )
+            code, err = self.run_driver()
+            self.assertEqual(code, 1, (ours_schema, theirs_schema))
+            self.assertIn("<<<<<<<", self.ours.read_text(encoding="utf-8"))
+            self.assertIn("features file is schema 1", err)
+            self.assertIn("docket migrate", err)
+
+    def test_a_schema_1_ledger_side_is_refused_too(self):
+        write(self.base, v2(self.shared))
+        write(self.ours, upgraded(self.shared))
+        write(self.theirs, [dict(r, schema=1) for r in self.shared])
+        code, err = self.run_driver()
+        self.assertEqual(code, 1)
+        self.assertIn("<<<<<<<", self.ours.read_text(encoding="utf-8"))
+        self.assertIn("schema 1", err)
 
 
 DOCKET = str(ROOT / "bin" / "docket")

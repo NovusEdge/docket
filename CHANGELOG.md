@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** schema 3 numbers each kind on its own, so claims are `c1…`, decisions `d1…` and questions `q1…`. Every record in an existing ledger is renumbered once, retired records included, and keeps its schema 2 ID in `migrated_from`. Old IDs stay searchable and no command resolves them. Every collaborator must upgrade docket and the plugin before merging a migrated ledger, because 0.25.x cannot read schema 3 and its session hook reports an error. Each project runs `docket migrate` once and commits the result.
+- Each branch migrates itself before it merges. The merge driver refuses a ledger or features side that is still at an older schema, names the branch to migrate, and leaves conflict markers; abort the merge, migrate that branch, commit, and merge again.
+- A merge or `docket rebase` now rewrites `c`, `d` and `q` IDs mentioned in a record's prose along with its relations, and matching ignores those IDs so a record merged under a new number is not appended twice.
+- `docket migrate` runs every step from the ledger's schema to the current one, so a schema 1 ledger reaches schema 3 in one run. It prints a summary by default and, with `--dry-run`, the per-record report, every prose field it would rewrite and every ID it would leave as written. It keeps the original at `ledger.jsonl.schemaN`, where N is the starting schema. `--map` and `--emit-map` apply to schema 1 only.
+- The migration rewrites `.docket/features.jsonl` and `.docket/archive/features-*.jsonl` to the new IDs and moves their schema to 2.
+- `docket check` compares ID order per kind, and on a ledger older than the running docket prints the migrate instruction once.
+- The pre-edit hook asks before an edit to any `ledger.jsonl.schemaN` backup, not only `.schema1`.
+
+### Added
+
+- `docket migrate --rewrite FILE...` rewrites ID citations in the named files in the same run. Each file must be tracked by git and have no uncommitted changes. With `--dry-run` it lists the files and counts and writes nothing. It is refused on a ledger already at schema 3.
+- `docket list --where was:ID` finds a record by the ID it had before a migration, and `docket show ID` names that command for an ID that no longer exists.
+- `list --json` and `show --json` drop `migrated_from` along with `legacy` unless `--legacy` is passed.
+- The session hook prints the migrate instruction on stdout, with exit 0, when the ledger is older than the running docket, so the agent sees it. Any other ledger error still prints on stderr with exit 1.
+
 ## [0.25.1] - 2026-10-05
 
 ### Fixed

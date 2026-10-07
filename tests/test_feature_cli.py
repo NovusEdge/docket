@@ -170,6 +170,37 @@ class FeatureCheckTests(FeatureCliTests):
         code, _ = self.run_cli("check")
         self.assertEqual(code, 0)
 
+    def cited_store(self, key=None):
+        self.run_cli(
+            "claim", "Premise one", "--state", "accepted", "--scope", "a/**", "--cost", "none"
+        )
+        self.run_cli("feature", "start", "one", "--text", "t", "--path", "a/**")
+        self.run_cli("feature", "amend", "one", "--include", "c1")
+        store = self.root / ".docket" / "features.jsonl"
+        if key is not None:
+            lines = [json.loads(line) for line in store.read_text(encoding="utf-8").splitlines()]
+            lines[-1]["keys"] = {"c1": key}
+            store.write_text("".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8")
+
+    def test_check_passes_when_a_stored_key_matches_its_record(self):
+        self.cited_store()
+        code, _ = self.run_cli("check")
+        self.assertEqual(code, 0)
+
+    def test_check_reports_an_event_whose_stored_key_matches_no_record(self):
+        self.cited_store(key="0" * 12)
+        code, out = self.run_cli("check")
+        self.assertEqual(code, 1)
+        self.assertIn("c1", out)
+        self.assertIn("stored key", out)
+
+    def test_check_ignores_a_stale_key_on_a_closed_feature(self):
+        # remap skips closed features, so reporting one would fail check forever.
+        self.cited_store(key="0" * 12)
+        self.run_cli("feature", "abandon", "one", "--text", "no")
+        code, _ = self.run_cli("check")
+        self.assertEqual(code, 0)
+
     def test_check_reports_a_corrupt_feature_store(self):
         self.run_cli("feature", "start", "one", "--text", "t", "--path", "a/**")
         store = self.root / ".docket" / "features.jsonl"
@@ -262,7 +293,7 @@ class FeatureIncludeExcludeTests(FeatureCliTests):
         self.ledger_record(
             json.dumps(
                 {
-                    "schema": 2,
+                    "schema": 3,
                     "id": "d9",
                     "kind": "decision",
                     "text": "t",

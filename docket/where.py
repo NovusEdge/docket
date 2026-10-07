@@ -19,7 +19,7 @@ from docket.config import DEFAULTS
 from docket.context_model import _list, _normalize_path, scope_strength
 from docket.ledger import KINDS, STATES
 
-FIELDS = ("after", "author", "before", "branch", "is", "kind", "scope", "state")
+FIELDS = ("after", "author", "before", "branch", "is", "kind", "scope", "state", "was")
 IS_VALUES = ("blocked", "corrected", "flagged", "pinned", "retired", "unsupported")
 STATE_VALUES = tuple(sorted({state for values in STATES.values() for state in values}))
 _TEXT_KEYS = ("id", "text", "choice", "rationale")
@@ -47,7 +47,12 @@ class Query:
 
     @property
     def wants_retired(self) -> bool:
-        return any(t.field == "is" and t.value == "retired" and not t.negated for t in self.terms)
+        # was: names a record by an id it no longer carries, and a migration
+        # often leaves that record retired.
+        return any(
+            not t.negated and (t.field == "was" or (t.field == "is" and t.value == "retired"))
+            for t in self.terms
+        )
 
     @property
     def has_fields(self) -> bool:
@@ -150,12 +155,27 @@ def _day(term: str, value: str) -> date:
     raise _fail(term, "dates are YYYY-MM-DD")
 
 
+def old_ids(entry: Mapping[str, Any]) -> tuple[str, ...]:
+    """The ids a migrated record carried before: its schema 2 id and its schema 1 id.
+
+    A record migrated from schema 1 holds both, and they can differ in letter
+    (c4 with legacy.source_id d4).
+    """
+    legacy = entry.get("legacy")
+    source = legacy.get("source_id") if isinstance(legacy, dict) else None
+    found = (entry.get("migrated_from"), source)
+    return tuple(item for item in found if isinstance(item, str) and item)
+
+
 def _hit(term: Term, entry: Mapping[str, Any]) -> bool:
     field, value = term.field, term.value
     if not field:
         return any(value in str(entry.get(key) or "").lower() for key in _TEXT_KEYS)
     if field in ("kind", "state"):
         return str(entry.get(field) or "").lower() == value
+    if field == "was":
+        # Exact, unlike author and branch: was:c3 must not find c30.
+        return value in (old.lower() for old in old_ids(entry))
     if field in ("author", "branch"):
         return value in str(entry.get(field) or "").lower()
     if field == "is":
@@ -214,4 +234,4 @@ def _ts_day(raw: Any) -> date | None:
     return stamp.astimezone(timezone.utc).date()
 
 
-__all__ = ["FIELDS", "IS_VALUES", "Query", "STATE_VALUES", "Term", "WhereError", "parse"]
+__all__ = ["FIELDS", "IS_VALUES", "Query", "STATE_VALUES", "Term", "WhereError", "old_ids", "parse"]

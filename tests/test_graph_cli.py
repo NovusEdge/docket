@@ -86,7 +86,7 @@ class ExportCliTests(unittest.TestCase):
             "--supports",
             "c1",
             "--answers",
-            "q2",
+            "q1",
             "--cost",
             "a nested path is never seen",
         )
@@ -96,15 +96,15 @@ class ExportCliTests(unittest.TestCase):
         code, out, _ = self.run_cli("export", "--format", "mermaid")
         self.assertEqual(code, 0)
         self.assertTrue(out.startswith("flowchart LR"))
-        self.assertIn("c1 --> d3", out)
-        self.assertIn("d3 ==> q2", out)
+        self.assertIn("c1 --> d1", out)
+        self.assertIn("d1 ==> q1", out)
 
     def test_dot_prints_a_digraph(self):
         self.seed()
         code, out, _ = self.run_cli("export", "--format", "dot")
         self.assertEqual(code, 0)
         self.assertTrue(out.startswith("digraph docket {"))
-        self.assertIn('"c1" -> "d3"', out)
+        self.assertIn('"c1" -> "d1"', out)
 
     def test_group_scope_clusters_the_dot_output(self):
         self.seed()
@@ -120,9 +120,9 @@ class ExportCliTests(unittest.TestCase):
 
     def test_focus_outside_the_filtered_selection_exits_1(self):
         self.seed()
-        code, _, err = self.run_cli("export", "--kind", "claim", "--focus", "d3")
+        code, _, err = self.run_cli("export", "--kind", "claim", "--focus", "d1")
         self.assertEqual(code, 1)
-        self.assertIn("d3 is not in this selection", err)
+        self.assertIn("d1 is not in this selection", err)
 
     def test_hops_without_focus_exits_2(self):
         self.seed()
@@ -141,16 +141,16 @@ class ExportCliTests(unittest.TestCase):
         self.seed()
         code, out, _ = self.run_cli("export", "--focus", "c1", "--hops", "1")
         self.assertEqual(code, 0)
-        self.assertIn("c1 --> d3", out)
-        self.assertNotIn("q2", out)
+        self.assertIn("c1 --> d1", out)
+        self.assertNotIn("q1", out)
 
     def test_focus_on_a_record_with_no_relation_exits_0(self):
         self.seed()
         self.run_cli("claim", "a lone fact", "--state", "accepted", "--scope", "z/**")
-        code, out, _ = self.run_cli("export", "--focus", "c4")
+        code, out, _ = self.run_cli("export", "--focus", "c2")
         self.assertEqual(code, 0)
-        self.assertIn("c4", out)
-        self.assertNotIn("d3", out)
+        self.assertIn("c2", out)
+        self.assertNotIn("d1", out)
 
     def test_an_empty_ledger_says_nothing_is_recorded(self):
         code, out, _ = self.run_cli("export", "--format", "mermaid")
@@ -188,7 +188,7 @@ class ExportCliTests(unittest.TestCase):
             "plugin",
         )
         self.assertLessEqual(len(narrow), len(wide))
-        self.assertIn("d3", narrow)
+        self.assertIn("d1", narrow)
 
     def test_detail_zero_prints_bare_ids(self):
         self.seed()
@@ -222,9 +222,9 @@ class ExportCliTests(unittest.TestCase):
             "--scope",
             "a/**",
             "--supersedes",
-            "d3",
+            "d1",
             "--answers",
-            "q2",
+            "q1",
             "--cost",
             "none",
         )
@@ -269,7 +269,7 @@ class ExportCliTests(unittest.TestCase):
             "--scope",
             "a/**",
             "--supersedes",
-            "d3",
+            "d1",
             "--cost",
             "none",
         )
@@ -281,13 +281,13 @@ class ExportCliTests(unittest.TestCase):
             "--scope",
             "a/**",
             "--supersedes",
-            "d4",
+            "d2",
             "--cost",
             "none",
         )
         _, out, _ = self.run_cli("export", "--format", "mermaid", "--superseded")
-        self.assertIn("d4 -- retires --> d3", out)
-        self.assertIn("d5 -- retires --> d4", out)
+        self.assertIn("d2 -- retires --> d1", out)
+        self.assertIn("d3 -- retires --> d2", out)
 
     def test_a_kind_filter_drops_the_edges_it_orphans(self):
         # --kind hands over a subset. An edge whose other end is filtered out
@@ -301,7 +301,7 @@ class ExportCliTests(unittest.TestCase):
             "decision",
         )
         self.assertNotIn("c1", out)
-        self.assertNotIn("q2", out)
+        self.assertNotIn("q1", out)
 
     def test_a_state_filter_reaches_the_export(self):
         self.seed()
@@ -401,7 +401,7 @@ class ExportCliTests(unittest.TestCase):
             "decision",
         )
         if (target / "nodes.csv").is_file():
-            self.assertNotIn("q2", (target / "nodes.csv").read_text(encoding="utf-8"))
+            self.assertNotIn("q1", (target / "nodes.csv").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

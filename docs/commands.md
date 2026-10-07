@@ -18,7 +18,7 @@ Ledger commands use the file that `docket where` reports. Run
 | `docket check` | Report what makes the ledger unreadable |
 | `docket feature ...` | Track a piece of work in flight; see below |
 | `docket init` | Create a project ledger and copy any existing private records into it. It also adds the ledger merge driver to `.gitattributes` and, when `docket` is on PATH, registers it in the clone's git config; git invokes the driver during merges. Re-running it repairs a fresh clone |
-| `docket migrate` | Convert a pre-0.8 ledger to the current schema |
+| `docket migrate` | Convert an older ledger to the current schema |
 | `docket rebase` | Renumber another branch's records onto this ledger |
 | `docket update` | Update this Docket installation; `--check` reports without changing anything |
 | `docket completion SHELL` | Print a shell completion script |
@@ -194,6 +194,7 @@ The projection adds derived fields. They are never stored in the ledger.
 | `is:pinned`, `is:corrected`, `is:retired`, `is:blocked` | the record is pinned, corrected, or retired, or is a blocked decision |
 | `is:flagged`, `is:unsupported` | the record is a current accepted claim or adopted decision whose derived `support` is `flagged` or `unsupported` |
 | `author:A`, `branch:B` | the author or the branch contains the value |
+| `was:ID` | the record carried ID before a migration: its `migrated_from` or its schema 1 `legacy.source_id` is ID. Matches exactly, and a merge across the migration can leave two records with one old ID |
 | `after:D`, `before:D` | the record's UTC date is on or after D, or before D; D is `YYYY-MM-DD` |
 
 - Spaces separate terms. Double quotes hold spaces: `author:"a teammate"`.
@@ -265,9 +266,7 @@ the bad line or relation when it does not.
 `docket rebase OTHER` renumbers the records in `OTHER` onto the end of this
 ledger. Use `--dry-run` to see the ID map first.
 
-`docket migrate` converts a schema 1 ledger. Use `--dry-run` to review the
-conversion, `--emit-map PATH` to write the derived classification map, and
-`--map PATH` to apply a map you edited.
+`docket migrate` converts an older ledger to the current schema: schema 1 and schema 2 both end at schema 3 in one run. It prints a summary of what it renumbered and keeps the original at `ledger.jsonl.schemaN`. Use `--dry-run` to see the per-record report, every prose rewrite and every unmapped ID, and write nothing. `--rewrite FILE...` rewrites ID citations in the named files in the same run; each file must be tracked and clean, and with `--dry-run` it lists the files and counts instead. `--rewrite` needs a ledger that is about to migrate. `--emit-map PATH` writes the derived classification map and `--map PATH` applies one you edited; both apply to a schema 1 ledger only.
 
 See [Maintenance](maintenance.md) for repair and migration procedures.
 

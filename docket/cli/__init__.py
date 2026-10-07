@@ -197,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
         help="with --json, keep only these fields, e.g. id,kind,state,text",
     )
     ls.add_argument(
-        "--legacy", action="store_true", help="with --json, keep the schema 1 migration audit field"
+        "--legacy", action="store_true", help="with --json, keep the migration audit fields"
     )
     ls.add_argument("--plain", action="store_true", help="force colour off")
     ls.add_argument("--pretty", action="store_true", help="force colour on, e.g. piping to less -R")
@@ -225,7 +225,7 @@ def main(argv: list[str] | None = None) -> int:
     sh.add_argument("id")
     sh.add_argument("--json", action="store_true", help="print the entry as JSON")
     sh.add_argument(
-        "--legacy", action="store_true", help="with --json, keep the schema 1 migration audit field"
+        "--legacy", action="store_true", help="with --json, keep the migration audit fields"
     )
     sh.add_argument("--at", default="", help="print the record as history stood at this record ID")
     sh.set_defaults(func=cmd_show)
@@ -286,11 +286,22 @@ def main(argv: list[str] | None = None) -> int:
     md.add_argument("theirs")
     md.set_defaults(func=cmd_merge_driver)
 
-    mg = sub.add_parser("migrate", help="convert a legacy ledger to the current schema")
+    mg = sub.add_parser("migrate", help="convert a ledger to the current schema")
     source = mg.add_mutually_exclusive_group()
     source.add_argument("--map", help="classification map to apply instead of the derived one")
     source.add_argument("--emit-map", help="write the derived map to this path and stop")
-    mg.add_argument("--dry-run", action="store_true", help="report the conversion and stop")
+    mg.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print the per-record report, every prose change and unmapped id, and write nothing",
+    )
+    mg.add_argument(
+        "--rewrite",
+        nargs="+",
+        default=[],
+        metavar="FILE",
+        help="also rewrite id citations in these tracked, clean files; only alongside a migration",
+    )
     mg.set_defaults(func=cmd_migrate)
 
     it = sub.add_parser("init", help="move this project's ledger into the repository")

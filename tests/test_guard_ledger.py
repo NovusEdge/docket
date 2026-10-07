@@ -33,10 +33,26 @@ class LedgerPathTests(unittest.TestCase):
                 ".docket/ledger.jsonl",
                 "/home/user/project/.docket/ledger.jsonl",
                 ".docket/ledger.jsonl.schema1",
+                ".docket/ledger.jsonl.schema2",
                 ".docket/migration-v0.8-map.json",
             ):
                 with self.subTest(tool=tool, path=path):
                     self.assertEqual(decide(tool, {"file_path": path}), "ask")
+
+    def test_every_schema_backup_asks(self):
+        for path in (
+            ".docket/ledger.jsonl.schema1",
+            ".docket/ledger.jsonl.schema2",
+            ".docket/ledger.jsonl.schema12",
+            ".docket/features.jsonl.schema1",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(decide("Edit", {"file_path": path}), "ask")
+
+    def test_a_name_that_only_looks_like_a_backup_is_untouched(self):
+        for path in (".docket/ledger.jsonl.schema", ".docket/ledger.jsonl.schemax"):
+            with self.subTest(path=path):
+                self.assertEqual(decide("Edit", {"file_path": path}), "allow")
 
     def test_an_ordinary_file_is_untouched(self):
         for path in ("docket/ledger.py", "README.md", "docket/notes.jsonl", ".docket/notes.txt"):

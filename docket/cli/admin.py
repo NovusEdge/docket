@@ -13,13 +13,16 @@ import sys
 from pathlib import Path
 
 from docket import env, feature_archive, feature_project, features, merge_setup
+from docket.cli.context_cmd import migrate_instruction
 from docket.ledger import (
     ID_RE,
     LedgerError,
+    SchemaTooOld,
     _ledger_lock,
     _Prefix,
     append,
     rebind,
+    stale_keys,
     validate_record,
 )
 
@@ -38,7 +41,8 @@ def cmd_rebase(args: argparse.Namespace) -> int:
         theirs = env.read(other, strict=True)
         tail, mapping = renumber(mine, theirs)
     except (LedgerError, RebaseError, OSError) as exc:
-        print(f"docket: {exc}", file=sys.stderr)
+        # Ledger errors, SchemaTooOld among them, already carry the prefix.
+        print(f"docket: {str(exc).removeprefix('docket: ')}", file=sys.stderr)
         return 1
     if not tail:
         print("docket: nothing to rebase; the histories already agree")
@@ -68,9 +72,14 @@ def cmd_rebase(args: argparse.Namespace) -> int:
     return 0
 
 
+def _count(number: int, noun: str) -> str:
+    return f"{number} {noun}{'' if number == 1 else 's'}"
+
+
 def cmd_migrate(args: argparse.Namespace) -> int:
     """Convert this project's ledger to the current schema."""
     from docket.migrate import (
+        SCHEMA_LATEST,
         MigrationError,
         derive_mapping,
         detect_version,
@@ -82,13 +91,19 @@ def cmd_migrate(args: argparse.Namespace) -> int:
     if not path.exists():
         print(f"docket: no ledger at {path}")
         return 0
+    version = None
     try:
+        version = detect_version(read_source(path))
         if args.emit_map:
-            source = read_source(path)
-            if detect_version(source) == 2:
-                print("docket: already schema 2")
+            if version == SCHEMA_LATEST:
+                print(f"docket: already schema {SCHEMA_LATEST}")
                 return 0
-            mapping = derive_mapping(source)
+            if version != 1:
+                raise MigrationError(
+                    f"--emit-map applies to a schema 1 ledger; this one is at schema {version}, "
+                    "whose records are already typed"
+                )
+            mapping = derive_mapping(read_source(path))
             Path(args.emit_map).write_text(
                 json.dumps(mapping, indent=2, sort_keys=True) + "\n", encoding="utf-8"
             )
@@ -97,32 +112,70 @@ def cmd_migrate(args: argparse.Namespace) -> int:
                 f"{'y' if len(mapping) == 1 else 'ies'} to {args.emit_map}"
             )
             return 0
-        count, report, notes = migrate_in_place(path, mapping_path=args.map, dry_run=args.dry_run)
+        result = migrate_in_place(
+            path, mapping_path=args.map, dry_run=args.dry_run, rewrite=args.rewrite
+        )
     except MigrationError as exc:
         print(f"docket: {exc}", file=sys.stderr)
-        print(
-            "docket: to classify records by hand, run 'docket migrate --emit-map FILE', "
-            "edit FILE, then 'docket migrate --map FILE'",
-            file=sys.stderr,
-        )
+        if version == 1:
+            print(
+                "docket: to classify records by hand, run 'docket migrate --emit-map FILE', "
+                "edit FILE, then 'docket migrate --map FILE'",
+                file=sys.stderr,
+            )
         return 2
     except OSError as exc:
         print(f"docket: {exc}", file=sys.stderr)
         return 1
-    if not count:
-        print("docket: already schema 2")
+    if not result.count:
+        # A current ledger whose features files were not.
+        extra = (
+            f"; remapped {_count(result.features_events, 'features event')}"
+            if result.features_events
+            else ""
+        )
+        print(f"docket: already schema {SCHEMA_LATEST}{extra}")
         return 0
-    for note in notes:
+    for note in result.notes:
         print(f"docket: warning: {note}", file=sys.stderr)
-    for line in report:
-        print(line)
-    if args.dry_run:
-        print(f"docket: would convert {count} record{'' if count == 1 else 's'}")
-        return 0
-    print(
-        f"docket: converted {count} record{'' if count == 1 else 's'}; "
-        f"original kept at {path}.schema1"
+    dry = args.dry_run
+    if dry:
+        for line in result.report:
+            print(line)
+        for change in result.prose_changes:
+            if change.after is None:
+                print(f"  {change.line_id} {change.field}: unmapped {change.before}")
+            else:
+                print(f"  {change.line_id} {change.field}: {change.before} -> {change.after}")
+    kinds = ", ".join(
+        _count(result.per_kind.get(kind, 0), kind) for kind in ("claim", "decision", "question")
     )
+    print(
+        f"docket: {'would migrate' if dry else 'migrated'} {_count(result.count, 'record')} "
+        f"from schema {version} to schema {SCHEMA_LATEST} ({kinds})"
+    )
+    rewritten = sum(1 for change in result.prose_changes if change.after is not None)
+    unmapped = len(result.prose_changes) - rewritten
+    done = "would rewrite" if dry else "rewrote"
+    parts = [_count(rewritten, "prose field")]
+    if result.features_events:
+        parts.append(_count(result.features_events, "features event"))
+    print(f"docket: {done} {' and '.join(parts)}")
+    if unmapped:
+        print(f"docket: left {_count(unmapped, 'unmapped id')} as written")
+    if result.rewritten:
+        total = sum(result.rewrite_counts.values())
+        print(
+            f"docket: {done} {_count(total, 'id mention')} in "
+            f"{_count(len(result.rewritten), 'file')}"
+        )
+        for name in result.rewritten:
+            if dry:
+                print(f"  {name}: {_count(result.rewrite_counts[name], 'id')}")
+            else:
+                print(f"  {name}")
+    if not dry:
+        print(f"docket: original kept at {path}.schema{version}")
     return 0
 
 
@@ -149,7 +202,7 @@ def cmd_check(args: argparse.Namespace) -> int:
     # already shed.
     prefix = _Prefix([])
     seen: dict[str, int] = {}
-    highest = 0
+    highest: dict[str, int] = {}
     records = 0
     correction_lines = 0
     review_lines = 0
@@ -170,6 +223,9 @@ def cmd_check(args: argparse.Namespace) -> int:
             # nothing a brief can attach, and the feature check reports it.
             try:
                 checked = validate_record(record, prefix=prefix)
+            except SchemaTooOld as exc:
+                print(migrate_instruction(exc), end="")
+                return 1
             except LedgerError as exc:
                 faults.append(f"line {number}: {str(exc).removeprefix('docket: ')}")
             else:
@@ -185,17 +241,22 @@ def cmd_check(args: argparse.Namespace) -> int:
             faults.append(f"line {number}: duplicate id {ident}, first seen on line {seen[ident]}")
             continue
         seen[ident] = number
+        letter = match.group(1)
+        past = highest.get(letter, 0)
         sequence = int(match.group(2))
-        if sequence <= highest:
-            faults.append(f"line {number}: id {ident} does not increase past {highest}")
+        if sequence <= past:
+            faults.append(f"line {number}: id {ident} does not increase past {letter}{past}")
             continue
-        highest = sequence
+        highest[letter] = sequence
         # The ID checks alone let a hand-resolved merge pass: a record pointing
         # at a same-numbered record from the other branch has a target that
         # exists and has the right kind. validate_record is what catches a
         # dangling or wrong-kind reference.
         try:
             checked = validate_record(record, prefix=prefix)
+        except SchemaTooOld as exc:
+            print(migrate_instruction(exc), end="")
+            return 1
         except LedgerError as exc:
             faults.append(f"line {number}: {str(exc).removeprefix('docket: ')}")
         else:
@@ -247,6 +308,18 @@ def cmd_check(args: argparse.Namespace) -> int:
                         print(
                             f"{store}: {feature['id']} {field} names records a merge "
                             f"renumbered ({', '.join(moved)}); run docket feature remap"
+                        )
+                        failed = True
+                    stale = (
+                        []
+                        if feature["state"] in features.TERMINAL_STATES
+                        else stale_keys(feature[field], feature["keys"], good)
+                    )
+                    if stale:
+                        print(
+                            f"{store}: {feature['id']} {field} names {', '.join(stale)}, "
+                            "whose stored key matches no record; check which record was "
+                            "meant and re-cite it with docket feature amend"
                         )
                         failed = True
 

@@ -23,7 +23,7 @@ def decision(ident, **kwargs):
 
 def review(ident, target, grounds):
     return {
-        "schema": 2,
+        "schema": ledger.SCHEMA,
         "kind": "review",
         "id": ident,
         "reviews": target,

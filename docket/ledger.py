@@ -21,7 +21,7 @@ from typing import Any, Iterator
 
 from docket import corrections, reviews, support
 
-SCHEMA = 2
+SCHEMA = 3
 KINDS = ("claim", "decision", "question")
 STATES = {
     "claim": ("unassessed", "accepted", "disputed", "rejected"),
@@ -29,6 +29,7 @@ STATES = {
     "question": ("open", "resolved"),
 }
 ID_RE = re.compile(r"([cdq])(0|[1-9][0-9]*)$")
+ID_TOKEN = re.compile(r"\b([cdq])(0|[1-9][0-9]*)\b")
 COMMON_DEFAULTS: dict[str, Any] = {
     "scope": [],
     "rationale": "",
@@ -45,7 +46,7 @@ COMMON_FIELDS = frozenset(
     {"schema", "kind", "id", "text", "state", "ts", "author", "session", "branch", *COMMON_DEFAULTS}
 )
 DECISION_FIELDS = frozenset({"choice", "alternatives", "decided_by"})
-AUDIT_FIELDS = frozenset({"legacy"})
+AUDIT_FIELDS = frozenset({"legacy", "migrated_from"})
 ALLOWED_FIELDS = COMMON_FIELDS | DECISION_FIELDS | AUDIT_FIELDS | {"supersede_reason"}
 _LINE_FIELDS = {
     **dict.fromkeys(KINDS, ALLOWED_FIELDS),
@@ -58,8 +59,34 @@ class LedgerError(ValueError):
     """A human-actionable schema, reference, or storage error."""
 
 
+class SchemaTooOld(LedgerError):
+    """A line written under an older schema. ``docket migrate`` converts the file.
+
+    ``version`` is the schema the line carries, 1 when it carries none. read()
+    and validate_entries() let it through unwrapped so a caller can tell it from
+    corruption and offer the migration.
+    """
+
+    def __init__(self, version: int) -> None:
+        self.version = version
+        super().__init__(
+            f"docket: schema: this ledger is schema {version}; run 'docket migrate' "
+            f"to convert it to schema {SCHEMA}"
+        )
+
+
 def _error(where: str, message: str) -> LedgerError:
     return LedgerError(f"docket: {where}: {message}")
+
+
+def _require_current(record: dict[str, Any]) -> None:
+    schema = record.get("schema")
+    if schema is None:
+        raise SchemaTooOld(1)
+    if type(schema) is not int or schema > SCHEMA:
+        raise _error("schema", f"expected schema {SCHEMA}, got {schema!r}")
+    if schema < SCHEMA:
+        raise SchemaTooOld(max(schema, 1))
 
 
 def _is_string_list(value: Any) -> bool:
@@ -190,7 +217,7 @@ def make_record(
     ts: str | None = None,
     record_id: str | None = None,
 ) -> dict[str, Any]:
-    """Build an unnumbered or explicitly numbered schema 2 record."""
+    """Build an unnumbered or explicitly numbered record at the current schema."""
     if kind not in KINDS:
         raise _error("record", f"unknown kind {kind!r}; expected claim, decision, or question")
     if not isinstance(text, str) or not text.strip():
@@ -260,7 +287,7 @@ class _Prefix:
 
     def __init__(self, entries: list[dict[str, Any]]) -> None:
         self.by_id: dict[str, dict[str, Any]] = {}
-        self.max_number = 0
+        self.max_number: dict[str, int] = {}
         self.retired: dict[str, str] = {}
         self.corrections: dict[str, int] = {}
         self.reviews: dict[str, int] = {}
@@ -279,7 +306,7 @@ class _Prefix:
             return
         ident = entry["id"]
         self.by_id[ident] = entry
-        self.max_number = max(self.max_number, int(ident[1:]))
+        self.max_number[ident[0]] = max(self.max_number.get(ident[0], 0), int(ident[1:]))
         for target in entry["supersedes"]:
             self.retired[target] = ident
 
@@ -303,6 +330,7 @@ def validate_record(
         raise _error("record", "each JSONL line must be an object")
     if any(not isinstance(key, str) for key in record):
         raise _error("record", "field names must be strings")
+    _require_current(record)
     if record.get("kind") == corrections.KIND:
         if prefix is not None and previous is not None:
             raise _error("record", "pass previous or prefix, not both")
@@ -315,15 +343,9 @@ def validate_record(
         if prefix is None and previous is not None:
             prefix = _Prefix(previous)
         return reviews.validate(record, prefix)
-    if record.get("schema") in (None, 1):
-        raise _error(
-            "schema", "legacy format is unsupported; run 'docket migrate' to convert it to schema 2"
-        )
     unknown_fields = sorted(set(record) - ALLOWED_FIELDS)
     if unknown_fields:
         raise _error("record", f"unknown field(s): {', '.join(unknown_fields)}")
-    if type(record.get("schema")) is not int or record.get("schema") != SCHEMA:
-        raise _error("schema", f"expected schema 2, got {record.get('schema')!r}")
     kind = record.get("kind")
     if kind not in KINDS:
         raise _error("record", f"kind must be one of {', '.join(KINDS)}")
@@ -386,6 +408,10 @@ def validate_record(
     # migration assigned.
     if "legacy" in record and not isinstance(record["legacy"], dict):
         raise _error(record_id, "legacy must be an object")
+    if "migrated_from" in record:
+        origin = record["migrated_from"]
+        if not isinstance(origin, str) or not ID_RE.fullmatch(origin):
+            raise _error(record_id, "migrated_from must be a record id such as 'd12'")
     if kind == "question" and state != "open":
         raise _error(
             record_id, "questions have recorded state open; resolution is derived from answers"
@@ -408,8 +434,8 @@ def validate_record(
         known = prefix.by_id
         if record_id in known:
             raise _error(record_id, "duplicate ID")
-        if number <= prefix.max_number:
-            raise _error(record_id, "global sequence must increase monotonically; gaps are allowed")
+        if number <= prefix.max_number.get(id_prefix, 0):
+            raise _error(record_id, "per-kind sequence must increase; gaps are allowed")
         for field in ("supports", "depends_on", "answers", "supersedes"):
             ids = (
                 [ref for group in supports for ref in group]
@@ -443,6 +469,8 @@ def validate_entries(entries: Any) -> list[dict[str, Any]]:
     for index, entry in enumerate(entries, 1):
         try:
             record = validate_record(entry, prefix=prefix)
+        except SchemaTooOld:
+            raise
         except LedgerError as exc:
             raise _error(f"line {index}", str(exc).removeprefix("docket: ")) from exc
         validated.append(record)
@@ -473,7 +501,10 @@ def _newer_than_us(value: Any) -> tuple[str, frozenset[str]] | None:
     Returns None for a line this version fully understands, or one too broken
     to tell, which validation then reports.
     """
-    if not isinstance(value, dict) or value.get("schema") in (None, 1):
+    if not isinstance(value, dict):
+        return None
+    schema = value.get("schema")
+    if type(schema) is not int or schema < SCHEMA:
         return None
     kind = value.get("kind")
     if not isinstance(kind, str):
@@ -544,6 +575,8 @@ def read(path: Path | str, lock: bool = True, strict: bool = False) -> list[dict
             value = {k: v for k, v in value.items() if k not in extra}
         try:
             record = validate_record(value, prefix=prefix, copy_result=False)
+        except SchemaTooOld:
+            raise
         except LedgerError as exc:
             raise _error(f"line {line_number}", str(exc).removeprefix("docket: ")) from exc
         entries.append(record)
@@ -557,12 +590,13 @@ def read(path: Path | str, lock: bool = True, strict: bool = False) -> list[dict
     return entries
 
 
-def next_id(entries: list[dict[str, Any]]) -> str:
-    """Allocate the next global sequence number, preserving mixed-kind IDs."""
+def next_id(entries: list[dict[str, Any]], kind: str) -> str:
+    """The next number for ``kind``; each kind counts on its own from 1."""
+    letter = {"claim": "c", "decision": "d", "question": "q"}[kind]
     numbers = []
     for entry in entries:
         match = ID_RE.fullmatch(str(entry.get("id", "")))
-        if match:
+        if match and match.group(1) == letter:
             numbers.append(int(match.group(2)))
     return str(max(numbers, default=0) + 1)
 
@@ -570,7 +604,7 @@ def next_id(entries: list[dict[str, Any]]) -> str:
 def allocate_id(entries: list[dict[str, Any]], kind: str) -> str:
     if kind not in KINDS:
         raise _error("record", f"unknown kind {kind!r}")
-    return {"claim": "c", "decision": "d", "question": "q"}[kind] + next_id(entries)
+    return {"claim": "c", "decision": "d", "question": "q"}[kind] + next_id(entries, kind)
 
 
 def retired_by(entries: list[dict[str, Any]]) -> dict[str, str]:
@@ -730,9 +764,13 @@ def record_key(entry: dict[str, Any]) -> str:
     cited outside the ledger can come to name a different record. Text is the
     as-written text, from ``original`` once a correction has rewritten it in
     the projection; ts alone collides whenever two branches record within one
-    second, which every scripted run does.
+    second, which every scripted run does. An id token in the headline is
+    masked: the per-kind renumber rewrites it, and a key that followed the
+    rewrite would orphan every event stored before it. A headline with no
+    token hashes exactly as it did before.
     """
     text = (entry.get("original") or {}).get("text", entry.get("text", ""))
+    text = ID_TOKEN.sub("#", str(text or ""))
     fields = (entry.get("kind"), entry.get("ts"), entry.get("author"), entry.get("session"), text)
     raw = "\0".join(str(value or "") for value in fields)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
@@ -762,6 +800,25 @@ def rebind(ids: list[str], keys: dict[str, str], entries: list[dict[str, Any]]) 
         found = holders.get(key, [])
         out.append(found[0] if len(found) == 1 else ident)
     return out
+
+
+def stale_keys(ids: list[str], keys: dict[str, str], entries: list[dict[str, Any]]) -> list[str]:
+    """Ids whose stored key fits neither their own record nor any other.
+
+    ``rebind`` leaves such an id as written, so a caller that wants to report
+    it needs this. An id with no record is not listed: that is a dangling
+    reference, reported separately.
+    """
+    by_id = {str(entry.get("id")): entry for entry in entries}
+    held = {record_key(entry) for entry in entries}
+    return [
+        ident
+        for ident in ids
+        if ident in keys
+        and ident in by_id
+        and record_key(by_id[ident]) != keys[ident]
+        and keys[ident] not in held
+    ]
 
 
 def graph_payload(entries: list[dict[str, Any]]) -> dict[str, Any]:
