@@ -29,6 +29,7 @@ STATES = {
     "question": ("open", "resolved"),
 }
 ID_RE = re.compile(r"([cdq])(0|[1-9][0-9]*)$")
+ID_TOKEN = re.compile(r"\b([cdq])(0|[1-9][0-9]*)\b")
 COMMON_DEFAULTS: dict[str, Any] = {
     "scope": [],
     "rationale": "",
