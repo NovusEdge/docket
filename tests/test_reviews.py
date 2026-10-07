@@ -66,7 +66,7 @@ class ReviewValidationTests(unittest.TestCase):
 
     def test_a_review_does_not_consume_a_record_number(self):
         entries = ledger.validate_entries([*BASE, review("c2.r1", "c2", {"c1": "c3"})])
-        self.assertEqual(ledger.next_id(entries), "4")
+        self.assertEqual(ledger.next_id(entries, "claim"), "4")
 
 
 class ReviewFoldTests(unittest.TestCase):

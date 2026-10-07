@@ -43,8 +43,8 @@ class RebaseTests(unittest.TestCase):
             decision("d3", "Their decision", supports=[["c2"], ["c1"]], depends_on=["c2"]),
         ]
         tail, mapping = renumber(mine, theirs)
-        self.assertEqual(mapping, {"c2": "c3", "d3": "d4"})
-        self.assertEqual([row["id"] for row in tail], ["c3", "d4"])
+        self.assertEqual(mapping, {"c2": "c3", "d3": "d1"})
+        self.assertEqual([row["id"] for row in tail], ["c3", "d1"])
         # The inner reference follows the rename; the prefix reference does not.
         self.assertEqual(tail[1]["supports"], [["c3"], ["c1"]])
         self.assertEqual(tail[1]["depends_on"], ["c3"])
@@ -127,7 +127,7 @@ class RebaseTests(unittest.TestCase):
         merged_main = main + renumber(main, branch)[0]
         branch_later = branch + [decision("d3", "Uses it", supports=[["c2"]])]
         tail, mapping = renumber(merged_main, branch_later)
-        self.assertEqual(mapping, {"d3": "d4"})
+        self.assertEqual(mapping, {"d3": "d1"})
         self.assertEqual(tail[0]["supports"], [["c3"]])
 
     def test_two_identical_looking_reviews_of_different_records_stay_distinct(self):

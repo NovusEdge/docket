@@ -81,7 +81,7 @@ class CliTests(unittest.TestCase):
             result = run(root, "question", "Which database?")
             self.assertEqual(result.returncode, 0, result.stderr)
             result = run(root, "claim", "Postgres is supported", "--state", "accepted")
-            self.assertIn("c2", result.stdout)
+            self.assertIn("c1", result.stdout)
             result = run(
                 root,
                 "decision",
@@ -91,12 +91,12 @@ class CliTests(unittest.TestCase):
                 "--alternative",
                 "SQLite",
                 "--depends-on",
-                "c2",
+                "c1",
                 "--decided-by",
                 "human",
                 "--pin",
             )
-            self.assertIn("d3", result.stdout)
+            self.assertIn("d1", result.stdout)
             result = run(root, "list", "--kind", "decision", "--json")
             data = json.loads(result.stdout)
             self.assertEqual(len(data), 1)
@@ -119,6 +119,25 @@ class CliTests(unittest.TestCase):
                 kept = json.loads(run(root, *cmd, "--legacy").stdout)
                 kept = kept[0] if isinstance(kept, list) else kept
                 self.assertEqual(kept["legacy"], {"source_id": "d1"})
+
+    def test_list_and_show_json_drop_migrated_from_unless_asked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".git").mkdir()
+            run(root, "claim", "Premise", "--state", "accepted")
+            path = Path(run(root, "where").stdout.split()[0])
+            lines = [json.loads(line) for line in path.read_text().splitlines()]
+            lines[-1]["migrated_from"] = "d17"
+            path.write_text("".join(json.dumps(line) + "\n" for line in lines))
+            for cmd in (("list", "--json"), ("show", "c1", "--json")):
+                plain = json.loads(run(root, *cmd).stdout)
+                plain = plain[0] if isinstance(plain, list) else plain
+                self.assertNotIn("migrated_from", plain)
+                kept = json.loads(run(root, *cmd, "--legacy").stdout)
+                kept = kept[0] if isinstance(kept, list) else kept
+                self.assertEqual(kept["migrated_from"], "d17")
+            result = run(root, "list", "--json", "--fields", "id,migrated_from")
+            self.assertEqual(result.returncode, 2)
 
     def test_list_json_fields_keeps_only_named_fields(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -212,7 +231,7 @@ class CliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             records = json.loads(run(root, "list", "--json").stdout)
             decision = next(r for r in records if r["kind"] == "decision")
-            self.assertEqual(decision["supports"], [["c2"]])
+            self.assertEqual(decision["supports"], [["c1"]])
             self.assertEqual(decision["answers"], ["q1"])
 
     def test_symlinked_cli_resolves_lib_from_real_executable(self):
@@ -436,9 +455,9 @@ class GraphDispatchTests(unittest.TestCase):
             payload = docket_cli._graph_payload(entries, docket_cli.retired_by(entries))
             self.assertEqual(payload["version"], 2)
             by_id = {entry["id"]: entry for entry in payload["entries"]}
-            self.assertEqual(by_id["d2"]["kind"], "decision")
-            self.assertTrue(by_id["d2"]["applicable"])
-            self.assertEqual(by_id["d2"]["depends_on"], ["c1"])
+            self.assertEqual(by_id["d1"]["kind"], "decision")
+            self.assertTrue(by_id["d1"]["applicable"])
+            self.assertEqual(by_id["d1"]["depends_on"], ["c1"])
 
     def test_static_graph_shows_blocked_decision_prerequisites(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -728,7 +747,7 @@ class ContextDeltaTests(unittest.TestCase):
                 self.assertEqual(run(home, *args).returncode, 0)
             result = run(home, "context", "--since", token)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.count("### d3 "), 1)
+        self.assertEqual(result.stdout.count("### d1 "), 1)
         self.assertIn("3 no longer available, 0 newly owe review", result.stdout)
 
 

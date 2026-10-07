@@ -20,10 +20,11 @@ class LedgerTests(unittest.TestCase):
     def add(self, kind, text, **kwargs):
         return ledger.append(self.path, ledger.make_record(kind, text, author="test", **kwargs))
 
-    def test_ids_share_one_sequence_across_kinds(self):
+    def test_each_kind_counts_from_one(self):
         self.assertEqual(self.add("claim", "one")["id"], "c1")
-        self.assertEqual(self.add("question", "two")["id"], "q2")
-        self.assertEqual(self.add("decision", "three", choice="yes")["id"], "d3")
+        self.assertEqual(self.add("question", "two")["id"], "q1")
+        self.assertEqual(self.add("decision", "three", choice="yes")["id"], "d1")
+        self.assertEqual(self.add("claim", "four")["id"], "c2")
 
     def test_invalid_state_kind_and_references_are_rejected(self):
         with self.assertRaises(ledger.LedgerError):
@@ -34,13 +35,18 @@ class LedgerTests(unittest.TestCase):
         with self.assertRaisesRegex(ledger.LedgerError, "not a question"):
             self.add("claim", "answer", answers=["c1"])
 
-    def test_global_numeric_sequence_is_unique_and_increasing(self):
+    def test_sequence_increases_within_a_kind_and_ignores_other_kinds(self):
         first = ledger.make_record("claim", "first", author="test", record_id="c2")
-        second = ledger.make_record(
+        other_kind = ledger.make_record(
             "decision", "second", choice="yes", author="test", record_id="d1"
         )
-        with self.assertRaisesRegex(ledger.LedgerError, "monotonically"):
-            ledger.validate_entries([first, second])
+        ledger.validate_entries([first, other_kind])
+        same_kind = ledger.make_record("claim", "third", author="test", record_id="c1")
+        with self.assertRaisesRegex(ledger.LedgerError, "per-kind sequence must increase"):
+            ledger.validate_entries([first, other_kind, same_kind])
+        again = ledger.make_record("claim", "again", author="test", record_id="c2")
+        with self.assertRaisesRegex(ledger.LedgerError, "duplicate ID"):
+            ledger.validate_entries([first, again])
 
     def test_unknown_fields_and_invalid_falsy_shapes_are_rejected(self):
         for field, value in (
@@ -67,6 +73,29 @@ class LedgerTests(unittest.TestCase):
         claim["legacy"] = "not an object"
         with self.assertRaisesRegex(ledger.LedgerError, "legacy must be an object"):
             ledger.validate_record(claim)
+
+    def test_migrated_from_names_a_record_id(self):
+        claim = ledger.make_record("claim", "claim", author="test", record_id="c1")
+        claim["migrated_from"] = "c184"
+        self.assertEqual(ledger.validate_record(claim)["migrated_from"], "c184")
+        for bad in ("184", "x1", "", 7, ["c1"], "c01"):
+            claim["migrated_from"] = bad
+            with self.assertRaisesRegex(ledger.LedgerError, "migrated_from", msg=repr(bad)):
+                ledger.validate_record(claim)
+
+    def test_migrated_from_is_an_audit_field(self):
+        self.assertEqual(ledger.AUDIT_FIELDS, frozenset({"legacy", "migrated_from"}))
+        self.assertLessEqual(ledger.AUDIT_FIELDS, ledger.ALLOWED_FIELDS)
+
+    def test_next_id_counts_within_one_kind(self):
+        records = [
+            ledger.make_record("claim", "a", author="t", record_id="c4"),
+            ledger.make_record("decision", "b", choice="x", author="t", record_id="d9"),
+        ]
+        self.assertEqual(ledger.next_id(records, "claim"), "5")
+        self.assertEqual(ledger.next_id(records, "decision"), "10")
+        self.assertEqual(ledger.next_id(records, "question"), "1")
+        self.assertEqual(ledger.allocate_id(records, "question"), "q1")
 
     def test_supersession_and_resolution_are_derived(self):
         question = self.add("question", "which?")
@@ -104,8 +133,8 @@ class LedgerTests(unittest.TestCase):
         first["id"] = "c1"
         self.path.write_text(json.dumps(first))
         second = ledger.append(self.path, ledger.make_record("question", "two", author="test"))
-        self.assertEqual(second["id"], "q2")
-        self.assertEqual([entry["id"] for entry in ledger.read(self.path)], ["c1", "q2"])
+        self.assertEqual(second["id"], "q1")
+        self.assertEqual([entry["id"] for entry in ledger.read(self.path)], ["c1", "q1"])
 
     def test_torn_final_line_is_skipped_on_read_and_dropped_on_append(self):
         first = ledger.make_record("claim", "one", author="test")
@@ -121,9 +150,9 @@ class LedgerTests(unittest.TestCase):
         self.assertIn("torn", err.getvalue())
         with redirect_stderr(StringIO()):
             second = ledger.append(self.path, ledger.make_record("question", "two", author="t"))
-        self.assertEqual(second["id"], "q2")
+        self.assertEqual(second["id"], "q1")
         self.assertEqual(self.path.read_text().count("\n"), 2)
-        self.assertEqual([e["id"] for e in ledger.read(self.path)], ["c1", "q2"])
+        self.assertEqual([e["id"] for e in ledger.read(self.path)], ["c1", "q1"])
 
     def test_bad_line_with_a_newline_is_not_treated_as_torn(self):
         self.path.write_text('{"id":"c1"\n')
@@ -226,7 +255,7 @@ class LedgerTests(unittest.TestCase):
                 # locking read here would deadlock the writer.
                 self.assertEqual(len(ledger.read(path, lock=False)), 1)
 
-    def test_concurrent_appends_keep_global_ids_unique(self):
+    def test_concurrent_appends_keep_ids_unique_within_each_kind(self):
         def write(index):
             kind = ("claim", "question", "decision")[index % 3]
             kwargs = {"choice": "yes"} if kind == "decision" else {}
@@ -235,7 +264,9 @@ class LedgerTests(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=8) as workers:
             ids = list(workers.map(write, range(18)))
         self.assertEqual(len(set(ids)), 18)
-        self.assertEqual({int(item[1:]) for item in ids}, set(range(1, 19)))
+        for letter in "cqd":
+            numbers = {int(item[1:]) for item in ids if item[0] == letter}
+            self.assertEqual(numbers, set(range(1, 7)), letter)
 
 
 class ValidationScalingTests(unittest.TestCase):

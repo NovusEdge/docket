@@ -133,7 +133,7 @@ class ValidationTests(unittest.TestCase):
 
     def test_record_numbering_ignores_corrections(self):
         entries = ledger.validate_entries([decision("d1"), line("d1.1", "d1", {"scope": []})])
-        self.assertEqual(ledger.allocate_id(entries, "claim"), "c2")
+        self.assertEqual(ledger.allocate_id(entries, "claim"), "c1")
 
 
 class ReadTests(unittest.TestCase):
@@ -222,9 +222,9 @@ class AppendTests(unittest.TestCase):
         self.add("decision", "The cache lives in Redis.", choice="Redis")
         self.add("claim", "Writes are durable.")
         self.assertEqual(self.correct("d1", {"scope": ["a"]})["id"], "d1.1")
-        self.assertEqual(self.correct("c2", {"scope": ["a"]})["id"], "c2.1")
+        self.assertEqual(self.correct("c1", {"scope": ["a"]})["id"], "c1.1")
         self.assertEqual(self.correct("d1", {"scope": ["b"]})["id"], "d1.2")
-        self.assertEqual(self.add("claim", "Another.")["id"], "c3")
+        self.assertEqual(self.add("claim", "Another.")["id"], "c2")
 
     def test_concurrent_corrections_never_share_a_number(self):
         self.add("claim", "Writes are durable.")

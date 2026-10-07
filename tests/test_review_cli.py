@@ -65,7 +65,7 @@ class SupersedeReasonCommandTests(unittest.TestCase):
 
     def test_a_superseding_question_gets_no_hint(self):
         self.assertEqual(run(self.cwd, "question", "Is it durable?").returncode, 0)
-        out = run(self.cwd, "question", "Is it durable on ext4?", "--supersedes", "q3")
+        out = run(self.cwd, "question", "Is it durable on ext4?", "--supersedes", "q1")
         self.assertEqual(out.returncode, 0, out.stderr)
         self.assertNotIn("recorded as revise", out.stderr)
 

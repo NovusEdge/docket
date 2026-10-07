@@ -46,7 +46,7 @@ COMMON_FIELDS = frozenset(
     {"schema", "kind", "id", "text", "state", "ts", "author", "session", "branch", *COMMON_DEFAULTS}
 )
 DECISION_FIELDS = frozenset({"choice", "alternatives", "decided_by"})
-AUDIT_FIELDS = frozenset({"legacy"})
+AUDIT_FIELDS = frozenset({"legacy", "migrated_from"})
 ALLOWED_FIELDS = COMMON_FIELDS | DECISION_FIELDS | AUDIT_FIELDS | {"supersede_reason"}
 _LINE_FIELDS = {
     **dict.fromkeys(KINDS, ALLOWED_FIELDS),
@@ -261,7 +261,7 @@ class _Prefix:
 
     def __init__(self, entries: list[dict[str, Any]]) -> None:
         self.by_id: dict[str, dict[str, Any]] = {}
-        self.max_number = 0
+        self.max_number: dict[str, int] = {}
         self.retired: dict[str, str] = {}
         self.corrections: dict[str, int] = {}
         self.reviews: dict[str, int] = {}
@@ -280,7 +280,7 @@ class _Prefix:
             return
         ident = entry["id"]
         self.by_id[ident] = entry
-        self.max_number = max(self.max_number, int(ident[1:]))
+        self.max_number[ident[0]] = max(self.max_number.get(ident[0], 0), int(ident[1:]))
         for target in entry["supersedes"]:
             self.retired[target] = ident
 
@@ -387,6 +387,10 @@ def validate_record(
     # migration assigned.
     if "legacy" in record and not isinstance(record["legacy"], dict):
         raise _error(record_id, "legacy must be an object")
+    if "migrated_from" in record:
+        origin = record["migrated_from"]
+        if not isinstance(origin, str) or not ID_RE.fullmatch(origin):
+            raise _error(record_id, "migrated_from must be a record id such as 'd12'")
     if kind == "question" and state != "open":
         raise _error(
             record_id, "questions have recorded state open; resolution is derived from answers"
@@ -409,8 +413,8 @@ def validate_record(
         known = prefix.by_id
         if record_id in known:
             raise _error(record_id, "duplicate ID")
-        if number <= prefix.max_number:
-            raise _error(record_id, "global sequence must increase monotonically; gaps are allowed")
+        if number <= prefix.max_number.get(id_prefix, 0):
+            raise _error(record_id, "per-kind sequence must increase; gaps are allowed")
         for field in ("supports", "depends_on", "answers", "supersedes"):
             ids = (
                 [ref for group in supports for ref in group]
@@ -558,12 +562,13 @@ def read(path: Path | str, lock: bool = True, strict: bool = False) -> list[dict
     return entries
 
 
-def next_id(entries: list[dict[str, Any]]) -> str:
-    """Allocate the next global sequence number, preserving mixed-kind IDs."""
+def next_id(entries: list[dict[str, Any]], kind: str) -> str:
+    """The next number for ``kind``; each kind counts on its own from 1."""
+    letter = {"claim": "c", "decision": "d", "question": "q"}[kind]
     numbers = []
     for entry in entries:
         match = ID_RE.fullmatch(str(entry.get("id", "")))
-        if match:
+        if match and match.group(1) == letter:
             numbers.append(int(match.group(2)))
     return str(max(numbers, default=0) + 1)
 
@@ -571,7 +576,7 @@ def next_id(entries: list[dict[str, Any]]) -> str:
 def allocate_id(entries: list[dict[str, Any]], kind: str) -> str:
     if kind not in KINDS:
         raise _error("record", f"unknown kind {kind!r}")
-    return {"claim": "c", "decision": "d", "question": "q"}[kind] + next_id(entries)
+    return {"claim": "c", "decision": "d", "question": "q"}[kind] + next_id(entries, kind)
 
 
 def retired_by(entries: list[dict[str, Any]]) -> dict[str, str]:

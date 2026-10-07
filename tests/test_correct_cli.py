@@ -111,7 +111,7 @@ class CorrectCommandTests(unittest.TestCase):
 
     def test_decision_only_field_is_refused_on_a_claim(self):
         run(self.cwd, "claim", "Writes are durable.")
-        out = run(self.cwd, "correct", "c2", "--alternative", "x")
+        out = run(self.cwd, "correct", "c1", "--alternative", "x")
         self.assertEqual(out.returncode, 1)
         self.assertIn("decision-only field", out.stderr)
 
@@ -154,7 +154,7 @@ class CorrectCommandTests(unittest.TestCase):
         run(self.cwd, "claim", "Writes are durable.")
         run(self.cwd, "correct", "d1", "--scope", "a.py")
         self.assertEqual(self.show("d1")["scope"], ["a.py"])
-        out = run(self.cwd, "show", "d1", "--json", "--at", "c2")
+        out = run(self.cwd, "show", "d1", "--json", "--at", "c1")
         self.assertEqual(json.loads(out.stdout)["scope"], ["lib/cache.py"])
         out = run(self.cwd, "show", "d1", "--json", "--at", "d1.1")
         self.assertEqual(json.loads(out.stdout)["scope"], ["a.py"])

@@ -149,7 +149,7 @@ def cmd_check(args: argparse.Namespace) -> int:
     # already shed.
     prefix = _Prefix([])
     seen: dict[str, int] = {}
-    highest = 0
+    highest: dict[str, int] = {}
     records = 0
     correction_lines = 0
     review_lines = 0
@@ -185,11 +185,13 @@ def cmd_check(args: argparse.Namespace) -> int:
             faults.append(f"line {number}: duplicate id {ident}, first seen on line {seen[ident]}")
             continue
         seen[ident] = number
+        letter = match.group(1)
+        past = highest.get(letter, 0)
         sequence = int(match.group(2))
-        if sequence <= highest:
-            faults.append(f"line {number}: id {ident} does not increase past {highest}")
+        if sequence <= past:
+            faults.append(f"line {number}: id {ident} does not increase past {letter}{past}")
             continue
-        highest = sequence
+        highest[letter] = sequence
         # The ID checks alone let a hand-resolved merge pass: a record pointing
         # at a same-numbered record from the other branch has a target that
         # exists and has the right kind. validate_record is what catches a

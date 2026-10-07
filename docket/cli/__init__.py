@@ -197,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
         help="with --json, keep only these fields, e.g. id,kind,state,text",
     )
     ls.add_argument(
-        "--legacy", action="store_true", help="with --json, keep the schema 1 migration audit field"
+        "--legacy", action="store_true", help="with --json, keep the migration audit fields"
     )
     ls.add_argument("--plain", action="store_true", help="force colour off")
     ls.add_argument("--pretty", action="store_true", help="force colour on, e.g. piping to less -R")
@@ -225,7 +225,7 @@ def main(argv: list[str] | None = None) -> int:
     sh.add_argument("id")
     sh.add_argument("--json", action="store_true", help="print the entry as JSON")
     sh.add_argument(
-        "--legacy", action="store_true", help="with --json, keep the schema 1 migration audit field"
+        "--legacy", action="store_true", help="with --json, keep the migration audit fields"
     )
     sh.add_argument("--at", default="", help="print the record as history stood at this record ID")
     sh.set_defaults(func=cmd_show)
