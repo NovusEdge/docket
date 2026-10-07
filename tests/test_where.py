@@ -40,6 +40,42 @@ def hit(query, **fields):
     return where.parse(query).matches(entry(**fields))
 
 
+class WasTermTests(unittest.TestCase):
+    def test_was_matches_the_old_id_exactly(self):
+        self.assertTrue(hit("was:c3", migrated_from="c3"))
+        self.assertFalse(hit("was:c3", migrated_from="c30"))
+        self.assertFalse(hit("was:c3", migrated_from="c13"))
+        self.assertFalse(hit("was:c3"))
+
+    def test_was_also_matches_the_schema_1_source_id(self):
+        # Schema 1 ids map number for number to schema 2 ids with a possibly
+        # different letter, so c4 may carry legacy.source_id d4.
+        self.assertTrue(hit("was:d4", legacy={"source_id": "d4"}))
+        self.assertTrue(hit("was:d4", legacy={"source_id": "d4"}, migrated_from="c4"))
+        self.assertFalse(hit("was:d4", legacy={"source_id": "d40"}))
+        self.assertFalse(hit("was:d4", legacy="not a dict"))
+
+    def test_was_ignores_case(self):
+        self.assertTrue(hit("was:C3", migrated_from="c3"))
+
+    def test_two_records_sharing_one_old_id_both_match(self):
+        first = entry(id="c1", migrated_from="c3", branch="a")
+        second = entry(id="c2", migrated_from="c3", branch="b")
+        both = where.parse("was:c3")
+        self.assertTrue(both.matches(first) and both.matches(second))
+        narrowed = where.parse("was:c3 branch:b")
+        self.assertEqual([e["id"] for e in (first, second) if narrowed.matches(e)], ["c2"])
+
+    def test_repeated_was_terms_or_and_a_dash_negates(self):
+        self.assertTrue(hit("was:c3 was:d4", migrated_from="d4"))
+        self.assertFalse(hit("-was:c3", migrated_from="c3"))
+        self.assertTrue(hit("-was:c3", migrated_from="d4"))
+
+    def test_was_needs_a_value(self):
+        with self.assertRaisesRegex(where.WhereError, "needs a value"):
+            where.parse("was:")
+
+
 class TokenizerTests(unittest.TestCase):
     def test_cases_shared_with_the_viewer(self):
         for query, expected in SHARED_CASES:

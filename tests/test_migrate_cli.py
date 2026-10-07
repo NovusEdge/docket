@@ -11,6 +11,9 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from docket.ledger import make_record  # noqa: E402
+
 DOCKET = ROOT / "bin" / "docket"
 
 
@@ -54,10 +57,88 @@ def project(work: Path, records: list[dict]) -> Path:
 
 
 def run(work: Path, *argv: str) -> subprocess.CompletedProcess:
-    env = dict(os.environ, DOCKET_HOME=str(work / "global"))
+    env = dict(os.environ, DOCKET_HOME=str(work / "global"), DOCKET_NO_UPDATE_CHECK="1")
     return subprocess.run(
         [sys.executable, str(DOCKET), *argv], cwd=work, capture_output=True, text=True, env=env
     )
+
+
+def commit(work: Path) -> None:
+    """Commit everything, so `--rewrite` sees tracked, clean files."""
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.com"]
+    subprocess.run([*git, "add", "-A"], cwd=work, check=True)
+    subprocess.run([*git, "commit", "-q", "-m", "fixture"], cwd=work, check=True)
+
+
+def rec(kind: str, ident: str, text: str, *, schema: int = 3, extra=None, **fields) -> dict:
+    if kind == "decision":
+        fields.setdefault("choice", "chosen")
+    # make_record builds a new record, which never carries an audit field.
+    audit = {key: fields.pop(key) for key in ("migrated_from",) if key in fields}
+    record = make_record(
+        kind, text, record_id=ident, ts="2026-09-12T00:00:00+00:00", author="tester", **fields
+    )
+    return {**record, "schema": schema, **audit, **(extra or {})}
+
+
+class OldIdTests(unittest.TestCase):
+    def ledger(self, work: Path) -> None:
+        # c1 and c3 both came from c4 on different branches. c2 came from c1,
+        # and c1 is also a current id: the old id resolves to the new record.
+        # c4 came from schema 1 as d9.
+        project(
+            work,
+            [
+                rec("claim", "c1", "First", branch="a", migrated_from="c4"),
+                rec("claim", "c2", "Second", branch="a", migrated_from="c1"),
+                rec("claim", "c3", "Third", branch="b", migrated_from="c4"),
+                rec("claim", "c4", "Fourth", extra={"legacy": {"source_id": "d9"}}),
+            ],
+        )
+
+    def test_show_names_the_command_that_finds_a_vanished_old_id(self):
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            self.ledger(work)
+            result = run(work, "show", "d9")
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.stdout, "")
+            self.assertIn("no entry d9", result.stderr)
+            self.assertIn("docket list --where was:d9", result.stderr)
+
+    def test_show_is_silent_about_an_old_id_that_is_also_a_current_id(self):
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            self.ledger(work)
+            result = run(work, "show", "c1")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("First", result.stdout)
+            self.assertEqual(result.stderr, "")
+
+    def test_show_gives_no_hint_for_an_id_nobody_carried(self):
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            self.ledger(work)
+            result = run(work, "show", "c9")
+            self.assertEqual(result.returncode, 1)
+            self.assertNotIn("was:", result.stderr)
+
+    def test_list_finds_both_records_that_share_an_old_id(self):
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            self.ledger(work)
+            result = run(work, "list", "--where", "was:c4", "--json", "--legacy")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual([r["id"] for r in json.loads(result.stdout)], ["c1", "c3"])
+            narrowed = run(work, "list", "--where", "was:c4 branch:b", "--json")
+            self.assertEqual([r["id"] for r in json.loads(narrowed.stdout)], ["c3"])
+
+    def test_list_finds_a_record_by_its_schema_1_id(self):
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            self.ledger(work)
+            result = run(work, "list", "--where", "was:d9", "--json")
+            self.assertEqual([r["id"] for r in json.loads(result.stdout)], ["c4"])
 
 
 class MigrateCliTests(unittest.TestCase):

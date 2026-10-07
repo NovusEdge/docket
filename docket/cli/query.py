@@ -160,6 +160,14 @@ def cmd_show(args: argparse.Namespace) -> int:
     e = by_id.get(args.id)
     if not e:
         print(f"docket: no entry {args.id}", file=sys.stderr)
+        # A current id never reaches this branch, so an old id that is also a
+        # new id resolves above and stays silent.
+        if any(args.id in where.old_ids(item) for item in entries):
+            print(
+                f"docket: {args.id} was renumbered by a migration; "
+                f"find it with: docket list --where was:{args.id}",
+                file=sys.stderr,
+            )
         return 1
 
     if args.json:
