@@ -286,11 +286,22 @@ def main(argv: list[str] | None = None) -> int:
     md.add_argument("theirs")
     md.set_defaults(func=cmd_merge_driver)
 
-    mg = sub.add_parser("migrate", help="convert a legacy ledger to the current schema")
+    mg = sub.add_parser("migrate", help="convert a ledger to the current schema")
     source = mg.add_mutually_exclusive_group()
     source.add_argument("--map", help="classification map to apply instead of the derived one")
     source.add_argument("--emit-map", help="write the derived map to this path and stop")
-    mg.add_argument("--dry-run", action="store_true", help="report the conversion and stop")
+    mg.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print the per-record report, every prose change and unmapped id, and write nothing",
+    )
+    mg.add_argument(
+        "--rewrite",
+        nargs="+",
+        default=[],
+        metavar="FILE",
+        help="also rewrite id citations in these tracked, clean files; only alongside a migration",
+    )
     mg.set_defaults(func=cmd_migrate)
 
     it = sub.add_parser("init", help="move this project's ledger into the repository")

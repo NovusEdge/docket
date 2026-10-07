@@ -70,6 +70,10 @@ def cmd_rebase(args: argparse.Namespace) -> int:
     return 0
 
 
+def _count(number: int, noun: str) -> str:
+    return f"{number} {noun}{'' if number == 1 else 's'}"
+
+
 def cmd_migrate(args: argparse.Namespace) -> int:
     """Convert this project's ledger to the current schema."""
     from docket.migrate import (
@@ -85,18 +89,19 @@ def cmd_migrate(args: argparse.Namespace) -> int:
     if not path.exists():
         print(f"docket: no ledger at {path}")
         return 0
+    version = None
     try:
+        version = detect_version(read_source(path))
         if args.emit_map:
-            source = read_source(path)
-            version = detect_version(source)
             if version == SCHEMA_LATEST:
                 print(f"docket: already schema {SCHEMA_LATEST}")
                 return 0
             if version != 1:
                 raise MigrationError(
-                    f"a classification map applies only to schema 1; this ledger is schema {version}"
+                    f"--emit-map applies to a schema 1 ledger; this one is at schema {version}, "
+                    "whose records are already typed"
                 )
-            mapping = derive_mapping(source)
+            mapping = derive_mapping(read_source(path))
             Path(args.emit_map).write_text(
                 json.dumps(mapping, indent=2, sort_keys=True) + "\n", encoding="utf-8"
             )
@@ -105,33 +110,70 @@ def cmd_migrate(args: argparse.Namespace) -> int:
                 f"{'y' if len(mapping) == 1 else 'ies'} to {args.emit_map}"
             )
             return 0
-        result = migrate_in_place(path, mapping_path=args.map, dry_run=args.dry_run)
+        result = migrate_in_place(
+            path, mapping_path=args.map, dry_run=args.dry_run, rewrite=args.rewrite
+        )
     except MigrationError as exc:
         print(f"docket: {exc}", file=sys.stderr)
-        print(
-            "docket: to classify records by hand, run 'docket migrate --emit-map FILE', "
-            "edit FILE, then 'docket migrate --map FILE'",
-            file=sys.stderr,
-        )
+        if version == 1:
+            print(
+                "docket: to classify records by hand, run 'docket migrate --emit-map FILE', "
+                "edit FILE, then 'docket migrate --map FILE'",
+                file=sys.stderr,
+            )
         return 2
     except OSError as exc:
         print(f"docket: {exc}", file=sys.stderr)
         return 1
-    count = result.count
-    if not count:
-        print(f"docket: already schema {SCHEMA_LATEST}")
+    if not result.count:
+        # A current ledger whose features files were not.
+        extra = (
+            f"; remapped {_count(result.features_events, 'features event')}"
+            if result.features_events
+            else ""
+        )
+        print(f"docket: already schema {SCHEMA_LATEST}{extra}")
         return 0
     for note in result.notes:
         print(f"docket: warning: {note}", file=sys.stderr)
-    for line in result.report:
-        print(line)
-    if args.dry_run:
-        print(f"docket: would convert {count} record{'' if count == 1 else 's'}")
-        return 0
-    print(
-        f"docket: converted {count} record{'' if count == 1 else 's'}; "
-        f"original kept at {result.backup}"
+    dry = args.dry_run
+    if dry:
+        for line in result.report:
+            print(line)
+        for change in result.prose_changes:
+            if change.after is None:
+                print(f"  {change.line_id} {change.field}: unmapped {change.before}")
+            else:
+                print(f"  {change.line_id} {change.field}: {change.before} -> {change.after}")
+    kinds = ", ".join(
+        _count(result.per_kind.get(kind, 0), kind) for kind in ("claim", "decision", "question")
     )
+    print(
+        f"docket: {'would migrate' if dry else 'migrated'} {_count(result.count, 'record')} "
+        f"from schema {version} to schema {SCHEMA_LATEST} ({kinds})"
+    )
+    rewritten = sum(1 for change in result.prose_changes if change.after is not None)
+    unmapped = len(result.prose_changes) - rewritten
+    done = "would rewrite" if dry else "rewrote"
+    parts = [_count(rewritten, "prose field")]
+    if result.features_events:
+        parts.append(_count(result.features_events, "features event"))
+    print(f"docket: {done} {' and '.join(parts)}")
+    if unmapped:
+        print(f"docket: left {_count(unmapped, 'unmapped id')} as written")
+    if result.rewritten:
+        total = sum(result.rewrite_counts.values())
+        print(
+            f"docket: {done} {_count(total, 'id mention')} in "
+            f"{_count(len(result.rewritten), 'file')}"
+        )
+        for name in result.rewritten:
+            if dry:
+                print(f"  {name}: {_count(result.rewrite_counts[name], 'id')}")
+            else:
+                print(f"  {name}")
+    if not dry:
+        print(f"docket: original kept at {path}.schema{version}")
     return 0
 
 

@@ -81,6 +81,142 @@ def rec(kind: str, ident: str, text: str, *, schema: int = 3, extra=None, **fiel
     return {**record, "schema": schema, **audit, **(extra or {})}
 
 
+class MigrateSchema3CliTests(unittest.TestCase):
+    def schema2(self, work: Path) -> Path:
+        return project(
+            work,
+            [
+                rec("claim", "c1", "First claim", schema=2),
+                rec("decision", "d2", "Use the first claim", schema=2, supports=[["c1"]]),
+                rec("claim", "c3", "Second claim", schema=2),
+                rec("decision", "d4", "Follows d2 and c3 and c9", schema=2, supports=[["c3"]]),
+                rec("question", "q5", "What next", schema=2),
+            ],
+        )
+
+    def test_the_default_output_is_a_summary_without_the_per_record_report(self):
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            ledger = self.schema2(work)
+            result = run(work, "migrate")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            lines = result.stdout.splitlines()
+            self.assertEqual(
+                lines[0],
+                "docket: migrated 5 records from schema 2 to schema 3 "
+                "(2 claims, 2 decisions, 1 question)",
+            )
+            self.assertIn("rewrote 1 prose field", result.stdout)
+            self.assertIn("left 1 unmapped id as written", result.stdout)
+            self.assertIn(f"original kept at {ledger}.schema2", result.stdout)
+            self.assertNotIn("d4 -> d2", result.stdout)
+            self.assertNotIn("Follows", result.stdout)
+            self.assertTrue(Path(str(ledger) + ".schema2").exists())
+
+    def test_dry_run_prints_the_report_then_every_prose_change_and_unmapped_token(self):
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            ledger = self.schema2(work)
+            before = ledger.read_bytes()
+            result = run(work, "migrate", "--dry-run")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            out = result.stdout
+            self.assertIn("d4 -> d2", out)
+            self.assertIn("q5 -> q1", out)
+            self.assertIn("d4 text: Follows d2 and c3 and c9 -> Follows d1 and c2 and c9", out)
+            self.assertIn("d4 text: unmapped c9", out)
+            self.assertLess(out.index("q5 -> q1"), out.index("d4 text:"))
+            self.assertIn("docket: would migrate 5 records from schema 2 to schema 3", out)
+            self.assertEqual(ledger.read_bytes(), before)
+            self.assertFalse(Path(str(ledger) + ".schema2").exists())
+
+    def test_rewrite_rewrites_the_named_files(self):
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            self.schema2(work)
+            doc = work / "notes.md"
+            doc.write_text("d4 then d2, see c3. Keep c9.\n")
+            untouched = work / "plain.md"
+            untouched.write_text("nothing\n")
+            commit(work)
+            result = run(work, "migrate", "--rewrite", str(doc), str(untouched))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(doc.read_text(), "d2 then d1, see c2. Keep c9.\n")
+            self.assertIn("rewrote 3 id mentions in 1 file", result.stdout)
+            self.assertIn(str(doc), result.stdout)
+            self.assertNotIn(str(untouched), result.stdout)
+
+    def test_rewrite_with_dry_run_reports_files_and_counts_and_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            self.schema2(work)
+            doc = work / "notes.md"
+            doc.write_text("d4 then d2, see c3.\n")
+            commit(work)
+            result = run(work, "migrate", "--dry-run", "--rewrite", str(doc))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(f"{doc}: 3 ids", result.stdout)
+            self.assertIn("would rewrite 3 id mentions in 1 file", result.stdout)
+            self.assertEqual(doc.read_text(), "d4 then d2, see c3.\n")
+
+    def test_rewrite_refuses_an_untracked_or_modified_file(self):
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            ledger = self.schema2(work)
+            doc = work / "notes.md"
+            doc.write_text("d4\n")
+            commit(work)
+            fresh = work / "fresh.md"
+            fresh.write_text("d4\n")
+            before = ledger.read_bytes()
+            result = run(work, "migrate", "--rewrite", str(doc), str(fresh))
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("not tracked", result.stderr)
+            self.assertNotIn("--emit-map", result.stderr)
+            doc.write_text("d4 edited\n")
+            result = run(work, "migrate", "--rewrite", str(doc))
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("uncommitted", result.stderr)
+            self.assertEqual(ledger.read_bytes(), before)
+
+    def test_rewrite_is_refused_once_the_ledger_is_at_schema_3(self):
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            self.schema2(work)
+            doc = work / "notes.md"
+            doc.write_text("d4\n")
+            commit(work)
+            self.assertEqual(run(work, "migrate").returncode, 0)
+            result = run(work, "migrate", "--rewrite", str(doc))
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("already at schema 3", result.stderr)
+            self.assertNotIn("--emit-map", result.stderr)
+            self.assertEqual(doc.read_text(), "d4\n")
+
+    def test_map_and_emit_map_are_refused_on_a_schema_2_ledger(self):
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            ledger = self.schema2(work)
+            before = ledger.read_bytes()
+            mapping = work / "map.json"
+            mapping.write_text("{}")
+            for argv in (("--map", str(mapping)), ("--emit-map", str(work / "out.json"))):
+                result = run(work, "migrate", *argv)
+                self.assertEqual(result.returncode, 2, argv)
+                self.assertIn("schema 1", result.stderr)
+                self.assertNotIn("then 'docket migrate --map", result.stderr)
+            self.assertFalse((work / "out.json").exists())
+            self.assertEqual(ledger.read_bytes(), before)
+
+    def test_a_schema_1_ledger_still_gets_the_classification_hint_on_failure(self):
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            project(work, [dict(LEGACY[0], state="parked")])
+            result = run(work, "migrate")
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("--emit-map", result.stderr)
+
+
 class OldIdTests(unittest.TestCase):
     def ledger(self, work: Path) -> None:
         # c1 and c3 both came from c4 on different branches. c2 came from c1,
@@ -161,7 +297,7 @@ class MigrateCliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("d1", result.stdout)
 
-    def test_a_schema_two_ledger_exits_clean_and_changes_nothing(self):
+    def test_a_schema_three_ledger_exits_clean_and_changes_nothing(self):
         with tempfile.TemporaryDirectory() as work:
             work = Path(work)
             ledger = project(work, LEGACY)
@@ -193,7 +329,7 @@ class MigrateCliTests(unittest.TestCase):
             ledger = project(work, records)
             refused = run(work, "migrate", "--emit-map", str(work / "map.json"))
             self.assertEqual(refused.returncode, 2)
-            self.assertIn("applies only to schema 1", refused.stderr)
+            self.assertIn("applies to a schema 1 ledger", refused.stderr)
             result = run(work, "migrate")
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("original kept at", result.stdout)
