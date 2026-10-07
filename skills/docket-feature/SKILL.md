@@ -1,6 +1,6 @@
 ---
 name: docket-feature
-description: Track a piece of work in flight against the ledger, from start to done, and know when a feature is worth declaring.
+description: Use when starting work that will outlast this session or go to another agent, when resuming work an earlier session left uncommitted or unfinished, when the briefing shows a feature or a feature hint, or before merging, squashing or rebasing a branch that carries a feature.
 ---
 
 # docket-feature
@@ -16,6 +16,11 @@ Start one before work that spans more than one session, or whose blast radius
 is worth declaring: a change that touches several files, crosses a module
 boundary, or another agent might pick up later. Do not start one for a
 one-line fix or a change you will finish and commit in this turn.
+
+The session briefing opens with a `# feature: none open` line when the working
+tree carries uncommitted changes and no feature is open. Those changes came
+from an earlier session. Start a feature for them if the work continues past
+this one; commit a leftover edit instead if it is already finished.
 
 ## Starting work
 

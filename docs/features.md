@@ -170,6 +170,8 @@ budget is available for records. If the repository has no feature store or no
 Git metadata, or the feature store cannot be read, the briefing omits the
 header and continues.
 
+When no feature is open on any branch, or the repository has no feature store, and `git` reports a modified, staged or untracked path outside `.docket/` (ignored files do not count), the briefing prints one hint line in the header's place: `# feature: none open, and the working tree has uncommitted changes outside .docket/. If that work continues past this session, load the docket-feature skill and start a feature.` A clean tree, or changes only under `.docket/`, prints nothing. Any git failure also prints nothing.
+
 ## Archival
 
 Run `docket feature gc` to move closed features' events into
