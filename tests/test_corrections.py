@@ -12,7 +12,7 @@ from docket.context_model import _revision
 
 def line(ident, target, fields, **extra):
     record = {
-        "schema": 2,
+        "schema": ledger.SCHEMA,
         "kind": "correction",
         "id": ident,
         "corrects": target,

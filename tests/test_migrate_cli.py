@@ -68,7 +68,7 @@ class MigrateCliTests(unittest.TestCase):
             result = run(work, "migrate")
             self.assertEqual(result.returncode, 0, result.stderr)
             records = [json.loads(line) for line in ledger.read_text().splitlines() if line.strip()]
-            self.assertEqual([r["id"] for r in records], ["d1", "q2"])
+            self.assertEqual([r["id"] for r in records], ["d1", "q1"])
             self.assertTrue(Path(str(ledger) + ".schema1").exists())
 
     def test_a_converted_ledger_lists(self):
@@ -88,8 +88,36 @@ class MigrateCliTests(unittest.TestCase):
             after = ledger.read_bytes()
             result = run(work, "migrate")
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("already schema 2", result.stdout)
+            self.assertIn("already schema 3", result.stdout)
             self.assertEqual(ledger.read_bytes(), after)
+
+    def test_a_schema_two_ledger_migrates_and_a_map_is_refused(self):
+        records = [
+            dict(
+                json.loads(
+                    json.dumps(
+                        {
+                            "schema": 2, "kind": "claim", "id": "c5", "text": "Premise",
+                            "state": "accepted", "ts": "", "author": "", "session": "",
+                            "branch": "", "scope": [], "rationale": "", "supports": [],
+                            "depends_on": [], "answers": [], "supersedes": [], "evidence": [],
+                            "revisit": "", "cost_if_wrong": "", "pinned": False,
+                        }
+                    )
+                )
+            )
+        ]  # fmt: skip
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            ledger = project(work, records)
+            refused = run(work, "migrate", "--emit-map", str(work / "map.json"))
+            self.assertEqual(refused.returncode, 2)
+            self.assertIn("applies only to schema 1", refused.stderr)
+            result = run(work, "migrate")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("original kept at", result.stdout)
+            self.assertTrue(Path(str(ledger) + ".schema2").exists())
+            self.assertEqual(json.loads(ledger.read_text())["id"], "c1")
 
     def test_a_dry_run_reports_and_writes_nothing(self):
         with tempfile.TemporaryDirectory() as work:
@@ -99,7 +127,7 @@ class MigrateCliTests(unittest.TestCase):
             result = run(work, "migrate", "--dry-run")
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("d1 -> d1 decision/adopted", result.stdout)
-            self.assertIn("d2 -> q2 question/open", result.stdout)
+            self.assertIn("d2 -> q1 question/open", result.stdout)
             self.assertEqual(ledger.read_bytes(), before)
             self.assertFalse(Path(str(ledger) + ".schema1").exists())
 

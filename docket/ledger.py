@@ -21,7 +21,7 @@ from typing import Any, Iterator
 
 from docket import corrections, reviews, support
 
-SCHEMA = 2
+SCHEMA = 3
 KINDS = ("claim", "decision", "question")
 STATES = {
     "claim": ("unassessed", "accepted", "disputed", "rejected"),
@@ -59,8 +59,34 @@ class LedgerError(ValueError):
     """A human-actionable schema, reference, or storage error."""
 
 
+class SchemaTooOld(LedgerError):
+    """A line written under an older schema. ``docket migrate`` converts the file.
+
+    ``version`` is the schema the line carries, 1 when it carries none. read()
+    and validate_entries() let it through unwrapped so a caller can tell it from
+    corruption and offer the migration.
+    """
+
+    def __init__(self, version: int) -> None:
+        self.version = version
+        super().__init__(
+            f"docket: schema: this ledger is schema {version}; run 'docket migrate' "
+            f"to convert it to schema {SCHEMA}"
+        )
+
+
 def _error(where: str, message: str) -> LedgerError:
     return LedgerError(f"docket: {where}: {message}")
+
+
+def _require_current(record: dict[str, Any]) -> None:
+    schema = record.get("schema")
+    if schema is None:
+        raise SchemaTooOld(1)
+    if type(schema) is not int or schema > SCHEMA:
+        raise _error("schema", f"expected schema {SCHEMA}, got {schema!r}")
+    if schema < SCHEMA:
+        raise SchemaTooOld(max(schema, 1))
 
 
 def _is_string_list(value: Any) -> bool:
@@ -191,7 +217,7 @@ def make_record(
     ts: str | None = None,
     record_id: str | None = None,
 ) -> dict[str, Any]:
-    """Build an unnumbered or explicitly numbered schema 2 record."""
+    """Build an unnumbered or explicitly numbered record at the current schema."""
     if kind not in KINDS:
         raise _error("record", f"unknown kind {kind!r}; expected claim, decision, or question")
     if not isinstance(text, str) or not text.strip():
@@ -304,6 +330,7 @@ def validate_record(
         raise _error("record", "each JSONL line must be an object")
     if any(not isinstance(key, str) for key in record):
         raise _error("record", "field names must be strings")
+    _require_current(record)
     if record.get("kind") == corrections.KIND:
         if prefix is not None and previous is not None:
             raise _error("record", "pass previous or prefix, not both")
@@ -316,15 +343,9 @@ def validate_record(
         if prefix is None and previous is not None:
             prefix = _Prefix(previous)
         return reviews.validate(record, prefix)
-    if record.get("schema") in (None, 1):
-        raise _error(
-            "schema", "legacy format is unsupported; run 'docket migrate' to convert it to schema 2"
-        )
     unknown_fields = sorted(set(record) - ALLOWED_FIELDS)
     if unknown_fields:
         raise _error("record", f"unknown field(s): {', '.join(unknown_fields)}")
-    if type(record.get("schema")) is not int or record.get("schema") != SCHEMA:
-        raise _error("schema", f"expected schema 2, got {record.get('schema')!r}")
     kind = record.get("kind")
     if kind not in KINDS:
         raise _error("record", f"kind must be one of {', '.join(KINDS)}")
@@ -448,6 +469,8 @@ def validate_entries(entries: Any) -> list[dict[str, Any]]:
     for index, entry in enumerate(entries, 1):
         try:
             record = validate_record(entry, prefix=prefix)
+        except SchemaTooOld:
+            raise
         except LedgerError as exc:
             raise _error(f"line {index}", str(exc).removeprefix("docket: ")) from exc
         validated.append(record)
@@ -478,7 +501,10 @@ def _newer_than_us(value: Any) -> tuple[str, frozenset[str]] | None:
     Returns None for a line this version fully understands, or one too broken
     to tell, which validation then reports.
     """
-    if not isinstance(value, dict) or value.get("schema") in (None, 1):
+    if not isinstance(value, dict):
+        return None
+    schema = value.get("schema")
+    if type(schema) is not int or schema < SCHEMA:
         return None
     kind = value.get("kind")
     if not isinstance(kind, str):
@@ -549,6 +575,8 @@ def read(path: Path | str, lock: bool = True, strict: bool = False) -> list[dict
             value = {k: v for k, v in value.items() if k not in extra}
         try:
             record = validate_record(value, prefix=prefix, copy_result=False)
+        except SchemaTooOld:
+            raise
         except LedgerError as exc:
             raise _error(f"line {line_number}", str(exc).removeprefix("docket: ")) from exc
         entries.append(record)

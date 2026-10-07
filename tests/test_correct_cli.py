@@ -224,7 +224,7 @@ class CheckTests(unittest.TestCase):
             stream.write(
                 json.dumps(
                     {
-                        "schema": 2,
+                        "schema": ledger.SCHEMA,
                         "kind": "correction",
                         "id": "d1.2",
                         "corrects": "d1",

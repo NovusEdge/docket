@@ -128,6 +128,57 @@ class LedgerTests(unittest.TestCase):
         with self.assertRaisesRegex(ledger.LedgerError, "migrate"):
             ledger.read(self.path)
 
+    def test_an_older_schema_raises_schema_too_old_with_its_version(self):
+        claim = ledger.make_record("claim", "one", author="test", record_id="c1")
+        correction = {
+            "schema": 2,
+            "kind": "correction",
+            "id": "c1.1",
+            "corrects": "c1",
+            "fields": {"scope": []},
+            "reason": "",
+            "ts": "",
+            "author": "",
+            "session": "",
+            "branch": "",
+        }
+        cases = {
+            "schema one": ([{"schema": 1}], 1),
+            "no schema": ([{"id": "d1", "question": "Q"}], 1),
+            "schema two record": ([dict(claim, schema=2)], 2),
+            "schema two correction": ([claim, correction], 2),
+        }
+        for name, (lines, version) in cases.items():
+            with self.subTest(name):
+                self.path.write_text("".join(json.dumps(line) + "\n" for line in lines))
+                with self.assertRaises(ledger.SchemaTooOld) as caught:
+                    ledger.read(self.path)
+                self.assertEqual(caught.exception.version, version)
+                self.assertIn("docket migrate", str(caught.exception))
+                with self.assertRaises(ledger.SchemaTooOld):
+                    ledger.validate_entries(lines)
+
+    def test_the_line_validators_of_corrections_and_reviews_refuse_old_schemas(self):
+        from docket import corrections, reviews
+
+        old_fix = {"schema": 2, "id": "c1.1", "corrects": "c1", "fields": {"scope": []}}
+        with self.assertRaises(ledger.SchemaTooOld):
+            corrections.validate(old_fix, None)
+        old_review = {"schema": 2, "id": "c1.r1", "reviews": "c1", "grounds": {"c1": "c1"}}
+        with self.assertRaises(ledger.SchemaTooOld):
+            reviews.validate(old_review, None)
+
+    def test_corruption_is_not_schema_too_old(self):
+        self.path.write_text("not json\n")
+        with self.assertRaises(ledger.LedgerError) as caught:
+            ledger.read(self.path)
+        self.assertNotIsInstance(caught.exception, ledger.SchemaTooOld)
+        claim = ledger.make_record("claim", "one", author="test", record_id="c1")
+        self.path.write_text(json.dumps(dict(claim, schema=9)) + "\n")
+        with self.assertRaises(ledger.LedgerError) as caught:
+            ledger.read(self.path)
+        self.assertNotIsInstance(caught.exception, ledger.SchemaTooOld)
+
     def test_append_repairs_missing_final_newline_without_merging_records(self):
         first = ledger.make_record("claim", "one", author="test")
         first["id"] = "c1"
@@ -165,7 +216,7 @@ class LedgerTests(unittest.TestCase):
 
         claim = ledger.make_record("claim", "one", author="test", record_id="c1")
         claim["confidence"] = 0.9
-        future = {"schema": 2, "kind": "assumption", "id": "a2", "text": "later kind"}
+        future = {"schema": ledger.SCHEMA, "kind": "assumption", "id": "a2", "text": "later kind"}
         self.path.write_text(json.dumps(claim) + "\n" + json.dumps(future) + "\n")
         err = StringIO()
         with redirect_stderr(err):

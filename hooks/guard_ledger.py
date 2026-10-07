@@ -24,7 +24,7 @@ import sys
 import time
 from pathlib import Path
 
-LEDGER_SUFFIXES = (".jsonl", ".jsonl.schema1", ".json")
+LEDGER_SUFFIXES = (".jsonl", ".jsonl.schema1", ".jsonl.schema2", ".json")
 
 # Allowlist, because a command string cannot be read for intent. Anything that
 # names a ledger and is not on this list gets the prompt, including every

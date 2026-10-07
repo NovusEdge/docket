@@ -47,6 +47,14 @@ class CheckOrderTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("duplicate id c1, first seen on line 1", result.stdout)
 
+    def test_an_old_ledger_prints_the_migrate_instruction_once(self):
+        old = [dict(record("claim", f"c{n}"), schema=2) for n in (1, 2, 3)]
+        result = check(old)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout.count("docket migrate"), 1, result.stdout)
+        self.assertIn("schema 2", result.stdout)
+        self.assertNotIn("docket rebase", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

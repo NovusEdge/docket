@@ -262,7 +262,7 @@ class FeatureIncludeExcludeTests(FeatureCliTests):
         self.ledger_record(
             json.dumps(
                 {
-                    "schema": 2,
+                    "schema": 3,
                     "id": "d9",
                     "kind": "decision",
                     "text": "t",

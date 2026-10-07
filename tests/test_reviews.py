@@ -17,7 +17,7 @@ def claim(ident, **kwargs):
 
 def review(ident, target, grounds, note=""):
     return {
-        "schema": 2,
+        "schema": ledger.SCHEMA,
         "kind": "review",
         "id": ident,
         "reviews": target,

@@ -35,7 +35,7 @@ def parts_of(ident: str) -> tuple[str, int]:
 
 def validate(record: dict[str, Any], prefix: Any) -> dict[str, Any]:
     """Validate a review line; ``prefix`` is a ledger._Prefix or None."""
-    from docket.ledger import SCHEMA, _error
+    from docket.ledger import _error, _require_current
 
     ident = record.get("id")
     if not isinstance(ident, str) or (parts := split_id(ident)) is None:
@@ -43,8 +43,7 @@ def validate(record: dict[str, Any], prefix: Any) -> dict[str, Any]:
     unknown = sorted(set(record) - LINE_FIELDS)
     if unknown:
         raise _error(ident, f"unknown field(s): {', '.join(unknown)}")
-    if type(record.get("schema")) is not int or record["schema"] != SCHEMA:
-        raise _error("schema", f"expected schema {SCHEMA}, got {record.get('schema')!r}")
+    _require_current(record)
     for field in ("ts", "author", "session", "branch", "note"):
         if not isinstance(record.get(field), str):
             raise _error(ident, f"{field} must be a string")

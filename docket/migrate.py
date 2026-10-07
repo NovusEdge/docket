@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Explicitly migrate a schema-1 Docket JSONL ledger to schema 2.
+"""Explicitly migrate a Docket JSONL ledger to the current schema.
+
+Schema 1 becomes schema 2 through the classification map described below. Schema 2
+becomes schema 3 by renumbering each kind from 1 (docket.rebase.renumber_per_kind).
 
 The classification map is a JSON object keyed by every source ID.  Each map
 value must contain ``kind``, ``state``, and ``text`` and may contain any typed
@@ -30,10 +33,12 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 from docket.ledger import ledger_lock, validate_entries
+from docket.rebase import ProseChange, RebaseError, renumber_per_kind
 
 OLD_ID = re.compile(r"^d[1-9][0-9]*$")
 NEW_ID = re.compile(r"^[cdq][1-9][0-9]*$")
@@ -67,7 +72,7 @@ OPTIONAL_FIELDS = {
     "decided_by",
     *RELATION_FIELDS,
 }
-SCHEMA_LATEST = 2
+SCHEMA_LATEST = 3
 
 # Schema 1 typed the difference between settling on doing something and
 # settling on not doing it. Schema 2 does not, and the choice text carries it.
@@ -111,7 +116,7 @@ def read_source(path: Path) -> list[dict[str, Any]]:
         if not isinstance(raw, dict):
             raise MigrationError(f"malformed input at line {lineno}: record must be an object")
         old_id = raw.get("id")
-        if raw.get("schema") == SCHEMA_LATEST:
+        if isinstance(raw.get("schema"), int) and raw["schema"] >= 2:
             records.append(raw)
             continue
         if not isinstance(old_id, str) or not OLD_ID.fullmatch(old_id):
@@ -489,7 +494,15 @@ def build_records(
 
 
 def core_validator() -> Callable[[list[dict[str, Any]]], Any]:
-    return validate_entries
+    """Validate schema-2 records as the schema-3 ledger they would become.
+
+    Returns None, so migrate() keeps the schema-2 records it was given.
+    """
+
+    def check(records: list[dict[str, Any]]) -> None:
+        validate_entries(renumber_step(records)[0])
+
+    return check
 
 
 def migrate(
@@ -518,55 +531,116 @@ def migrate(
         raise MigrationError(f"cannot create output {output_path}: {exc}") from exc
 
 
-STEPS = {1: build_records}
+def renumber_step(
+    records: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, str], list[ProseChange]]:
+    """Schema 2 to 3: per-kind ids, with schema 3 stamped on every line."""
+    renumbered, mapping, prose_changes = renumber_per_kind(records)
+    return [{**record, "schema": SCHEMA_LATEST} for record in renumbered], mapping, prose_changes
 
-BACKUP_SUFFIX = ".schema1"
+
+STEPS = {1: build_records, 2: renumber_step}
+
+BACKUP_SUFFIX = ".schema"
 TEMP_SUFFIX = ".migrating"
 
 
+@dataclass
+class MigrationResult:
+    count: int
+    report: list[str]
+    notes: list[str]
+    mapping: dict[str, str]
+    per_kind: dict[str, int]
+    prose_changes: list[ProseChange]
+    features_events: int = 0
+    rewritten: list[str] = field(default_factory=list)
+    rewrite_counts: dict[str, int] = field(default_factory=dict)
+    backup: str = ""
+
+
 def _report_line(old_id: str, record: dict[str, Any]) -> str:
-    return f"{old_id} -> {record['id']} {record['kind']}/{record['state']}"
+    # Correction and review lines carry no state.
+    state = record.get("state")
+    return f"{old_id} -> {record['id']} {record['kind']}" + (f"/{state}" if state else "")
+
+
+def _run_step(
+    version: int,
+    records: list[dict[str, Any]],
+    mapping_path: Path | str | None,
+    notes: list[str],
+) -> tuple[list[dict[str, Any]], dict[str, str], list[ProseChange]]:
+    if version != 1:
+        try:
+            return STEPS[version](records)
+        except RebaseError as exc:
+            raise MigrationError(
+                f"cannot renumber this ledger: {exc}; run docket check and repair it first"
+            ) from exc
+    # The classification map exists only for schema 1: it assigns the kinds that
+    # schema never recorded. Every later step is mechanical.
+    if mapping_path is None:
+        classes = derive_mapping(records, notes=notes)
+    else:
+        classes = read_mapping(Path(mapping_path), {raw["id"] for raw in records})
+    return STEPS[1](records, classes), {}, []
 
 
 def migrate_in_place(
-    path: Path | str, mapping_path: Path | str | None = None, dry_run: bool = False
-) -> tuple[int, list[str], list[str]]:
+    path: Path | str,
+    mapping_path: Path | str | None = None,
+    dry_run: bool = False,
+    rewrite: Sequence[Path | str] = (),
+) -> MigrationResult:
     """Convert a ledger to the current schema, keeping the original beside it.
 
-    Both renames happen inside one directory, so each is atomic. A crash
-    between them leaves the source at BACKUP_SUFFIX and the result at
+    Every step runs in memory before anything is written, so a failure at any
+    version leaves the ledger as it was. The backup is named after the starting
+    schema. Both renames happen inside one directory, so each is atomic. A crash
+    between them leaves the source at the backup name and the result at
     TEMP_SUFFIX, and neither file is truncated.
     """
     path = Path(path)
-    backup = Path(str(path) + BACKUP_SUFFIX)
     temp = Path(str(path) + TEMP_SUFFIX)
 
     source = read_source(path)
     version = detect_version(source)
     if version == SCHEMA_LATEST:
-        return 0, [], []
-    step = STEPS.get(version)
-    if step is None:
+        return MigrationResult(0, [], [], {}, {}, [])
+    if version not in STEPS:
         raise MigrationError(f"no migration from schema {version} to {SCHEMA_LATEST}")
+    if mapping_path is not None and version != 1:
+        raise MigrationError(
+            f"a classification map applies only to schema 1; this ledger is schema {version}"
+        )
+    backup = Path(f"{path}{BACKUP_SUFFIX}{version}")
 
     # Checked only once a conversion is actually needed: a ledger already at
-    # schema 2 must exit clean even if an earlier migration left a backup.
+    # the latest schema must exit clean even if an earlier migration left a backup.
     if not dry_run and backup.exists():
         raise MigrationError(
             f"{backup} already exists; a second migration would overwrite the original"
         )
 
-    old_ids = {raw["id"] for raw in source}
     notes: list[str] = []
-    if mapping_path is None:
-        mapping = derive_mapping(source, notes=notes)
-    else:
-        mapping = read_mapping(Path(mapping_path), old_ids)
-    records = step(source, mapping)
-    records = core_validator()(records) or records
-    report = [_report_line(raw["id"], record) for raw, record in zip(source, records)]
+    records = source
+    renumbered: dict[str, str] = {}
+    prose_changes: list[ProseChange] = []
+    for current in range(version, SCHEMA_LATEST):
+        records, renumbered, prose_changes = _run_step(current, records, mapping_path, notes)
+    records = validate_entries(records)
+    result = MigrationResult(
+        count=len(records),
+        report=[_report_line(raw["id"], record) for raw, record in zip(source, records)],
+        notes=notes,
+        mapping=renumbered,
+        per_kind={kind: sum(r["kind"] == kind for r in records) for kind in PREFIX},
+        prose_changes=prose_changes,
+        backup=str(backup),
+    )
     if dry_run:
-        return len(records), report, notes
+        return result
 
     with ledger_lock(path):
         if temp.exists():
@@ -576,4 +650,4 @@ def migrate_in_place(
                 handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
         path.rename(backup)
         temp.rename(path)
-    return len(records), report, notes
+    return result

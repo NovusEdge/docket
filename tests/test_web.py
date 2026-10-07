@@ -254,12 +254,14 @@ class WebCliTests(unittest.TestCase):
 
         alone = {"id": "d7", "kind": "decision", "text": "t"}
         with (
+            mock.patch("docket.env.read", return_value=[]),
             mock.patch("docket.cli.web.selection", return_value=([alone], [alone], False)),
             mock.patch("docket.ledger.project", return_value=[alone]),
         ):
             dot = json.loads(web._payload(argparse.Namespace(), {}))["dot"]
         self.assertIn('"d7" [', dot)
         with (
+            mock.patch("docket.env.read", return_value=[]),
             mock.patch("docket.cli.web.selection", return_value=([alone], [alone], False)),
             mock.patch("docket.ledger.project", return_value=[alone]),
         ):

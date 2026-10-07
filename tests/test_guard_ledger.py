@@ -33,6 +33,7 @@ class LedgerPathTests(unittest.TestCase):
                 ".docket/ledger.jsonl",
                 "/home/user/project/.docket/ledger.jsonl",
                 ".docket/ledger.jsonl.schema1",
+                ".docket/ledger.jsonl.schema2",
                 ".docket/migration-v0.8-map.json",
             ):
                 with self.subTest(tool=tool, path=path):
