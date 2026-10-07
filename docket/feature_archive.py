@@ -41,10 +41,26 @@ def highest_archived_id(store: Path) -> int:
     """
 
     highest = 0
-    for event in archived_events(store):
-        match = ID_RE.fullmatch(str(event.get("id", "")))
-        if match:
-            highest = max(highest, int(match.group(1)))
+    directory = archive_dir_for(store)
+    if not directory.is_dir():
+        return 0
+    # Raw, not through read(): an id is the same at every schema, and this runs
+    # before any migrate, from append and from the merge driver. A strict read
+    # would refuse every new feature until the archive was migrated. A line that
+    # is not valid is skipped here and reported by `docket check`.
+    for name in sorted(directory.glob("features-*.jsonl")):
+        try:
+            lines = name.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeError):
+            continue
+        for line in lines:
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            match = ID_RE.fullmatch(str(value.get("id", ""))) if isinstance(value, dict) else None
+            if match:
+                highest = max(highest, int(match.group(1)))
     return highest
 
 

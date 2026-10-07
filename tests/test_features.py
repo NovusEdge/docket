@@ -1,3 +1,5 @@
+import hashlib
+import json
 import sys
 import tempfile
 import unittest
@@ -6,6 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import docket.feature_project as feature_project
 import docket.features as features
+from docket import ledger
 
 
 class EventSchemaTests(unittest.TestCase):
@@ -62,6 +65,12 @@ class EventSchemaTests(unittest.TestCase):
         del event["cleared"]
         self.assertEqual(features.validate_event(event)["cleared"], [])
 
+    def test_a_schema_one_event_is_refused_with_the_migrate_instruction(self):
+        event = dict(features.make_event("note", "slug-one", text="t"), schema=1)
+        with self.assertRaisesRegex(features.FeatureSchemaTooOld, "docket migrate"):
+            features.validate_event(event)
+        self.assertTrue(issubclass(features.FeatureSchemaTooOld, features.FeatureError))
+
     def test_a_line_that_declares_no_schema_is_still_refused(self):
         event = features.make_event("note", "slug-one", text="t")
         del event["schema"]
@@ -102,9 +111,31 @@ class StoreTests(unittest.TestCase):
         self.assertEqual([e["event"] for e in features.read(self.path)], ["start", "note"])
 
     def test_a_corrupt_line_names_its_line_number(self):
-        self.path.write_text('{"schema":1,"event":"nope"}\n', encoding="utf-8")
+        self.path.write_text('{"schema":2,"event":"nope"}\n', encoding="utf-8")
         with self.assertRaisesRegex(features.FeatureError, "line 1"):
             features.read(self.path)
+
+    def schema_one_line(self, ident="f1"):
+        event = dict(
+            features.make_event("start", "one", text="t", paths=["a/**"]), id=ident, schema=1
+        )
+        return json.dumps(event) + "\n"
+
+    def test_read_refuses_a_schema_one_store_naming_the_line(self):
+        self.path.write_text(self.schema_one_line(), encoding="utf-8")
+        with self.assertRaisesRegex(features.FeatureSchemaTooOld, "line 1.*docket migrate"):
+            features.read(self.path)
+
+    def test_an_archive_at_schema_one_still_sets_the_id_floor(self):
+        from docket.feature_archive import highest_archived_id
+
+        archive = self.path.parent / "archive"
+        archive.mkdir()
+        (archive / "features-abc.jsonl").write_text(self.schema_one_line("f7"), encoding="utf-8")
+        self.assertEqual(highest_archived_id(self.path), 7)
+        self.path.write_text("", encoding="utf-8")
+        started = features.make_event("start", "one", text="t", paths=["a/**"])
+        self.assertEqual(features.append(self.path, started)["id"], "f8")
 
     def test_qualified_id_appends_eight_characters_of_base(self):
         event = self.add("start", "one", text="t", paths=["a/**"], base="6f0898e2c1f4a9")
@@ -209,6 +240,109 @@ class ProjectionTests(unittest.TestCase):
         self.add("done", "one")
         with self.assertRaisesRegex(features.FeatureError, "f1"):
             feature_project.resolve(self.current(), "one")
+
+
+TS = "2026-01-01T00:00:00+00:00"
+
+
+def stored_key(kind, text):
+    """The key recipe as it stood before id masking, for events written then."""
+    raw = "\0".join((kind, TS, "t", "s", text))
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
+
+
+def claim(ident, text):
+    return ledger.make_record(
+        "claim", text, state="accepted", author="t", session="s", ts=TS, record_id=ident
+    )
+
+
+class RecordKeyTests(unittest.TestCase):
+    def test_a_headline_with_no_id_token_keeps_its_key(self):
+        self.assertEqual(
+            ledger.record_key(claim("c1", "No ids in this headline")),
+            stored_key("claim", "No ids in this headline"),
+        )
+
+    def test_a_headline_id_token_does_not_move_the_key(self):
+        before = claim("c3", "Contradicts d2 outright")
+        after = claim("c2", "Contradicts d1 outright")
+        self.assertEqual(ledger.record_key(before), ledger.record_key(after))
+        self.assertNotEqual(ledger.record_key(before), stored_key("claim", before["text"]))
+
+    def test_a_key_stored_before_the_change_still_rebinds(self):
+        entries = [claim("c1", "Alpha"), claim("c2", "Beta")]
+        keys = {"c9": stored_key("claim", "Beta")}
+        self.assertEqual(ledger.rebind(["c9"], keys, entries), ["c2"])
+
+    def test_stale_keys_names_an_id_whose_key_matches_no_record(self):
+        entries = [claim("c1", "Alpha"), claim("c2", "Beta")]
+        keys = {"c1": stored_key("claim", "Alpha"), "c2": "0" * 12, "c3": "1" * 12}
+        self.assertEqual(ledger.stale_keys(["c1", "c2", "c3", "c4"], keys, entries), ["c2"])
+
+    def test_an_id_whose_key_names_another_record_is_rebound_not_stale(self):
+        entries = [claim("c1", "Alpha"), claim("c2", "Beta")]
+        keys = {"c1": stored_key("claim", "Beta")}
+        self.assertEqual(ledger.stale_keys(["c1"], keys, entries), [])
+
+
+class RemapEventsTests(unittest.TestCase):
+    def setUp(self):
+        self.by_id = {
+            "c3": claim("c3", "Third premise"),
+            "d1": ledger.make_record(
+                "decision",
+                "Cache layer sits behind reads",
+                state="adopted",
+                choice="Cache",
+                alternatives=["No cache"],
+                rationale="Reads dominate",
+                author="t",
+                session="s",
+                ts=TS,
+                record_id="d1",
+            ),
+            "q1": ledger.make_record(
+                "question", "Which store?", author="t", session="s", ts=TS, record_id="q1"
+            ),
+        }
+        self.mapping = {"c4": "c3", "d2": "d1", "q5": "q1"}
+
+    def event(self, **fields):
+        return dict(
+            features.make_event("start", "one", text="t", paths=["a/**"], ts=TS, **fields),
+            id="f1",
+            schema=1,
+        )
+
+    def test_every_ledger_ref_field_is_rewritten_and_keys_recomputed(self):
+        old = self.event(
+            include=["c4"],
+            exclude=["d2"],
+            held=["q5"],
+            failed=["c4", "d9"],
+            unanswered=["q5"],
+            keys={"c4": "a" * 12, "d2": "b" * 12, "q5": "c" * 12},
+        )
+        [new] = features.remap_events([old], self.mapping, self.by_id)
+        self.assertEqual(new["schema"], 2)
+        self.assertEqual(new["include"], ["c3"])
+        self.assertEqual(new["exclude"], ["d1"])
+        self.assertEqual(new["held"], ["q1"])
+        self.assertEqual(new["failed"], ["c3", "d9"])
+        self.assertEqual(new["unanswered"], ["q1"])
+        self.assertEqual(
+            new["keys"], {i: ledger.record_key(self.by_id[i]) for i in ("c3", "d1", "q1")}
+        )
+
+    def test_a_key_whose_record_is_missing_is_kept_under_the_new_id(self):
+        old = self.event(include=["c4"], keys={"c4": "a" * 12})
+        [new] = features.remap_events([old], self.mapping, {})
+        self.assertEqual(new["keys"], {"c3": "a" * 12})
+
+    def test_a_schema_two_event_passes_through_untouched(self):
+        done = dict(self.event(include=["c3"]), schema=2)
+        self.assertEqual(features.remap_events([done], {"c3": "c2"}, self.by_id), [done])
 
 
 if __name__ == "__main__":

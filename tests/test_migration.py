@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import sys
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from docket import features, ledger
 from docket import migrate as docket_migrate
 from docket.ledger import SCHEMA, LedgerError, make_record
 from docket.ledger import read as ledger_read
@@ -794,6 +798,168 @@ class SchemaThreeTests(unittest.TestCase):
                 docket_migrate.migrate_in_place(path)
             self.assertEqual(path.read_bytes(), before)
             self.assertFalse(Path(str(path) + ".migrating").exists())
+
+
+class FeaturesMoveTests(unittest.TestCase):
+    TS = "2026-01-01T00:00:00+00:00"
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = Path(tmp.name) / ".docket"
+        (self.dir / "archive").mkdir(parents=True)
+        self.path = self.dir / "ledger.jsonl"
+        self.store = self.dir / "features.jsonl"
+        self.archive = self.dir / "archive" / "features-abc123.jsonl"
+        # Old ids c1 d2 c3 c4 become c1 d1 c2 c3. c3 cites d2 in its headline.
+        self.c1 = self.rec("claim", "c1", "First premise", state="accepted")
+        self.d2 = self.rec(
+            "decision",
+            "d2",
+            "Cache layer sits behind reads",
+            state="adopted",
+            choice="Cache",
+            alternatives=["No cache"],
+            rationale="Reads dominate",
+            supports=[["c1"]],
+        )
+        self.c3 = self.rec("claim", "c3", "Contradicts d2 outright", state="accepted")
+        self.c4 = self.rec("claim", "c4", "Fourth premise", state="accepted")
+        write_jsonl(self.path, [self.c1, self.d2, self.c3, self.c4])
+
+    def rec(self, kind, ident, text, **fields):
+        made = ledger.make_record(
+            kind, text, author="t", session="s", ts=self.TS, record_id=ident, **fields
+        )
+        return dict(made, schema=2)
+
+    def old_key(self, entry):
+        parts = (entry["kind"], entry["ts"], entry["author"], entry["session"], entry["text"])
+        return hashlib.sha1("\0".join(parts).encode("utf-8")).hexdigest()[:12]
+
+    def event(self, ident, slug, **fields):
+        made = features.make_event("start", slug, text=slug, paths=["src/**"], ts=self.TS, **fields)
+        return dict(made, id=ident, schema=1)
+
+    def ledger_schema(self):
+        return json.loads(self.path.read_text().splitlines()[0])["schema"]
+
+    def test_features_and_archive_follow_the_ledger(self):
+        keys = {
+            "c4": self.old_key(self.c4),
+            "c3": self.old_key(self.c3),
+            "d2": self.old_key(self.d2),
+        }
+        write_jsonl(
+            self.store,
+            [self.event("f2", "live", include=["c4", "c3"], exclude=["d2"], keys=keys)],
+        )
+        write_jsonl(
+            self.archive,
+            [self.event("f1", "old", include=["c4"], keys={"c4": self.old_key(self.c4)})],
+        )
+        result = docket_migrate.migrate_in_place(self.path)
+        self.assertEqual(result.features_events, 2)
+
+        by_id = {e["id"]: e for e in ledger.project(ledger.read(self.path))}
+        [live] = features.read(self.store)
+        self.assertEqual(live["schema"], 2)
+        self.assertEqual(live["include"], ["c3", "c2"])
+        self.assertEqual(live["exclude"], ["d1"])
+        self.assertEqual(live["keys"], {i: ledger.record_key(by_id[i]) for i in ("c3", "c2", "d1")})
+        # c4 has no token in its headline, so its key is the one stored before.
+        self.assertEqual(live["keys"]["c3"], self.old_key(self.c4))
+        # c3 mentions d2 in its headline. The rewrite to d1 must not move the key.
+        self.assertNotEqual(live["keys"]["c2"], self.old_key(self.c3))
+        [archived] = features.read(self.archive)
+        self.assertEqual(archived["include"], ["c3"])
+        self.assertEqual(archived["keys"], {"c3": self.old_key(self.c4)})
+
+    def test_a_crash_before_the_ledger_swap_is_repaired_by_a_rerun(self):
+        write_jsonl(
+            self.store,
+            [self.event("f1", "live", include=["c4"], keys={"c4": self.old_key(self.c4)})],
+        )
+        original = self.path.read_bytes()
+        real = os.replace
+        ledger_path = self.path
+
+        def fail(source, target):
+            if Path(target) == ledger_path:
+                raise OSError("disk full")
+            return real(source, target)
+
+        with mock.patch.object(os, "replace", fail), self.assertRaises(OSError):
+            docket_migrate.migrate_in_place(self.path)
+        # Never a moment with no ledger: still the schema-2 file, backup beside it.
+        self.assertEqual(self.path.read_bytes(), original)
+        backup = Path(str(self.path) + ".schema2")
+        self.assertEqual(backup.read_bytes(), original)
+        [after_crash] = features.read(self.store)
+        self.assertEqual(after_crash["include"], ["c3"])
+
+        docket_migrate.migrate_in_place(self.path)
+        self.assertEqual(self.ledger_schema(), 3)
+        self.assertEqual(backup.read_bytes(), original)
+        # c4 -> c3 once. A second mapping would have sent it on to c2.
+        self.assertEqual(features.read(self.store), [after_crash])
+        self.assertFalse(Path(str(self.path) + ".migrating").exists())
+
+    def test_a_backup_that_differs_from_the_ledger_stops_the_command(self):
+        Path(str(self.path) + ".schema2").write_text("earlier\n")
+        before = self.path.read_bytes()
+        with self.assertRaises(docket_migrate.MigrationError):
+            docket_migrate.migrate_in_place(self.path)
+        self.assertEqual(self.path.read_bytes(), before)
+
+    def test_a_stale_temp_from_a_crashed_run_is_overwritten(self):
+        write_jsonl(self.store, [self.event("f1", "live", include=["c4"])])
+        Path(str(self.path) + ".migrating").write_text("junk\n")
+        Path(str(self.store) + ".migrating").write_text("junk\n")
+        docket_migrate.migrate_in_place(self.path)
+        self.assertEqual(features.read(self.store)[0]["include"], ["c3"])
+        self.assertEqual(self.ledger_schema(), 3)
+
+    def test_a_features_file_already_at_schema_two_is_left_alone(self):
+        write_jsonl(self.store, [dict(self.event("f1", "live", include=["c4"]), schema=2)])
+        before = self.store.read_bytes()
+        result = docket_migrate.migrate_in_place(self.path)
+        self.assertEqual(result.features_events, 0)
+        self.assertEqual(self.store.read_bytes(), before)
+
+    def test_a_dry_run_counts_features_events_and_writes_nothing(self):
+        write_jsonl(self.store, [self.event("f1", "live", include=["c4"])])
+        before = self.store.read_bytes()
+        result = docket_migrate.migrate_in_place(self.path, dry_run=True)
+        self.assertEqual(result.features_events, 1)
+        self.assertEqual(self.store.read_bytes(), before)
+        self.assertEqual(self.ledger_schema(), 2)
+
+    def test_a_ledger_with_no_features_files_migrates(self):
+        result = docket_migrate.migrate_in_place(self.path)
+        self.assertEqual(result.features_events, 0)
+        self.assertFalse(self.store.exists())
+
+    def test_a_migrated_ledger_remaps_features_still_at_schema_one(self):
+        docket_migrate.migrate_in_place(self.path)
+        ledger_bytes = self.path.read_bytes()
+        write_jsonl(
+            self.store,
+            [self.event("f1", "late", include=["c4"], keys={"c4": self.old_key(self.c4)})],
+        )
+        result = docket_migrate.migrate_in_place(self.path)
+        self.assertEqual(result.features_events, 1)
+        self.assertEqual(features.read(self.store)[0]["include"], ["c3"])
+        self.assertEqual(self.path.read_bytes(), ledger_bytes)
+
+    def test_an_old_id_held_by_two_records_is_not_mapped(self):
+        records = [
+            {"id": "c2", "migrated_from": "c3"},
+            {"id": "c3", "migrated_from": "c3"},
+            {"id": "d1", "migrated_from": "d2"},
+            {"id": "c1"},
+        ]
+        self.assertEqual(docket_migrate._migrated_map(records), {"d2": "d1"})
 
 
 if __name__ == "__main__":

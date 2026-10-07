@@ -21,6 +21,7 @@ from docket.ledger import (
     _Prefix,
     append,
     rebind,
+    stale_keys,
     validate_record,
 )
 
@@ -263,6 +264,18 @@ def cmd_check(args: argparse.Namespace) -> int:
                         print(
                             f"{store}: {feature['id']} {field} names records a merge "
                             f"renumbered ({', '.join(moved)}); run docket feature remap"
+                        )
+                        failed = True
+                    stale = (
+                        []
+                        if feature["state"] in features.TERMINAL_STATES
+                        else stale_keys(feature[field], feature["keys"], good)
+                    )
+                    if stale:
+                        print(
+                            f"{store}: {feature['id']} {field} names {', '.join(stale)}, "
+                            "whose stored key matches no record; check which record was "
+                            "meant and re-cite it with docket feature amend"
                         )
                         failed = True
 

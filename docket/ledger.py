@@ -764,9 +764,13 @@ def record_key(entry: dict[str, Any]) -> str:
     cited outside the ledger can come to name a different record. Text is the
     as-written text, from ``original`` once a correction has rewritten it in
     the projection; ts alone collides whenever two branches record within one
-    second, which every scripted run does.
+    second, which every scripted run does. An id token in the headline is
+    masked: the per-kind renumber rewrites it, and a key that followed the
+    rewrite would orphan every event stored before it. A headline with no
+    token hashes exactly as it did before.
     """
     text = (entry.get("original") or {}).get("text", entry.get("text", ""))
+    text = ID_TOKEN.sub("#", str(text or ""))
     fields = (entry.get("kind"), entry.get("ts"), entry.get("author"), entry.get("session"), text)
     raw = "\0".join(str(value or "") for value in fields)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
@@ -796,6 +800,25 @@ def rebind(ids: list[str], keys: dict[str, str], entries: list[dict[str, Any]]) 
         found = holders.get(key, [])
         out.append(found[0] if len(found) == 1 else ident)
     return out
+
+
+def stale_keys(ids: list[str], keys: dict[str, str], entries: list[dict[str, Any]]) -> list[str]:
+    """Ids whose stored key fits neither their own record nor any other.
+
+    ``rebind`` leaves such an id as written, so a caller that wants to report
+    it needs this. An id with no record is not listed: that is a dangling
+    reference, reported separately.
+    """
+    by_id = {str(entry.get("id")): entry for entry in entries}
+    held = {record_key(entry) for entry in entries}
+    return [
+        ident
+        for ident in ids
+        if ident in keys
+        and ident in by_id
+        and record_key(by_id[ident]) != keys[ident]
+        and keys[ident] not in held
+    ]
 
 
 def graph_payload(entries: list[dict[str, Any]]) -> dict[str, Any]:
