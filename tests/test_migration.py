@@ -1083,6 +1083,17 @@ class RewriteTests(unittest.TestCase):
         self.assertEqual(self.path.read_bytes(), before)
         self.assertFalse(Path(str(self.path) + ".schema2").exists())
 
+    def test_a_schema_1_ledger_rewrites_files_through_schema_1_ids(self):
+        # d3 is an open question: schema 1 d3 becomes schema 2 q3, then q1.
+        legacy = legacy_ledger() + [dict(legacy_ledger()[0], id="d3", state="open")]
+        write_jsonl(self.path, legacy)
+        self.doc.write_text("see d3 and d2, not q3\n")
+        git(self.work, "add", "-A")
+        git(self.work, "commit", "-q", "-m", "legacy")
+        result = docket_migrate.migrate_in_place(self.path, rewrite=[self.doc])
+        self.assertEqual(self.doc.read_text(), "see q1 and d2, not q3\n")
+        self.assertEqual(result.rewrite_counts, {str(self.doc): 1})
+
     def test_naming_a_file_twice_is_refused(self):
         with self.assertRaisesRegex(docket_migrate.MigrationError, "twice"):
             docket_migrate.migrate_in_place(self.path, rewrite=[self.doc, self.doc])

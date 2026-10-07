@@ -886,7 +886,17 @@ def migrate_in_place(
         prose_changes=prose_changes,
         backup=str(backup),
     )
-    plans = _plan_rewrites(rewrite, renumbered, path) if rewrite else []
+    cited = renumbered
+    if version == 1:
+        # Files in a schema 1 project cite schema 1 ids, which renumbered
+        # (the schema 2 to 3 step only) does not know.
+        cited = {
+            record["legacy"]["source_id"]: record["id"]
+            for record in records
+            if isinstance(record.get("legacy"), dict)
+            and isinstance(record["legacy"].get("source_id"), str)
+        }
+    plans = _plan_rewrites(rewrite, cited, path) if rewrite else []
     result.rewritten = [str(file) for file, _, _ in plans]
     result.rewrite_counts = {str(file): count for file, _, count in plans}
     if dry_run:
