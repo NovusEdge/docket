@@ -492,10 +492,7 @@ class DotRendersTests(unittest.TestCase):
         path = Path(__file__).parent.parent / ".docket" / "ledger.jsonl"
         if not path.is_file():
             self.skipTest("no project ledger")
-        try:
-            entries = ledger.project(ledger.read(path), validated=True)
-        except ledger.SchemaTooOld:
-            self.skipTest("this checkout's ledger is not migrated yet")
+        entries = ledger.project(ledger.read(path), validated=True)
         svg = self.render(to_dot(entries, superseded=True))
         self.assertGreater(len(svg), 10_000)
 
@@ -542,10 +539,7 @@ class MermaidRendersTests(unittest.TestCase):
         path = Path(__file__).parent.parent / ".docket" / "ledger.jsonl"
         if not path.is_file():
             self.skipTest("no project ledger")
-        try:
-            entries = ledger.project(ledger.read(path), validated=True)
-        except ledger.SchemaTooOld:
-            self.skipTest("this checkout's ledger is not migrated yet")
+        entries = ledger.project(ledger.read(path), validated=True)
         self.render(to_mermaid(entries, superseded=True))
 
 

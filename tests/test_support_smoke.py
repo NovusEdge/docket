@@ -14,10 +14,7 @@ class RepositoryLedgerTests(unittest.TestCase):
     def test_no_current_record_loses_its_grounds(self):
         # This ledger records no rejection, revocation or reversal, so nothing
         # is lost to one; cycles built by forward resolution are flagged, not lost.
-        try:
-            projected = ledger.project(ledger.read(LEDGER), validated=True)
-        except ledger.SchemaTooOld:
-            self.skipTest("this checkout's ledger is not migrated yet")
+        projected = ledger.project(ledger.read(LEDGER), validated=True)
         lost = {e["id"]: e["lost_grounds"] for e in projected if support.surfaced(e, "unsupported")}
         self.assertEqual(lost, {})
 
