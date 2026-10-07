@@ -217,6 +217,75 @@ class MigrateSchema3CliTests(unittest.TestCase):
             self.assertIn("--emit-map", result.stderr)
 
 
+class OldLedgerMessageTests(unittest.TestCase):
+    def old_ledger(self, work: Path) -> None:
+        project(
+            work,
+            [
+                rec("claim", "c1", "First claim", schema=2),
+                rec("claim", "c2", "Second claim", schema=2),
+            ],
+        )
+
+    def test_context_prints_the_migrate_instruction_on_stdout_and_exits_0(self):
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            self.old_ledger(work)
+            result = run(work, "context")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stderr, "")
+            self.assertIn("schema 2", result.stdout)
+            self.assertIn(f"{DOCKET} migrate", result.stdout)
+            self.assertIn("--rewrite FILE...", result.stdout)
+            self.assertIn("commit", result.stdout)
+
+    def test_the_instruction_follows_the_harness_envelope(self):
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            self.old_ledger(work)
+            result = run(work, "context", "--for", "gemini")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            body = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+            self.assertIn("migrate", body)
+
+    def test_a_since_briefing_gets_the_same_instruction(self):
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            self.old_ledger(work)
+            result = run(work, "context", "--since", "c1")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("migrate", result.stdout)
+
+    def test_another_ledger_error_keeps_stderr_and_exit_1(self):
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            ledger = project(work, [rec("claim", "c1", "First claim")])
+            ledger.write_text(ledger.read_text() + "{not json\n")
+            result = run(work, "context")
+            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.stdout, "")
+            self.assertNotEqual(result.stderr, "")
+
+    def test_a_current_ledger_still_briefs(self):
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            project(work, [rec("claim", "c1", "First claim")])
+            result = run(work, "context")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("First claim", result.stdout)
+
+    def test_check_prints_the_instruction_once_and_no_per_line_faults(self):
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            self.old_ledger(work)
+            result = run(work, "check")
+            self.assertEqual(result.returncode, 1)
+            combined = result.stdout + result.stderr
+            self.assertEqual(combined.count(f"{DOCKET} migrate"), 1)
+            self.assertNotIn("fault", combined)
+            self.assertNotIn("docket rebase", combined)
+
+
 class OldIdTests(unittest.TestCase):
     def ledger(self, work: Path) -> None:
         # c1 and c3 both came from c4 on different branches. c2 came from c1,

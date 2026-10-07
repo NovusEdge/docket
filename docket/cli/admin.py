@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 from docket import env, feature_archive, feature_project, features, merge_setup
+from docket.cli.context_cmd import migrate_instruction
 from docket.ledger import (
     ID_RE,
     LedgerError,
@@ -222,7 +223,7 @@ def cmd_check(args: argparse.Namespace) -> int:
             try:
                 checked = validate_record(record, prefix=prefix)
             except SchemaTooOld as exc:
-                print(f"docket: {path}: {str(exc).removeprefix('docket: schema: ')}")
+                print(migrate_instruction(exc), end="")
                 return 1
             except LedgerError as exc:
                 faults.append(f"line {number}: {str(exc).removeprefix('docket: ')}")
@@ -253,7 +254,7 @@ def cmd_check(args: argparse.Namespace) -> int:
         try:
             checked = validate_record(record, prefix=prefix)
         except SchemaTooOld as exc:
-            print(f"docket: {path}: {str(exc).removeprefix('docket: schema: ')}")
+            print(migrate_instruction(exc), end="")
             return 1
         except LedgerError as exc:
             faults.append(f"line {number}: {str(exc).removeprefix('docket: ')}")
