@@ -289,9 +289,11 @@ def renumber_per_kind(
             raise RebaseError(f"{old} appears twice; the ledger cannot be renumbered")
         seen.add(old)
         needed = _cited(record)
+        suffix: tuple[str, str, int] | None = None
         if kind in (corrections.KIND, reviews.KIND):
             module = corrections if kind == corrections.KIND else reviews
             target, number = module.parts_of(old)
+            suffix = (target, "" if module is corrections else "r", number)
             needed.add(target)
         elif kind not in _KIND_LETTER:
             raise RebaseError(f"{old or 'a line'} has unknown kind {kind!r}")
@@ -311,8 +313,8 @@ def renumber_per_kind(
         if kind in _KIND_LETTER:
             row["id"] = mapping[old]
             row["migrated_from"] = old
-        else:
-            mark = "" if module is corrections else "r"
+        elif suffix is not None:
+            target, mark, number = suffix
             row["id"] = f"{mapping[target]}.{mark}{number}"
         changes.extend(_prose_changes(old, record, row, mapping, via))
         out.append(row)

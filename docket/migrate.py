@@ -580,7 +580,7 @@ def _run_step(
 ) -> tuple[list[dict[str, Any]], dict[str, str], list[ProseChange]]:
     if version != 1:
         try:
-            return STEPS[version](records)
+            return renumber_step(records)
         except RebaseError as exc:
             raise MigrationError(
                 f"cannot renumber this ledger: {exc}; run docket check and repair it first"
@@ -591,7 +591,7 @@ def _run_step(
         classes = derive_mapping(records, notes=notes)
     else:
         classes = read_mapping(Path(mapping_path), {raw["id"] for raw in records})
-    return STEPS[1](records, classes), {}, []
+    return build_records(records, classes), {}, []
 
 
 def _feature_files(ledger_path: Path) -> list[Path]:
