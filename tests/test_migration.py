@@ -906,12 +906,47 @@ class FeaturesMoveTests(unittest.TestCase):
         self.assertEqual(features.read(self.store), [after_crash])
         self.assertFalse(Path(str(self.path) + ".migrating").exists())
 
+    def test_a_features_line_that_is_not_an_object_is_a_migration_error(self):
+        self.store.write_text(json.dumps(self.event("f1", "live")) + "\n[1]\n", encoding="utf-8")
+        before = self.path.read_bytes()
+        with self.assertRaises(docket_migrate.MigrationError) as caught:
+            docket_migrate.migrate_in_place(self.path)
+        self.assertIn(str(self.store), str(caught.exception))
+        self.assertIn("line 2", str(caught.exception))
+        self.assertEqual(self.path.read_bytes(), before)
+
+    def test_a_line_appended_after_the_read_stops_the_commit(self):
+        real = docket_migrate._commit
+
+        def late_append(*args, **kwargs):
+            with self.path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(self.rec("claim", "c5", "Late", state="accepted")) + "\n")
+            return real(*args, **kwargs)
+
+        with mock.patch.object(docket_migrate, "_commit", late_append):
+            with self.assertRaises(docket_migrate.MigrationError) as caught:
+                docket_migrate.migrate_in_place(self.path)
+        self.assertEqual(
+            str(caught.exception), "the ledger changed while migrating; run docket migrate again"
+        )
+        self.assertEqual(self.ledger_schema(), 2)
+        self.assertFalse(Path(str(self.path) + ".schema2").exists())
+        docket_migrate.migrate_in_place(self.path)
+        self.assertEqual(self.ledger_schema(), 3)
+
     def test_a_backup_that_differs_from_the_ledger_stops_the_command(self):
         Path(str(self.path) + ".schema2").write_text("earlier\n")
         before = self.path.read_bytes()
         with self.assertRaises(docket_migrate.MigrationError):
             docket_migrate.migrate_in_place(self.path)
         self.assertEqual(self.path.read_bytes(), before)
+
+    def test_the_backup_refusal_names_the_remedy(self):
+        Path(str(self.path) + ".schema2").write_text("earlier\n")
+        with self.assertRaises(docket_migrate.MigrationError) as caught:
+            docket_migrate.migrate_in_place(self.path)
+        self.assertIn("another branch's migration", str(caught.exception))
+        self.assertIn("delete or move it and run docket migrate again", str(caught.exception))
 
     def test_a_stale_temp_from_a_crashed_run_is_overwritten(self):
         write_jsonl(self.store, [self.event("f1", "live", include=["c4"])])

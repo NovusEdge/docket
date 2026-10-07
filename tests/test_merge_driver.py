@@ -258,6 +258,42 @@ class CrossMigrationTests(unittest.TestCase):
         self.assertIn("<<<<<<<", self.ours.read_text(encoding="utf-8"))
         self.assertIn("this branch's ledger is schema 2", err)
 
+    def test_an_unreadable_base_is_refused_with_markers(self):
+        for label, content in (
+            ("non-UTF-8", b'{"id":"c1"}\n\xff\xfe\n'),
+            ("non-object", b"[1, 2]\n"),
+            ("non-object after a record", json.dumps(claim("c1", "x")).encode() + b"\n7\n"),
+        ):
+            with self.subTest(label):
+                self.base.write_bytes(content)
+                write(self.ours, [claim("c1", "Ours")])
+                write(self.theirs, [claim("c1", "Theirs")])
+                code, _ = self.run_driver()
+                self.assertEqual(code, 1)
+                self.assertIn("<<<<<<<", self.ours.read_text(encoding="utf-8"))
+
+    def test_an_unreadable_base_beside_feature_stores_is_refused_with_markers(self):
+        good = json.dumps(features_event("f1", "shared", 2)).encode()
+        for label, content in (
+            ("non-UTF-8", good + b"\n\xff\xfe\n"),
+            ("non-object", good + b"\n[1]\n"),
+        ):
+            with self.subTest(label):
+                self.base.write_bytes(content)
+                write(self.ours, [features_event("f1", "ours", 2)])
+                write(self.theirs, [features_event("f1", "theirs", 2)])
+                code, _ = self.run_driver()
+                self.assertEqual(code, 1)
+                self.assertIn("<<<<<<<", self.ours.read_text(encoding="utf-8"))
+
+    def test_a_schema_2_base_with_a_non_object_line_is_refused_with_markers(self):
+        self.base.write_bytes(json.dumps(v2(self.shared)[0]).encode() + b"\n[1]\n")
+        write(self.ours, upgraded(self.shared))
+        write(self.theirs, upgraded(self.shared))
+        code, _ = self.run_driver()
+        self.assertEqual(code, 1)
+        self.assertIn("<<<<<<<", self.ours.read_text(encoding="utf-8"))
+
     def test_an_empty_base_still_merges_two_migrated_ledgers(self):
         self.base.write_text("", encoding="utf-8")
         write(self.ours, [claim("c1", "Ours")])

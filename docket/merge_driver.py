@@ -203,6 +203,10 @@ def run(base: Path, ours: Path, theirs: Path) -> int:
         features.FeatureError,
         json.JSONDecodeError,
         OSError,
+        # BASE is read raw: a non-UTF-8 file or a line that is JSON but not an object.
+        UnicodeError,
+        AttributeError,
+        TypeError,
     ) as exc:
         print(f"docket: cannot merge {ours.name}: {exc}", file=sys.stderr)
         _conflict(base, ours, theirs)

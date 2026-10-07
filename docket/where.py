@@ -47,7 +47,12 @@ class Query:
 
     @property
     def wants_retired(self) -> bool:
-        return any(t.field == "is" and t.value == "retired" and not t.negated for t in self.terms)
+        # was: names a record by an id it no longer carries, and a migration
+        # often leaves that record retired.
+        return any(
+            not t.negated and (t.field == "was" or (t.field == "is" and t.value == "retired"))
+            for t in self.terms
+        )
 
     @property
     def has_fields(self) -> bool:

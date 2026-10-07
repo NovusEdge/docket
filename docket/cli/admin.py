@@ -41,7 +41,8 @@ def cmd_rebase(args: argparse.Namespace) -> int:
         theirs = env.read(other, strict=True)
         tail, mapping = renumber(mine, theirs)
     except (LedgerError, RebaseError, OSError) as exc:
-        print(f"docket: {exc}", file=sys.stderr)
+        # Ledger errors, SchemaTooOld among them, already carry the prefix.
+        print(f"docket: {str(exc).removeprefix('docket: ')}", file=sys.stderr)
         return 1
     if not tail:
         print("docket: nothing to rebase; the histories already agree")

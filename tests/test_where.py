@@ -279,6 +279,8 @@ class FlagTests(unittest.TestCase):
         self.assertTrue(where.parse("kind:decision is:retired").wants_retired)
         self.assertFalse(where.parse("-is:retired").wants_retired)
         self.assertFalse(where.parse("retired").wants_retired)
+        self.assertTrue(where.parse("was:d98").wants_retired)
+        self.assertFalse(where.parse("-was:d98").wants_retired)
         self.assertFalse(where.parse("").wants_retired)
 
     def test_has_fields(self):

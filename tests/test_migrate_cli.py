@@ -237,7 +237,8 @@ class OldLedgerMessageTests(unittest.TestCase):
             self.assertIn("schema 2", result.stdout)
             self.assertIn(f"{DOCKET} migrate", result.stdout)
             self.assertIn("--rewrite FILE...", result.stdout)
-            self.assertIn("commit", result.stdout)
+            self.assertIn("commit ledger.jsonl and the features files", result.stdout)
+            self.assertIn("not the ledger.jsonl.schema* backup", result.stdout)
 
     def test_the_instruction_follows_the_harness_envelope(self):
         with tempfile.TemporaryDirectory() as work:
@@ -344,6 +345,25 @@ class OldIdTests(unittest.TestCase):
             self.ledger(work)
             result = run(work, "list", "--where", "was:d9", "--json")
             self.assertEqual([r["id"] for r in json.loads(result.stdout)], ["c4"])
+
+
+class WasFindsRetiredTests(unittest.TestCase):
+    def test_was_includes_a_retired_record_without_superseded(self):
+        with tempfile.TemporaryDirectory() as work:
+            work = Path(work)
+            project(
+                work,
+                [
+                    rec("decision", "d1", "Old", migrated_from="d98"),
+                    rec("decision", "d2", "New", supersedes=["d1"]),
+                ],
+            )
+            found = run(work, "list", "--where", "was:d98", "--json")
+            self.assertEqual([r["id"] for r in json.loads(found.stdout)], ["d1"])
+            plain = run(work, "list", "--json")
+            self.assertEqual([r["id"] for r in json.loads(plain.stdout)], ["d2"])
+            negated = run(work, "list", "--where=-was:d97", "--json")
+            self.assertEqual([r["id"] for r in json.loads(negated.stdout)], ["d2"])
 
 
 class MigrateCliTests(unittest.TestCase):

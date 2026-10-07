@@ -166,8 +166,9 @@ def merge(
     """Return the records of ``theirs`` to append to ``ours``, and their old-to-new IDs.
 
     A THEIRS record that equals an OURS record once its citations are
-    translated and ids in its wording are ignored is the same recording under another ID, so it maps to that ID
-    and is not appended: that is what lets a branch merge twice. One that
+    translated and ids in its wording are ignored is the same recording under
+    another ID, so it maps to that ID and is not appended: that is what lets a
+    branch merge twice. One that
     equals a BASE record but no OURS record was removed or rewritten on our
     side and stays out, which keeps a cherry-pick from importing the picked
     commit's whole history. Citations only point backwards, so one pass in
@@ -294,7 +295,7 @@ def renumber_per_kind(
             needed.add(target)
         elif kind not in _KIND_LETTER:
             raise RebaseError(f"{old or 'a line'} has unknown kind {kind!r}")
-        missing = sorted(needed - mapping.keys())
+        missing = sorted(n for n in needed if n not in mapping)
         if missing:
             raise RebaseError(f"{old} cites {', '.join(missing)}, which no earlier line defines")
         if kind in _KIND_LETTER:

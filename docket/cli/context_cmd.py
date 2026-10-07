@@ -129,7 +129,8 @@ def migrate_instruction(exc: SchemaTooOld) -> str:
         f"docket: this project's ledger is schema {exc.version} and this docket reads "
         f"schema {SCHEMA}. Run `{command} migrate` to convert it. If any files cite "
         "ledger ids, add `--rewrite FILE...` to rewrite them in the same run. "
-        "Then commit the result.\n"
+        "Then commit ledger.jsonl and the features files, but not the ledger.jsonl.schema* "
+        "backup.\n"
     )
 
 

@@ -650,6 +650,7 @@ class RebaseAcrossMigrationTests(unittest.TestCase):
         code, _, err = self.run_cli("rebase", str(self.other))
         self.assertEqual(code, 1)
         self.assertIn("docket migrate", err)
+        self.assertNotIn("docket: docket:", err)
         self.assertEqual(self.ledger.read_bytes(), before)
 
 

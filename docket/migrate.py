@@ -607,9 +607,12 @@ def _read_events(path: Path) -> list[dict[str, Any]]:
         if not line.strip():
             continue
         try:
-            events.append(json.loads(line))
+            event = json.loads(line)
         except json.JSONDecodeError as exc:
             raise MigrationError(f"{path}: line {number}: invalid JSON: {exc.msg}") from exc
+        if not isinstance(event, dict):
+            raise MigrationError(f"{path}: line {number}: event must be an object")
+        events.append(event)
     return events
 
 
@@ -664,7 +667,8 @@ def _check_backup(path: Path, backup: Path) -> None:
     if backup.exists() and backup.read_bytes() != path.read_bytes():
         raise MigrationError(
             f"{backup} already exists and differs from {path}; a second migration "
-            "would overwrite the original"
+            "would overwrite the original. If another branch's migration left the backup, "
+            "delete or move it and run docket migrate again"
         )
 
 
@@ -687,6 +691,7 @@ def _commit(
     records: list[dict[str, Any]] | None,
     remap: Callable[[], list[tuple[Path, list[dict[str, Any]]]]],
     extra: tuple[tuple[Path, str], ...] = (),
+    expected: bytes | None = None,
 ) -> int:
     """Write every file the migration touches. Returns the features events rewritten.
 
@@ -696,7 +701,10 @@ def _commit(
     hard-linked backup and then one os.replace, so a crash anywhere leaves the
     ledger at its old schema and a rerun repeats the work, skipping the
     features files that already moved. ``records`` is None when the ledger is
-    already current and only features files move.
+    already current and only features files move. ``expected`` is the ledger's
+    bytes as the migration read them; the ledger is compared with it under the
+    lock, because the renumbered file would otherwise erase a line an older
+    docket appended since.
     """
     store = path.parent / "features.jsonl"
     temp = Path(str(path) + TEMP_SUFFIX)
@@ -704,6 +712,8 @@ def _commit(
         locks.enter_context(ledger_lock(path))
         if store.exists():
             locks.enter_context(ledger_lock(store))
+        if expected is not None and path.read_bytes() != expected:
+            raise MigrationError("the ledger changed while migrating; run docket migrate again")
         pending = remap()
         staged = [
             (target.with_name(target.name + TEMP_SUFFIX), target, _events_text(events))
@@ -838,6 +848,12 @@ def migrate_in_place(
     """
     path = Path(path)
 
+    # Taken before the parse, so a line appended in between shows up as a
+    # difference at commit time rather than being absorbed into the snapshot.
+    try:
+        snapshot = path.read_bytes()
+    except OSError as exc:
+        raise MigrationError(f"cannot read source {path}: {exc}") from exc
     source = read_source(path)
     version = detect_version(source)
     backup = Path(f"{path}{BACKUP_SUFFIX}{version}")
@@ -910,5 +926,6 @@ def migrate_in_place(
         records,
         lambda: _remap_features(path, renumbered, records),
         extra=tuple((file, text) for file, text, _ in plans),
+        expected=snapshot,
     )
     return result
