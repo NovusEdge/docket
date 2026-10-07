@@ -20,14 +20,16 @@ SEED = 20260913
 def ledger(count):
     random.seed(SEED + count)
     records = []
+    numbers = dict.fromkeys(("decision", "claim", "question"), 0)
     for number in range(1, count + 1):
         kind = ("decision", "claim", "question")[number % 3]
+        numbers[kind] += 1
         fields = {"choice": f"Choice {number}"} if kind == "decision" else {}
         if kind == "decision" and number > 3 and random.random() < 0.6:
             target, target_kind = records[random.randrange(len(records))]
             if target_kind in ("claim", "decision"):
                 fields["depends_on"] = (target,)
-        ident = f"{kind[0]}{number}"
+        ident = f"{kind[0]}{numbers[kind]}"
         records.append((ident, kind))
         yield entry(
             ident,
