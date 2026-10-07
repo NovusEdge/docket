@@ -128,6 +128,7 @@ Evidence is recorder-supplied provenance; docket does not check it. Re-run `dock
 
 ## Elsewhere
 
+- Work that outlasts this session, or that another agent will pick up: load the docket-feature skill before starting or resuming it.
 - Graph export and `graph --web`, for a person to read: [reading your ledger](../../docs/reading.md#export-the-graph).
 - Ledger location, `docket init`, `DOCKET_HOME`: [environment](../../docs/environment.md).
 - A ledger older than this docket needs `docket migrate`; add `--rewrite FILE...` for tracked, clean files that cite ledger IDs, and never guess record types from prose. After a migration an old ID can name a different record: `docket list --where was:ID` finds the record that carried it. [Migrating](../../docs/ledger.md#migrating-to-schema-3).

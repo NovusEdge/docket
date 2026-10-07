@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `docket context` prints a one-line hint above the records when no feature is open and the working tree has uncommitted changes outside `.docket/`. The hint tells the agent to load the docket-feature skill if the work continues past the session. A clean tree, changes only under `.docket/`, or any git failure prints nothing.
+
+### Changed
+
+- The docket-feature skill description now names its triggers (work that outlasts the session or goes to another agent, resuming such work, closing it), and the docket skill points to it.
+
 ## [0.26.0] - 2026-10-07
 
 ### Changed

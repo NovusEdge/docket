@@ -10,12 +10,12 @@ GUARD = Path(__file__).parent.parent / "hooks" / "guard_ledger.py"
 CWD = "/home/user/project"
 
 
-def decide(tool, tool_input, cwd=CWD):
+def decide(tool, tool_input, cwd=CWD, env=None):
     payload = json.dumps(
         {"hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": tool_input, "cwd": cwd}
     )
     result = subprocess.run(
-        [sys.executable, str(GUARD)], input=payload, capture_output=True, text=True
+        [sys.executable, str(GUARD)], input=payload, capture_output=True, text=True, env=env
     )
     if not result.stdout.strip():
         return "allow"
@@ -60,10 +60,15 @@ class LedgerPathTests(unittest.TestCase):
                 self.assertEqual(decide("Edit", {"file_path": path}), "allow")
 
     def test_a_global_ledger_asks(self):
-        self.assertEqual(
-            decide("Write", {"file_path": str(Path.home() / ".claude/docket/x/ledger.jsonl")}),
-            "ask",
-        )
+        env = {k: v for k, v in os.environ.items() if k not in ("CLAUDE_CONFIG_DIR", "DOCKET_HOME")}
+        path = Path.home() / ".claude/docket/x/ledger.jsonl"
+        self.assertEqual(decide("Write", {"file_path": str(path)}, env=env), "ask")
+
+    def test_a_global_ledger_under_claude_config_dir_asks(self):
+        env = {k: v for k, v in os.environ.items() if k != "DOCKET_HOME"}
+        env["CLAUDE_CONFIG_DIR"] = "/home/user/.claude-work"
+        path = "/home/user/.claude-work/docket/x/ledger.jsonl"
+        self.assertEqual(decide("Write", {"file_path": path}, env=env), "ask")
 
 
 class BashTests(unittest.TestCase):

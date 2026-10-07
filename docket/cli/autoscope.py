@@ -11,8 +11,18 @@ import subprocess
 _AUTO_SCOPE_LIMIT = 50
 
 
-def auto_scope_files(limit: int = _AUTO_SCOPE_LIMIT) -> tuple[str, ...]:
-    """Changed and untracked paths, as the working tree's proxy for a task.
+def uncommitted_paths() -> tuple[str, ...]:
+    """Every modified, staged or untracked path, uncapped, in repository-root form.
+
+    Empty outside a repository or when git fails. No last-commit fallback, so
+    a clean tree is empty.
+    """
+    found = _uncommitted()
+    return tuple(found[1]) if found else ()
+
+
+def _uncommitted() -> tuple[str, list[str]] | None:
+    """The repository root and the interleaved uncommitted paths, or None on any git failure.
 
     Both commands run from the repository root. git ls-files lists only what
     sits under the current directory, and git diff prints root-relative paths,
@@ -25,30 +35,47 @@ def auto_scope_files(limit: int = _AUTO_SCOPE_LIMIT) -> tuple[str, ...]:
             ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, timeout=3
         )
     except (OSError, subprocess.SubprocessError):
-        return ()
+        return None
     if top.returncode != 0:
-        return ()
+        return None
     root = top.stdout.strip()
 
     groups: list[list[str]] = []
-    for command in (
+    commands = [
         ["git", "diff", "--name-only", "-z", "HEAD"],
         ["git", "ls-files", "--others", "--exclude-standard", "-z"],
-    ):
+    ]
+    for command in commands:
         try:
             # Bytes, not text: the locale codec decodes strictly, and a path
             # carrying an invalid byte would raise UnicodeDecodeError, which is
             # neither OSError nor SubprocessError and would kill every
             # docket context in that repository.
             done = subprocess.run(command, cwd=root, capture_output=True, timeout=3)
+            if done.returncode != 0 and command[1] == "diff":
+                # A repository with no commits has no HEAD, so the diff fails.
+                # Only that case is benign: the index then holds every tracked
+                # file, so the cached diff lists the staged ones. A diff that
+                # fails with HEAD resolving (corrupt object, broken index) is a
+                # real failure and must not be passed off as a clean tree.
+                head = subprocess.run(
+                    ["git", "rev-parse", "--verify", "-q", "HEAD"],
+                    cwd=root,
+                    capture_output=True,
+                    timeout=3,
+                )
+                if head.returncode == 0:
+                    return None
+                done = subprocess.run(
+                    ["git", "diff", "--cached", "--name-only", "-z"],
+                    cwd=root,
+                    capture_output=True,
+                    timeout=3,
+                )
         except (OSError, subprocess.SubprocessError):
-            return ()
-        # A repository with no commits has no HEAD, so the diff fails while
-        # ls-files still reports every untracked file. Skip the failed command
-        # and keep what the other one found.
+            return None
         if done.returncode != 0:
-            groups.append([])
-            continue
+            return None
         text = done.stdout.decode("utf-8", errors="surrogateescape")
         # git collapses an untracked nested repository to a directory entry
         # with a trailing slash. A scope matches files, so such an entry can
@@ -58,12 +85,23 @@ def auto_scope_files(limit: int = _AUTO_SCOPE_LIMIT) -> tuple[str, ...]:
     # Interleave the two sources. Taking the head of a concatenated list let a
     # branch with more than `limit` modified files starve every untracked one,
     # which is the work in progress.
-    paths: list[str] = []
+    paths: dict[str, None] = {}
     for index in range(max((len(group) for group in groups), default=0)):
         for group in groups:
-            if index < len(group) and group[index] not in paths:
-                paths.append(group[index])
+            if index < len(group):
+                paths.setdefault(group[index])
+    return root, list(paths)
 
+
+def auto_scope_files(limit: int = _AUTO_SCOPE_LIMIT) -> tuple[str, ...]:
+    """Changed and untracked paths, as the working tree's proxy for a task.
+
+    A clean tree falls back to the files of the last commit.
+    """
+    found = _uncommitted()
+    if found is None:
+        return ()
+    root, paths = found
     if not paths:
         # A clean tree says nothing about the task. The last commit does, and it
         # is the likeliest starting point for the next piece of work. --root
@@ -99,4 +137,4 @@ def auto_scope_files(limit: int = _AUTO_SCOPE_LIMIT) -> tuple[str, ...]:
     return tuple(paths[:limit])
 
 
-__all__ = ["auto_scope_files"]
+__all__ = ["auto_scope_files", "uncommitted_paths"]

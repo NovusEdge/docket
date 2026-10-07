@@ -14,7 +14,7 @@ import sys
 import time
 
 from docket import ROOT, env, version
-from docket.cli.autoscope import auto_scope_files
+from docket.cli.autoscope import auto_scope_files, uncommitted_paths
 from docket.context_model import positions
 from docket.env import read
 from docket.ledger import SCHEMA, LedgerError, SchemaTooOld, project
@@ -70,12 +70,29 @@ def _print_context(text: str, args: argparse.Namespace, notice: str | None = Non
     return 0
 
 
+_NO_FEATURE_HINT = (
+    "# feature: none open, and the working tree has uncommitted changes outside .docket/. "
+    "If that work continues past this session, load the docket-feature skill and start a feature."
+)
+
+
+def _no_feature_hint() -> str:
+    # Uncapped: a capped list could be filled by .docket/ paths and hide a
+    # change elsewhere.
+    dirty = any(not p.startswith(".docket/") for p in uncommitted_paths())
+    return _NO_FEATURE_HINT if dirty else ""
+
+
 def _feature_block(root, entries=None) -> str:
-    """The active feature's brief, or an empty string when nothing applies.
+    """The active feature's brief, or the no-feature hint, or an empty string.
+
+    With no feature store or no open feature, the result is a one-line hint
+    when git reports uncommitted changes outside .docket/, and empty
+    otherwise. An open feature on any branch suppresses the hint.
 
     This runs on every session start through the hook. A repository with no
     feature store, no git, or a store that will not read must still get a
-    briefing, so every failure here degrades to no header.
+    briefing, so every failure here degrades to no header and no hint.
 
     ``entries`` takes the projected ledger the caller already holds. Reading
     and projecting it again here doubled that work on every session start.
@@ -85,14 +102,14 @@ def _feature_block(root, entries=None) -> str:
     try:
         path = env.features_path()
         if not path.exists():
-            return ""
+            return _no_feature_hint()
         current = feature_project.project(features.read(path))
         branch = env.branch(root)
         open_now = [f for f in current if f["state"] not in features.TERMINAL_STATES]
         on_branch = [f for f in open_now if f["branch"] == branch] if branch else []
         candidates = on_branch or open_now
         if not candidates:
-            return ""
+            return _no_feature_hint()
         feature = candidates[-1]
         if entries is None:
             entries = project(read(env.ledger_path()), validated=True)
