@@ -14,7 +14,7 @@ which conclusions depend on which claims are the part the summary discards.
 
 ## Shipped in Docket 0.8.0
 
-Docket stores schema 2 records in an append-only JSONL ledger. The three record
+Docket stores records in an append-only JSONL ledger. The three record
 types are:
 
 | Type | Recorded state | Meaning |

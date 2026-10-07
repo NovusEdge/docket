@@ -34,7 +34,7 @@ brainstorming ends and the ledger starts.
 ### 1. Typed ledger
 
 The ledger is a persistent record of decisions stored outside any one session.
-Each schema 2 record contains:
+Each record contains:
 
 - `id`: stable identifier.
 - `kind`: `claim`, `decision`, or `question`.

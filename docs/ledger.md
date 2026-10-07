@@ -1,6 +1,6 @@
 # Ledger reference
 
-Docket 0.8.0 writes schema 2 records as append-only JSONL. Each non-empty line
+Docket writes schema 3 records as append-only JSONL. Each non-empty line
 contains one JSON object. Reads validate the complete file, so Docket reports
 an invalid line or relation instead of silently dropping it.
 
@@ -8,9 +8,9 @@ an invalid line or relation instead of silently dropping it.
 
 Every record has these required fields:
 
-- `schema`: the schema number, which is `2` for this format.
+- `schema`: the schema number, which is `3` for this format.
 - `kind`: `claim`, `decision`, or `question`.
-- `id`: a type-prefixed record ID with a positive global sequence number.
+- `id`: a type-prefixed record ID numbered within its kind.
 - `text`: the proposition, commitment, or inquiry.
 - `state`: the record's recorded workflow state.
 - `ts`: the record timestamp string.
@@ -40,8 +40,7 @@ These checks run at write time. Reading a ledger checks structure alone, so
 older records remain readable. For example, this project's ledger contains
 81 decisions phrased as questions that predate the rule.
 
-IDs use the type prefix and a positive global sequence number: `c1`, `d2`, and
-`q3`. The sequence is shared across kinds, and gaps are allowed.
+IDs use the type prefix and a positive number that counts within the kind: `c1`, `d1`, and `q1` are the first claim, decision, and question. Each kind counts on its own, and gaps are allowed.
 
 A question's recorded state remains `open`. A current accepted claim or
 applicable adopted decision linked to it through `answers` gives it effective
@@ -106,6 +105,7 @@ when their CLI options are omitted, and sets `pinned` to `false`:
 - `cost_if_wrong`: the stated cost if the record is wrong.
 - `pinned`: whether the record scores a fixed bonus in every briefing; defaults
   to `false`. A pin no longer outranks a better scope match.
+- `migrated_from`: on a record the schema 3 migration renumbered, the ID it had at schema 2. Records created since never carry it. `list --json` and `show --json` omit it unless you pass `--legacy`, and `docket list --where was:ID` finds a record by it, or by the schema 1 ID kept in `legacy.source_id`.
 
 Path scopes use normalized repository-relative paths. A scope containing a
 slash or glob metacharacters uses `fnmatch`; a literal directory scope also
@@ -328,7 +328,7 @@ docket show c12 --at d40
 
 `append` allocates the record ID, validates, and writes while holding an
 exclusive lock on `ledger.jsonl.lock`. This prevents concurrent writers on
-one host from allocating the same sequence number. Readers take a shared lock
+one host from allocating the same ID twice. Readers take a shared lock
 on the same file so they do not read a partially written line.
 
 Two branches that both record append different lines after the same last line. `docket init` adds `.docket/ledger.jsonl merge=docket` and `.docket/features.jsonl merge=docket` to `.gitattributes` and registers `docket merge-driver` in the clone's git config, after which `git merge`, `git rebase` and `git cherry-pick` merge the ledger themselves: records on both sides are kept, the other side's new records take fresh IDs, and references follow. Git invokes `merge-driver`; it is not a command you run.
@@ -355,6 +355,8 @@ branch A's `c46` and branch B's `d47`, a reference from `d47` to `c46` now
 targets A's record. Validation passes because the target exists and has the
 right kind, even though it is not the record B cited. Use `docket rebase` to
 preserve these references.
+
+Both sides of a merge or `docket rebase` must be at the same schema. A branch still at an older schema runs `docket migrate` and commits first; the merge driver refuses otherwise and names the side that is behind, and `docket rebase` stops with the schema error on whichever file is older.
 
 Never use a union merge driver on the ledger. It keeps both branches' tails, which leaves two records holding one ID, and every command then fails, including the session hook.
 
@@ -388,10 +390,7 @@ The command derives a classification map from the old state field alone:
 doing something, and that commitment still applies. A revoked decision renders
 as unavailable support, which would tell an agent to ignore a live constraint.
 
-Migration keeps the original. The converted ledger replaces `ledger.jsonl`,
-and the untouched schema-1 file survives at `ledger.jsonl.schema1`. A ledger
-already at schema 2 exits clean and changes nothing. `--dry-run` prints the
-derived conversion and writes nothing.
+Migration keeps the original. The converted ledger replaces `ledger.jsonl`, and the untouched file survives at `ledger.jsonl.schemaN`, where N is the schema the ledger started at. A ledger already at the current schema exits clean and changes nothing. `--dry-run` prints the per-record conversion and writes nothing. A schema-1 ledger goes straight to schema 3 in one run.
 
 Migration handles two common legacy relationships automatically:
 
@@ -412,3 +411,18 @@ docket migrate --emit-map map.json
 # edit map.json by hand
 docket migrate --map map.json
 ```
+
+## Migrating to schema 3
+
+Schema 3 numbers each kind on its own: the first claim is `c1`, the first decision `d1`, the first question `q1`. A schema 2 ledger fails to read until you run `docket migrate`, which renumbers every record, retired ones included, in one pass and keeps each record's schema 2 ID in `migrated_from`.
+
+    docket migrate --dry-run
+    docket migrate
+
+The first prints the per-record report, then every prose field it would rewrite and every ID token it would leave as written, and writes nothing. The second prints a summary: records renumbered per kind, prose fields rewritten, features events rewritten, and files rewritten. It also renumbers corrections and reviews with their targets, rewrites `.docket/features.jsonl` and `.docket/archive/features-*.jsonl` to the new IDs, and keeps the original at `ledger.jsonl.schema2`. Commit the result.
+
+`--rewrite FILE...` rewrites ID citations in the files you name, in the same run and with the same rule: each `c`, `d` or `q` token that names a renumbered record is replaced once, so `d4` becoming `d2` never feeds `d2` becoming `d1`. A file with nothing to rewrite is left alone, and `--dry-run` lists the files and counts without writing. Each file must be tracked and have no uncommitted changes, so git holds the old text and an interrupted run shows up as a modified file to restore with `git checkout -- FILE` before you rerun. Name files that cite real records; documents full of illustrative IDs such as `d2` would be rewritten wrongly. `--rewrite` is refused on a ledger already at schema 3, and `--map` and `--emit-map` are refused on a schema 2 ledger.
+
+Old IDs stay searchable and stop resolving. `docket list --where was:ID` finds the record that carried an old ID, and `docket show ID` for an ID that no longer exists names that command. If the old ID is also a current ID, `show` resolves to the current record without comment.
+
+Each branch migrates itself before it merges. The merge driver refuses to merge a ledger or features file whose side is still at an older schema, says which branch to migrate, and leaves the usual conflict markers so the file cannot be committed by accident. Run `git merge --abort`, migrate the branch that is behind, commit, and merge again. A collaborator on 0.25.x cannot read schema 3, so everyone upgrades docket and the plugin before a migrated ledger is merged.

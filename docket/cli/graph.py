@@ -332,10 +332,11 @@ def _compact_lines(
 
 def _find_or_alloc(columns: list[str | None], label: str) -> int:
     """A column labelled `label`, reusing the leftmost freed one if none
-    exists. The ledger's ids are monotonic and append-only, so processing
-    newest-first means every column we need has either already been opened by
-    a dependent, or never existed; there is no need for git's full graph
-    algorithm to find it."""
+    exists. The ledger is append-only and a record only cites earlier lines, so
+    processing newest-first in file order means every column we need has either
+    already been opened by a dependent, or never existed; there is no need for
+    git's full graph algorithm to find it. File position carries this, not the
+    id: ids count per kind and say nothing about order across kinds."""
     if label in columns:
         return columns.index(label)
     for i, c in enumerate(columns):

@@ -88,8 +88,7 @@ docket migrate
 docket check
 ```
 
-Migration saves the original as `ledger.jsonl.schema1`. Running it on a current
-ledger leaves the file unchanged.
+Migration saves the original beside the ledger as `ledger.jsonl.schemaN`, where N is the schema the ledger started at. Running it on a current ledger leaves the file unchanged. A ledger at schema 2 migrates to schema 3 with the same command; see [Migrating to schema 3](ledger.md#migrating-to-schema-3).
 
 ## Adjust the briefing size
 
