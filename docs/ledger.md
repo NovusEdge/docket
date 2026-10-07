@@ -356,7 +356,7 @@ targets A's record. Validation passes because the target exists and has the
 right kind, even though it is not the record B cited. Use `docket rebase` to
 preserve these references.
 
-Both sides of a merge or `docket rebase` must be at the same schema. A branch still at an older schema runs `docket migrate` and commits first; the merge driver refuses otherwise and names the side that is behind, and `docket rebase` stops with the schema error on whichever file is older.
+Both sides of a merge or `docket rebase` must be at the same schema. A branch still at an older schema runs `docket migrate` and commits first; the merge driver refuses otherwise and names the side that is behind, and `docket rebase` stops at the first file it reads that is behind.
 
 Never use a union merge driver on the ledger. It keeps both branches' tails, which leaves two records holding one ID, and every command then fails, including the session hook.
 
@@ -390,7 +390,7 @@ The command derives a classification map from the old state field alone:
 doing something, and that commitment still applies. A revoked decision renders
 as unavailable support, which would tell an agent to ignore a live constraint.
 
-Migration keeps the original. The converted ledger replaces `ledger.jsonl`, and the untouched file survives at `ledger.jsonl.schemaN`, where N is the schema the ledger started at. A ledger already at the current schema exits clean and changes nothing. `--dry-run` prints the per-record conversion and writes nothing. A schema-1 ledger goes straight to schema 3 in one run.
+Migration keeps the original. The converted ledger replaces `ledger.jsonl`, and the untouched file survives at `ledger.jsonl.schemaN`, where N is the schema the ledger started at. A ledger already at the current schema stays unchanged, and any features file still at schema 1 is remapped. `--dry-run` prints the per-record conversion and writes nothing. A schema-1 ledger goes straight to schema 3 in one run.
 
 Migration handles two common legacy relationships automatically:
 
@@ -419,10 +419,10 @@ Schema 3 numbers each kind on its own: the first claim is `c1`, the first decisi
     docket migrate --dry-run
     docket migrate
 
-The first prints the per-record report, then every prose field it would rewrite and every ID token it would leave as written, and writes nothing. The second prints a summary: records renumbered per kind, prose fields rewritten, features events rewritten, and files rewritten. It also renumbers corrections and reviews with their targets, rewrites `.docket/features.jsonl` and `.docket/archive/features-*.jsonl` to the new IDs, and keeps the original at `ledger.jsonl.schema2`. Commit the result.
+The first prints the per-record report, then every prose field it would rewrite and every ID token it would leave as written, and writes nothing. The second prints a summary: records renumbered per kind, prose fields rewritten, features events rewritten, and files rewritten. It also renumbers corrections and reviews with their targets, rewrites `.docket/features.jsonl` and `.docket/archive/features-*.jsonl` to the new IDs, and keeps the original at `ledger.jsonl.schema2`. Commit `ledger.jsonl` and the features files, and do not commit the `ledger.jsonl.schemaN` backup: two migrated branches that both commit it conflict on merge, and an uncommitted one left by another branch blocks the next migration until you delete or move it.
 
 `--rewrite FILE...` rewrites ID citations in the files you name, in the same run and with the same rule: each `c`, `d` or `q` token that names a renumbered record is replaced once, so `d4` becoming `d2` never feeds `d2` becoming `d1`. A file with nothing to rewrite is left alone, and `--dry-run` lists the files and counts without writing. Each file must be tracked and have no uncommitted changes, so git holds the old text and an interrupted run shows up as a modified file to restore with `git checkout -- FILE` before you rerun. Name files that cite real records; documents full of illustrative IDs such as `d2` would be rewritten wrongly. `--rewrite` is refused on a ledger already at schema 3, and `--map` and `--emit-map` are refused on a schema 2 ledger.
 
 Old IDs stay searchable and stop resolving. `docket list --where was:ID` finds the record that carried an old ID, and `docket show ID` for an ID that no longer exists names that command. If the old ID is also a current ID, `show` resolves to the current record without comment.
 
-Each branch migrates itself before it merges. The merge driver refuses to merge a ledger or features file whose side is still at an older schema, says which branch to migrate, and leaves the usual conflict markers so the file cannot be committed by accident. Run `git merge --abort`, migrate the branch that is behind, commit, and merge again. A collaborator on 0.25.x cannot read schema 3, so everyone upgrades docket and the plugin before a migrated ledger is merged.
+Each branch migrates itself before it merges. The merge driver refuses to merge a ledger or features file whose side is still at an older schema, says which branch to migrate, and leaves the usual conflict markers so the file cannot be committed by accident. Abort the merge, rebase or cherry-pick in progress, migrate the branch that is behind, commit, and merge again. A collaborator on 0.25.x cannot read schema 3, so everyone upgrades docket and the plugin before a migrated ledger is merged.
