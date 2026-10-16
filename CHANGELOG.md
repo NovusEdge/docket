@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `docket context` exits 0 on an unreadable ledger and prints the error with a pointer to `docket check`, so the session hook still tells the agent something. Every other command keeps exiting nonzero.
+- `--evidence` accepts a value that parses as non-object JSON, such as an issue number, as a plain reference.
+- `docket construct` retries 429, 5xx, timeouts and connection errors by status code and exception class, honours `Retry-After` up to 60 seconds, and no longer stacks SDK retries on its own. Schema violations and truncated output are not retried.
+- `docket construct` skips a document over 200,000 characters with a message naming it, reports truncated model output as its own error, and fences the document body in the prompt as data.
+- `docket construct` dates a document from git before its own `Date:` line or filename; `--review` marks dates that did not come from git.
+- The installer writes the PATH line to the first existing of `~/.bash_profile`, `~/.bash_login` and `~/.profile` for bash on macOS, honours `ZDOTDIR` for zsh, and appends the line at apply time instead of rewriting the file.
+- Uninstall removes only Cursor and Copilot hook entries whose command equals the one the installer writes. Entries an older release wrote with a different command string are left in place.
+- The launcher resolves the latest release tag once and downloads the checksums and installer from it, with a 30-second socket timeout.
+- The ledger guard hook follows a plain `cd DIR` through a command chain, treats globs under `.docket/` that could match a docket file as the ledger, and no longer asks on `>/dev/null` or `2>&1` redirects.
+- The docket skill marks more than one `--supports` set, `--depends-on` and the derived blocked state as experimental.
+- `docket` imports a subcommand's module only when that subcommand runs.
+
+### Fixed
+
+- A record containing U+2028, U+2029 or U+0085 made every later read of the ledger or feature store fail. Every JSONL reader now splits on newline only.
+- `--dry-run` no longer creates the ledger lock file or its directory.
+- `docket construct` reports a provider response with no text block as an error instead of crashing.
+
 ## [0.28.0] - 2026-10-16
 
 ### Changed
