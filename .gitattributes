@@ -3,4 +3,5 @@
 # driver with `docket init`; without it git reports an ordinary conflict.
 .docket/ledger.jsonl merge=docket
 .docket/features.jsonl merge=docket
-docket/web/vendor/** -diff linguist-vendored
+# Built from web/ by `just web-build`; CI checks it matches the source.
+docket/web/dist/** -diff linguist-generated eol=lf
