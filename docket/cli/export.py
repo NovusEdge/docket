@@ -10,8 +10,6 @@ import argparse
 import sys
 from pathlib import Path
 
-from docket import where
-from docket.cli.graph import _graph_entries
 
 
 def hops_arg(text: str) -> int:
@@ -84,6 +82,9 @@ def _write_csv(entries: list[dict], args: argparse.Namespace, superseded: bool) 
 
 
 def selection(args: argparse.Namespace) -> tuple[list[dict], list[dict], bool]:
+    from docket import where
+    from docket.cli.graph import _graph_entries
+
     query = where.parse(getattr(args, "where", None) or "")
     entries, _ = _graph_entries(args)
     shown = [e for e in entries if query.matches(e)]

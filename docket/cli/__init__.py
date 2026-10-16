@@ -3,29 +3,36 @@ from __future__ import annotations
 import argparse
 import sys
 
-from docket import features, version
-from docket.cli.admin import (
-    cmd_check,
-    cmd_init,
-    cmd_merge_driver,
-    cmd_migrate,
-    cmd_rebase,
-)
-from docket.cli.completion import cmd_completion
-from docket.cli.construct import cmd_construct
+from docket import version
 from docket.cli.context_cmd import CONTEXT_ENVELOPES, cmd_context
 from docket.cli.correct import add_correct_parser
 from docket.cli.export import add_export_parser
 from docket.cli.feature_parser import add_feature_parser
-from docket.cli.graph import cmd_graph
-from docket.cli.query import cmd_filter_ids, cmd_list, cmd_show, cmd_where, fields_arg
-from docket.cli.record import cmd_claim, cmd_decision, cmd_question, cmd_record
+from docket.cli.lazy import lazy
 from docket.cli.review import add_review_parser
-from docket.cli.selfupdate import cmd_update, cmd_update_fetch
-from docket.cli.web import port_arg, web_conflict
 from docket.ledger import KINDS, STATES, LedgerError
 from docket.support import REASONS
-from docket.where import WhereError
+
+cmd_check = lazy("docket.cli.admin", "cmd_check")
+cmd_init = lazy("docket.cli.admin", "cmd_init")
+cmd_merge_driver = lazy("docket.cli.admin", "cmd_merge_driver")
+cmd_migrate = lazy("docket.cli.admin", "cmd_migrate")
+cmd_rebase = lazy("docket.cli.admin", "cmd_rebase")
+cmd_completion = lazy("docket.cli.completion", "cmd_completion")
+cmd_construct = lazy("docket.cli.construct", "cmd_construct")
+cmd_graph = lazy("docket.cli.graph", "cmd_graph")
+cmd_filter_ids = lazy("docket.cli.query", "cmd_filter_ids")
+cmd_list = lazy("docket.cli.query", "cmd_list")
+cmd_show = lazy("docket.cli.query", "cmd_show")
+cmd_where = lazy("docket.cli.query", "cmd_where")
+fields_arg = lazy("docket.cli.query", "fields_arg")
+cmd_claim = lazy("docket.cli.record", "cmd_claim")
+cmd_decision = lazy("docket.cli.record", "cmd_decision")
+cmd_question = lazy("docket.cli.record", "cmd_question")
+cmd_record = lazy("docket.cli.record", "cmd_record")
+cmd_update = lazy("docket.cli.selfupdate", "cmd_update")
+cmd_update_fetch = lazy("docket.cli.selfupdate", "cmd_update_fetch")
+port_arg = lazy("docket.cli.web", "port_arg")
 
 
 class VersionAction(argparse.Action):
@@ -365,19 +372,28 @@ def main(argv: list[str] | None = None) -> int:
         print(f"docket {version()}")
         print(p.format_help(), end="")
         return 0
-    if args.cmd == "graph" and (flag := web_conflict(args)):
-        p.error(f"graph --web conflicts with {flag}")
-    if args.cmd == "graph" and args.interactive:
-        if args.plain:
-            p.error("graph --interactive conflicts with --plain")
-        if args.style is not None:
-            p.error("graph --interactive conflicts with --style")
+    if args.cmd == "graph":
+        from docket.cli.web import web_conflict
+
+        if flag := web_conflict(args):
+            p.error(f"graph --web conflicts with {flag}")
+        if args.interactive:
+            if args.plain:
+                p.error("graph --interactive conflicts with --plain")
+            if args.style is not None:
+                p.error("graph --interactive conflicts with --style")
     if args.cmd == "feature" and getattr(args, "feature_cmd", None) is None:
         p.error("feature needs a subcommand")
-    from docket.feature_outcome import OutcomeError
 
     try:
         return args.func(args)
-    except (LedgerError, features.FeatureError, OutcomeError, WhereError, OSError) as exc:
+    except Exception as exc:
+        # Imported here: a failing command is the only caller that needs them.
+        from docket.feature_outcome import OutcomeError
+        from docket.features import FeatureError
+        from docket.where import WhereError
+
+        if not isinstance(exc, (LedgerError, FeatureError, OutcomeError, WhereError, OSError)):
+            raise
         print(str(exc), file=sys.stderr)
         return 1

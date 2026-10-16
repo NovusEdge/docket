@@ -7,17 +7,18 @@ handlers live there; this file only declares the flags that reach them.
 from __future__ import annotations
 
 from docket import features
-from docket.cli.feature import (
-    cmd_feature_abandon,
-    cmd_feature_amend,
-    cmd_feature_done,
-    cmd_feature_list,
-    cmd_feature_note,
-    cmd_feature_show,
-    cmd_feature_start,
-)
-from docket.cli.feature_admin import cmd_feature_gc, cmd_feature_remap
-from docket.cli.feature_render import cmd_feature_brief
+from docket.cli.lazy import lazy
+
+cmd_feature_abandon = lazy("docket.cli.feature", "cmd_feature_abandon")
+cmd_feature_amend = lazy("docket.cli.feature", "cmd_feature_amend")
+cmd_feature_done = lazy("docket.cli.feature", "cmd_feature_done")
+cmd_feature_list = lazy("docket.cli.feature", "cmd_feature_list")
+cmd_feature_note = lazy("docket.cli.feature", "cmd_feature_note")
+cmd_feature_show = lazy("docket.cli.feature", "cmd_feature_show")
+cmd_feature_start = lazy("docket.cli.feature", "cmd_feature_start")
+cmd_feature_gc = lazy("docket.cli.feature_admin", "cmd_feature_gc")
+cmd_feature_remap = lazy("docket.cli.feature_admin", "cmd_feature_remap")
+cmd_feature_brief = lazy("docket.cli.feature_render", "cmd_feature_brief")
 
 
 def add_feature_parser(sub) -> None:
