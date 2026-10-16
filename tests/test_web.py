@@ -19,8 +19,16 @@ from docket.web.server import BadRequest, make_server
 
 class ServerTests(unittest.TestCase):
     def setUp(self):
-        self.body = {"dot": "digraph docket {}", "records": [], "title": "t"}
+        self.body = {"records": [], "shown": None, "title": "t"}
         self.seen = []
+        self.dist = tempfile.TemporaryDirectory()
+        root = Path(self.dist.name)
+        (root / "assets").mkdir()
+        (root / "index.html").write_text("<!doctype html><html></html>", encoding="utf-8")
+        (root / "assets" / "index-abc123.js").write_text("console.log(1)", encoding="utf-8")
+        (root / "assets" / "index-abc123.css").write_text("body{}", encoding="utf-8")
+        (root / "THIRD_PARTY_LICENSES.txt").write_text("MIT", encoding="utf-8")
+        (root / "notes.md").write_text("not served", encoding="utf-8")
 
         def payload(params):
             self.seen.append(params)
@@ -28,13 +36,14 @@ class ServerTests(unittest.TestCase):
                 raise BadRequest("group must be none, kind or scope")
             return json.dumps({**self.body, "params": params}).encode()
 
-        self.server = make_server(payload, 0)
+        self.server = make_server(payload, 0, root=root)
         self.port = self.server.server_address[1]
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 
     def tearDown(self):
         self.server.shutdown()
         self.server.server_close()
+        self.dist.cleanup()
 
     def get(self, path, headers=None):
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
@@ -48,15 +57,28 @@ class ServerTests(unittest.TestCase):
         self.assertIn("text/html", headers["Content-Type"])
         self.assertIn(b"<html", body)
 
-    def test_the_renderer_is_served(self):
-        status, _, body = self.get("/viz-global.js")
+    def test_hashed_assets_are_served_immutable(self):
+        status, headers, body = self.get("/assets/index-abc123.js")
+        self.assertEqual((status, body), (200, b"console.log(1)"))
+        self.assertIn("javascript", headers["Content-Type"])
+        self.assertEqual(headers["Cache-Control"], "max-age=31536000, immutable")
+        status, headers, _ = self.get("/assets/index-abc123.css")
         self.assertEqual(status, 200)
-        self.assertIn(b"Viz.js", body[:200])
+        self.assertIn("text/css", headers["Content-Type"])
+
+    def test_the_page_is_not_cached(self):
+        _, headers, _ = self.get("/")
+        self.assertEqual(headers["Cache-Control"], "no-cache")
+
+    def test_the_licence_file_is_served(self):
+        status, headers, _ = self.get("/THIRD_PARTY_LICENSES.txt")
+        self.assertEqual(status, 200)
+        self.assertIn("text/plain", headers["Content-Type"])
 
     def test_the_graph_carries_an_etag_and_a_match_gets_304(self):
         status, headers, body = self.get("/api/graph")
         self.assertEqual(status, 200)
-        self.assertEqual(json.loads(body)["dot"], "digraph docket {}")
+        self.assertEqual(json.loads(body)["records"], [])
         etag = headers["ETag"]
         status, _, body = self.get("/api/graph", {"If-None-Match": etag})
         self.assertEqual((status, body), (304, b""))
@@ -92,14 +114,22 @@ class ServerTests(unittest.TestCase):
     def test_a_foreign_host_is_refused(self):
         status, _, body = self.get("/api/graph", {"Host": f"evil.example:{self.port}"})
         self.assertEqual(status, 403)
-        self.assertNotIn(b"digraph", body)
+        self.assertEqual(body, b"forbidden")
 
     def test_localhost_by_name_is_allowed(self):
         status, _, _ = self.get("/api/graph", {"Host": f"localhost:{self.port}"})
         self.assertEqual(status, 200)
 
     def test_paths_outside_the_route_list_are_404(self):
-        for path in ("/../ledger.jsonl", "/server.py", "/vendor/NOTICE", "/nope", "/index.html"):
+        for path in (
+            "/../ledger.jsonl",
+            "/server.py",
+            "/notes.md",
+            "/assets/../index.html",
+            "/nope",
+            "/index.html",
+            "/viz-global.js",
+        ):
             self.assertEqual(self.get(path)[0], 404, path)
 
     def test_a_taken_port_falls_back_to_a_free_one(self):
@@ -176,7 +206,7 @@ class WebCliTests(unittest.TestCase):
             proc.stdout.close()
         self.tmp.cleanup()
 
-    def start(self, port=0, browser="true", stderr=subprocess.DEVNULL):
+    def start(self, port=0, browser="true", stderr=subprocess.DEVNULL, extra=()):
         env = {
             **os.environ,
             "BROWSER": browser,
@@ -187,6 +217,7 @@ class WebCliTests(unittest.TestCase):
         argv = [sys.executable, str(ROOT / "bin" / "docket"), "graph", "--web"]
         if port is not None:
             argv += ["--port", str(port)]
+        argv += extra
         proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=stderr, env=env, cwd=self.root)
         self.procs.append(proc)
         return proc
@@ -208,12 +239,13 @@ class WebCliTests(unittest.TestCase):
         conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
         conn.request("GET", "/api/graph")
         data = json.loads(conn.getresponse().read())
-        self.assertIn("dot", data)
+        self.assertNotIn("dot", data)
         self.assertIn("records", data)
+        self.assertIsNone(data["shown"])
         proc.terminate()
         self.assertEqual(proc.wait(timeout=5), 0)
 
-    def graph(self, query):
+    def graph(self, query, extra=()):
         env = {**os.environ, "DOCKET_NO_UPDATE_CHECK": "1", "DOCKET_HOME": str(self.root / "home")}
         docket = [sys.executable, str(ROOT / "bin" / "docket")]
         for text, link, scope in (
@@ -228,7 +260,7 @@ class WebCliTests(unittest.TestCase):
                 check=True,
                 capture_output=True,
             )
-        proc = self.start()
+        proc = self.start(extra=extra)
         line = self.first_line(proc)
         port = int(line.rsplit(":", 1)[1].rstrip("/\n"))
         conn = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
@@ -236,46 +268,38 @@ class WebCliTests(unittest.TestCase):
         resp = conn.getresponse()
         return resp.status, resp.read().decode()
 
-    def test_bad_layout_parameters_are_400(self):
-        for query in ("?group=x", "?hops=abc", "?hops=0", "?hops=9", "?focus=nope"):
-            status, body = self.graph(query)
-            self.assertEqual(status, 400, query)
-            self.assertNotIn("Traceback", body)
-
-    def test_group_scope_boxes_the_graph(self):
-        status, body = self.graph("?group=scope")
+    def test_layout_parameters_are_ignored(self):
+        status, body = self.graph("?group=x&hops=9&focus=nope&orphans=maybe")
         self.assertEqual(status, 200)
-        self.assertIn("subgraph cluster_", json.loads(body)["dot"])
+        data = json.loads(body)
+        self.assertEqual(sorted(r["id"] for r in data["records"]), ["c1", "c2", "c3"])
+        self.assertIsNone(data["shown"])
 
-    def test_a_record_with_no_relation_is_drawn(self):
+    def test_where_names_the_shown_records(self):
         from unittest import mock
 
         from docket.cli import web
 
-        alone = {"id": "d7", "kind": "decision", "text": "t"}
+        a = {"id": "c1", "kind": "claim", "text": "a"}
+        b = {"id": "c2", "kind": "claim", "text": "b"}
         with (
             mock.patch("docket.env.read", return_value=[]),
-            mock.patch("docket.cli.web.selection", return_value=([alone], [alone], False)),
-            mock.patch("docket.ledger.project", return_value=[alone]),
+            mock.patch("docket.cli.web.selection", return_value=([a, b], [b], False)),
+            mock.patch("docket.ledger.project", return_value=[a, b]),
         ):
-            dot = json.loads(web._payload(argparse.Namespace(), {}))["dot"]
-        self.assertIn('"d7" [', dot)
-        with (
-            mock.patch("docket.env.read", return_value=[]),
-            mock.patch("docket.cli.web.selection", return_value=([alone], [alone], False)),
-            mock.patch("docket.ledger.project", return_value=[alone]),
-        ):
-            hidden = json.loads(web._payload(argparse.Namespace(), {"orphans": "hide"}))["dot"]
-            with self.assertRaises(BadRequest):
-                web._payload(argparse.Namespace(), {"orphans": "maybe"})
-        self.assertNotIn('"d7" [', hidden)
+            data = json.loads(web._payload(argparse.Namespace(where="b"), {}))
+        self.assertEqual(data["shown"], ["c2"])
+        self.assertEqual(len(data["records"]), 2)
 
-    def test_focus_marks_the_node_and_keeps_every_record(self):
-        status, body = self.graph("?focus=c1&hops=1")
+    def test_where_reaches_the_payload_as_shown_ids(self):
+        status, body = self.graph("", extra=["--where", "b"])
         self.assertEqual(status, 200)
-        data = json.loads(body)
-        self.assertIn("focus", data["dot"])
-        self.assertEqual(len(data["records"]), 3)
+        self.assertEqual(json.loads(body)["shown"], ["c2"])
+
+    def test_find_also_reaches_the_payload(self):
+        status, body = self.graph("", extra=["--find", "c"])
+        self.assertEqual(status, 200)
+        self.assertIsNotNone(json.loads(body)["shown"])
 
     def test_the_browser_s_own_output_stays_off_the_terminal(self):
         # A browser launched by webbrowser inherits our stdout and stderr, so

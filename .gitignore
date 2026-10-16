@@ -19,6 +19,9 @@ venv/
 .coverage.*
 htmlcov/
 
+# Web view source dependencies; the built bundle in docket/web/dist is committed.
+web/node_modules/
+
 # Secrets. docket construct reads a provider key out of a project's .env, so
 # the file is expected to exist and must never be committed.
 .env

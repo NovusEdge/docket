@@ -42,39 +42,23 @@ def web_conflict(args: argparse.Namespace) -> str | None:
     return None
 
 
+def _filtered(args: argparse.Namespace) -> bool:
+    # Unfiltered, the page needs retired records too, which selection() leaves
+    # out unless asked; so it gets every record and no shown list.
+    return any(getattr(args, flag, None) for flag in ("where", "kind", "state", "find"))
+
+
 def _payload(args: argparse.Namespace, params: dict[str, str]) -> bytes:
     # Read on every request: the page polls, and a ledger of a few hundred
-    # records reads and renders in milliseconds.
-    from docket.graph_export import to_dot
-    from docket.graph_layout import GROUPS
+    # records reads in milliseconds. The page lays the graph out itself, so
+    # query parameters sent by older pages are ignored.
     from docket.ledger import project
-    from docket.web.server import BadRequest
 
-    group = params.get("group", "none")
-    if group not in GROUPS:
-        raise BadRequest("group must be none, kind or scope")
-    hops = params.get("hops", "2")
-    if not (hops.isascii() and hops.isdigit() and 1 <= int(hops) <= 4):
-        raise BadRequest("hops must be a whole number from 1 to 4")
-    orphans = params.get("orphans", "show")
-    if orphans not in ("show", "hide"):
-        raise BadRequest("orphans must be show or hide")
-    _, shown, superseded = selection(args)
+    _, shown, _ = selection(args)
     records = project(env.read(env.ledger_path()), validated=True)
-    try:
-        dot = to_dot(
-            shown,
-            superseded=superseded,
-            group=group,
-            focus=params.get("focus") or None,
-            hops=int(hops),
-            orphans=orphans == "show",
-        )
-    except ValueError as exc:
-        raise BadRequest(str(exc)) from exc
     body = {
-        "dot": dot,
         "records": records,
+        "shown": [e["id"] for e in shown] if _filtered(args) else None,
         "title": env.project_root().name,
     }
     return json.dumps(body, ensure_ascii=False).encode("utf-8")
@@ -145,12 +129,9 @@ def cmd_graph_web(args: argparse.Namespace) -> int:
 
     from docket.web import server as web_server
 
-    root = web_server.WEB_ROOT
-    missing = [
-        str(root / name) for name in web_server.ASSETS.values() if not (root / name).is_file()
-    ]
-    if missing:
-        print(f"docket: web view files missing: {', '.join(missing)}", file=sys.stderr)
+    index = web_server.DIST / "index.html"
+    if not index.is_file():
+        print(f"docket: web view files missing: {index}; run `just web-build`", file=sys.stderr)
         return 1
     selection(args)  # a bad --where fails here, before anything binds
     port = DEFAULT_PORT if args.port is None else args.port

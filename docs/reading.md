@@ -93,13 +93,15 @@ Use `--no-interactive` to request text output directly.
 docket graph --web --where scope:docket/cli/
 ```
 
-The page polls the ledger every 2 seconds. When the ledger changes, the graph redraws within a couple of seconds and keeps your zoom and the record you have open.
+The page has two views. **Timeline** lists records oldest first under a header per day, with git branches drawn as lanes on the left. Each row carries link chips: "replaces d9" and "replaced by d57" for supersession, "answers q1" for answers, and counts such as "supported by 2" or "needed by 1" for supports and dependencies. Clicking a named chip jumps to that record. Hovering a row highlights its linked rows, and pills at the top or bottom edge point to linked rows that are scrolled out of view.
 
-Press `/` to search. The kind and retired chips dim nodes without laying the graph out again. Selecting a node slides in a drawer with the full record, and the references in it are clickable. A toggle switches between the light and dark theme.
+**Graph** draws linked records as cards laid out in layers, with supersede edges in blue, answer edges dashed amber, and support and dependency edges grey. It opens at full size on the largest connected group of records. Drag or scroll to move, pinch or Ctrl+scroll (Cmd+scroll on macOS) to zoom, and use the fit button to see everything. Records with no relation are listed under "Unlinked records". The arrow buttons switch between left-to-right and top-to-bottom.
 
-The `Layout ▾` button opens a popover with three controls: Engine (Layered, Force, Radial, Circular), Direction (→ Right, ↓ Down; Layered only) and Group (None, Kind, Scope). Direction applies to the Layered engine only, because Force, Radial and Circular ignore it. Radial and Circular draw no group boxes, because Graphviz ignores clusters in those engines. The record drawer has a "Focus here" button and a stepper for 1 to 4 hops. While a focus is set, a `focus <id> · N hops ×` pill in the top bar clears it. Layout state lives in the URL query string, so a reload or a shared link restores it.
+"Show lineage" in the record panel, or a count chip in the timeline, opens the Graph view on one record's lineage: its whole supersession chain and the records it links to directly. Esc returns to where you were.
 
-The download buttons save what is on screen as SVG or PNG.
+Press `/` to filter and ⌘K (Ctrl+K) to search by id or text. The kind buttons hide claims, decisions, questions or retired records; retired records are hidden by default. The view, lineage, selected record, direction and filters live in the URL, so a reload or a shared link restores them. The theme menu switches between light, dark and the system setting. The export menu saves the graph as PNG or SVG.
+
+The page polls the ledger every 2 seconds. A change shows within a couple of seconds, keeps your scroll position or zoom, and outlines new records briefly.
 
 The server listens on 127.0.0.1 only and refuses requests for any other host name. It runs until you press Ctrl-C.
 

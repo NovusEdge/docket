@@ -1,7 +1,7 @@
 """The localhost server behind `docket graph --web`.
 
-Routes are a fixed table, so no part of a URL is ever joined onto a
-filesystem path.
+Routes are a table built from the files under dist/ when the server starts,
+so no part of a URL is ever joined onto a filesystem path.
 """
 
 from __future__ import annotations
@@ -15,8 +15,24 @@ from pathlib import Path
 from urllib.parse import parse_qs
 
 WEB_ROOT = Path(__file__).resolve().parent
-ASSETS = {"/": "index.html", "/viz-global.js": "vendor/viz-global.js"}
-_TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8"}
+DIST = WEB_ROOT / "dist"
+_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".woff2": "font/woff2",
+    ".txt": "text/plain; charset=utf-8",
+}
+
+
+def routes(root: Path) -> dict[str, Path]:
+    """URL path to file for every servable file under root; index.html is only `/`."""
+    table = {"/": root / "index.html"}
+    for file in sorted(root.rglob("*")):
+        if file.is_file() and file.suffix in _TYPES and file.name != "index.html":
+            table["/" + file.relative_to(root).as_posix()] = file
+    return table
 
 
 class _Server(ThreadingHTTPServer):
@@ -37,7 +53,11 @@ class BadRequest(ValueError):
     """Raised by a payload for a query the client got wrong; answered as 400."""
 
 
-def make_server(payload: Callable[[dict[str, str]], bytes], port: int) -> ThreadingHTTPServer:
+def make_server(
+    payload: Callable[[dict[str, str]], bytes], port: int, root: Path = DIST
+) -> ThreadingHTTPServer:
+    table = routes(root)
+
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
             bound = self.connection.getsockname()[1]
@@ -49,9 +69,10 @@ def make_server(payload: Callable[[dict[str, str]], bytes], port: int) -> Thread
             path, _, query = self.path.partition("?")
             if path == "/api/graph":
                 self._graph({k: v[0] for k, v in parse_qs(query).items()})
-            elif path in ASSETS:
-                file = WEB_ROOT / ASSETS[path]
-                cache = "max-age=86400" if path != "/" else "no-cache"
+            elif path in table:
+                file = table[path]
+                # Vite names everything under assets/ by content hash.
+                cache = "max-age=31536000, immutable" if path.startswith("/assets/") else "no-cache"
                 self._send(200, file.read_bytes(), _TYPES[file.suffix], cache)
             else:
                 self._send(404, b"not found", "text/plain")
