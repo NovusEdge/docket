@@ -15,7 +15,14 @@ export default defineConfig({
     rollupOptions: {
       plugins: [
         license({
-          thirdParty: { output: path.resolve(import.meta.dirname, '../docket/web/dist/THIRD_PARTY_LICENSES.txt') },
+          thirdParty: {
+            output: {
+              file: path.resolve(import.meta.dirname, '../docket/web/dist/THIRD_PARTY_LICENSES.txt'),
+              // Some packages ship CRLF licence texts and the default joins with os.EOL;
+              // CI compares this file byte for byte with the committed one.
+              template: deps => deps.map(d => d.text()).join('\n\n---\n\n').replace(/\r\n?/g, '\n'),
+            },
+          },
         }),
       ],
     },
