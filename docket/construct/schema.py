@@ -131,7 +131,11 @@ def proposal(
         "rationale": rationale,
         "scope": scope,
         "anchor": anchor,
-        "source": {"path": source["path"], "date": source.get("date")},
+        "source": {
+            "path": source["path"],
+            "date": source.get("date"),
+            "date_source": source.get("date_source"),
+        },
         "confidence": confidence,
         "state": "staged",
         **extra,

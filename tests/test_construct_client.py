@@ -247,6 +247,9 @@ class BackoffTests(unittest.TestCase):
     def test_ignores_an_unparseable_retry_after(self):
         self.assertEqual(client.backoff(0, retry_after="whenever"), client.backoff(0))
 
+    def test_caps_a_retry_after_too(self):
+        self.assertEqual(client.backoff(0, retry_after="3600"), client.MAX_BACKOFF)
+
     def test_caps_the_wait(self):
         self.assertLessEqual(client.backoff(50), client.MAX_BACKOFF)
 

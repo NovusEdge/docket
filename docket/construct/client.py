@@ -73,6 +73,10 @@ MAX_TOKENS = 16384
 MAX_BACKOFF = 60.0
 _BASE_BACKOFF = 1.5
 
+# Per request, in seconds. A full MAX_TOKENS answer from a slow model takes
+# minutes, so this is generous; the SDK default of ten minutes is not.
+REQUEST_TIMEOUT = 180.0
+
 
 class ClientError(RuntimeError):
     """Construct cannot reach a provider at all."""
@@ -80,6 +84,10 @@ class ClientError(RuntimeError):
 
 class SchemaViolation(ValueError):
     """A response that did not conform to the schema it was asked for."""
+
+
+class Truncated(SchemaViolation):
+    """The provider stopped at the output-token limit, mid-answer."""
 
 
 def dotenv_key(root: Path, name: str) -> str | None:
@@ -238,7 +246,7 @@ def backoff(attempt: int, retry_after: str | None = None) -> float:
     """
     if retry_after:
         try:
-            return float(retry_after)
+            return min(max(float(retry_after), 0.0), MAX_BACKOFF)
         except ValueError:
             pass
     return min(_BASE_BACKOFF * (2**attempt), MAX_BACKOFF)

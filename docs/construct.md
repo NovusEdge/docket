@@ -112,6 +112,16 @@ A second pass reads the proposal set and proposes relationships: support,
 replacement, and disagreement. When it cannot resolve a disagreement, it
 proposes a question naming both records rather than replacing either one.
 
+Construct skips a document over 200,000 characters (about 50,000 tokens) and says which one in the run report. It never truncates a document. Split the file to include it.
+
+A response cut off at the output-token limit is reported against its document as its own error, not as a JSON parse failure. A document that long usually holds too many records for one call, so split it.
+
+Rate limits (HTTP 429), server errors (5xx), timeouts and dropped connections are retried up to four attempts, waiting as long as the provider's `Retry-After` asks (capped at 60 seconds). Each request times out after 180 seconds. A malformed or schema-violating response is not retried.
+
+The document is sent fenced and labelled as data, so instructions written inside it are not meant to be followed. Review still applies: a model can be misled.
+
+Each proposal carries the date of its source document, which decides which record counts as later when relating records. Construct takes that date from the file's last git commit. A file git does not track falls back to a `Date:` line in the document, then to a date in the filename. Review marks those fallback dates `claimed by the document` or `from the filename`, because a document can claim any date.
+
 ## Read them
 
 ```sh
