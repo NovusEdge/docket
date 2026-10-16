@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-10-16
+
 ### Changed
 
 - `docket graph --web` is a new page with two views. Timeline, the default, lists records by time with git branches drawn as lanes and link chips in place of arrows; pills at the top and bottom edge point to linked records scrolled out of view. Graph draws readable cards laid out by ELK, with right-angled edges, and lists records with no relation beside the canvas. "Show lineage" opens one record's supersession chain and direct links as a fitted subgraph.
@@ -769,7 +771,8 @@ the breaking-change notes before upgrading.
 
 Versions before 0.6.1 carry no git tag. Their history is in the commit log.
 
-[Unreleased]: https://github.com/NovusEdge/docket/compare/v0.27.0...HEAD
+[Unreleased]: https://github.com/NovusEdge/docket/compare/v0.28.0...HEAD
+[0.28.0]: https://github.com/NovusEdge/docket/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/NovusEdge/docket/compare/v0.26.0...v0.27.0
 [0.26.0]: https://github.com/NovusEdge/docket/compare/v0.25.1...v0.26.0
 [0.25.1]: https://github.com/NovusEdge/docket/compare/v0.25.0...v0.25.1
