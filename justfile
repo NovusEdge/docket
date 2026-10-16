@@ -13,6 +13,7 @@ test:
     cd graph && go test ./...
     cd installer && go test ./...
     python3 -m unittest discover -s installer -p 'test_*.py'
+    @if [ -d web/node_modules ]; then cd web && npm test; else echo "skipping web tests: run npm ci in web/"; fi
 
 # Pinned so a contributor's run and CI's run report the same findings. uvx and
 # `go run` fetch these on demand, so neither is an install requirement.
@@ -57,6 +58,11 @@ update:
 [group('dev')]
 installer-build:
     cd installer && go build -o docket-installer .
+
+# build the web view into docket/web/dist, which is committed so installs need no Node
+[group('dev')]
+web-build:
+    cd web && npm ci && npm run build
 
 # build the native graph viewer for this checkout
 [group('dev')]
