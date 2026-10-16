@@ -206,7 +206,21 @@ publish new:
       || { echo "VERSION says $(cat VERSION), not {{new}}"; exit 1; }
     git push origin HEAD --follow-tags
     echo "pushed v{{new}}; the Release workflow publishes it"
-    if command -v gh >/dev/null; then
-      echo "watch it with: gh run watch \$(gh run list --workflow installer.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
+    if ! command -v gh >/dev/null; then
+      echo "install gh to wait for the workflow; until it finishes, docket update still offers the previous version"
+      exit 0
     fi
+    # The run for this tag takes a few seconds to register after the push, and
+    # until then `--limit 1` names the previous release's run.
+    run=""
+    for _ in $(seq 30); do
+      run="$(gh run list --workflow installer.yml --branch "v{{new}}" --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+      test -n "$run" && break
+      sleep 2
+    done
+    test -n "$run" || { echo "no Release workflow run for v{{new}} after 60s; check GitHub Actions"; exit 1; }
+    gh run watch "$run" --exit-status --interval 15 >/dev/null \
+      || { echo "Release workflow run $run failed; v{{new}} is not published"; exit 1; }
+    gh release view "v{{new}}" >/dev/null \
+      || { echo "workflow passed but no GitHub release v{{new}} exists"; exit 1; }
     echo "published v{{new}}; docket update now offers it"
