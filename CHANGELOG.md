@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `docket graph --web` is a new page with two views. Timeline, the default, lists records by time with git branches drawn as lanes and link chips in place of arrows; pills at the top and bottom edge point to linked records scrolled out of view. Graph draws readable cards laid out by ELK, with right-angled edges, and lists records with no relation beside the canvas. "Show lineage" opens one record's supersession chain and direct links as a fitted subgraph.
+- The page searches all records with ⌘K or Ctrl+K, keeps the view, lineage, selection, direction and filters in the URL, and has light, dark and system themes.
+
+### Removed
+
+- The web view's Force, Radial and Circular engines, its grouping, and its focus and hops controls; lineage replaces focus. `docket export` keeps `--group`, `--focus`, `--hops` and `--include-orphans`.
+- `/api/graph` no longer returns DOT and ignores query parameters. The vendored Graphviz WASM is no longer shipped.
+
 ## [0.27.0] - 2026-10-07
 
 ### Added
