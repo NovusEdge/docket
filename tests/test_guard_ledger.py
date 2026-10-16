@@ -8,6 +8,9 @@ from pathlib import Path
 
 GUARD = Path(__file__).parent.parent / "hooks" / "guard_ledger.py"
 CWD = "/home/user/project"
+# Every variable the hook reads a session id from; a test run inside Claude
+# Code inherits CLAUDE_CODE_BRIDGE_SESSION_ID.
+SESSION_VARS = ("CLAUDE_SESSION_ID", "CLAUDE_CODE_BRIDGE_SESSION_ID", "SESSION_ID")
 
 
 def decide(tool, tool_input, cwd=CWD, env=None):
@@ -294,13 +297,13 @@ class GoverningRecordTests(unittest.TestCase):
 
     def test_the_payload_session_id_dedupes_without_an_environment_variable(self):
         self.record("Cache in redis", "src/cache.py")
-        env = {k: v for k, v in self.env.items() if k != "CLAUDE_SESSION_ID"}
+        env = {k: v for k, v in self.env.items() if k not in SESSION_VARS}
         self.assertIsNotNone(self.run_hook("src/cache.py", env=env, session="from-payload"))
         self.assertIsNone(self.run_hook("src/cache.py", env=env, session="from-payload"))
 
     def test_without_a_session_every_edit_surfaces(self):
         self.record("Cache in redis", "src/cache.py")
-        env = {k: v for k, v in self.env.items() if k != "CLAUDE_SESSION_ID"}
+        env = {k: v for k, v in self.env.items() if k not in SESSION_VARS}
         self.assertIsNotNone(self.run_hook("src/cache.py", env=env))
         self.assertIsNotNone(self.run_hook("src/cache.py", env=env))
 
