@@ -39,7 +39,7 @@ class CorpusTests(unittest.TestCase):
             for f in self.files
             if extract.resolve_date(
                 str(f.relative_to(_root)), f.read_text(errors="replace"), self.git
-            )
+            )[0]
         )
         # Measured at 96.5% over 372 documents. A drop means a date convention
         # changed, or the head window stopped covering where dates are written.

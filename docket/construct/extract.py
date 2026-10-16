@@ -120,11 +120,21 @@ def git_dates(root: Path) -> dict[str, str]:
     return dates
 
 
-def resolve_date(name: str, text: str, git: dict[str, str]) -> str | None:
-    """The document's date, by the most specific source that has one.
+def resolve_date(name: str, text: str, git: dict[str, str]) -> tuple[str | None, str | None]:
+    """The document's date and where it came from: git, document or filename.
 
-    What the document says about itself beats what its name says, which beats
-    what git remembers. A document with no date from any source resolves to
-    None, and pass 2 proposes no supersession edge for its records.
+    Git first, because the other two are written by whoever wrote the document
+    and a `Date: 2099-01-01` line would otherwise win every supersession. The
+    document's own claim comes next, then its filename. A document with no date
+    from any source resolves to (None, None), and pass 2 proposes no
+    supersession edge for its records.
     """
-    return date_from_text(text) or date_from_name(Path(name).name) or git.get(name)
+    if name in git:
+        return git[name], "git"
+    claimed = date_from_text(text)
+    if claimed:
+        return claimed, "document"
+    named = date_from_name(Path(name).name)
+    if named:
+        return named, "filename"
+    return None, None

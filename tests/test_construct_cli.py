@@ -77,6 +77,19 @@ class ReviewTests(unittest.TestCase):
         rc, out = self.review([prop("one", text="The cache lives in Redis.")])
         self.assertIn("The cache lives in Redis.", out)
 
+    def test_marks_a_date_the_document_claimed_for_itself(self):
+        item = prop("one")
+        item["source"]["date_source"] = "document"
+        rc, out = self.review([item])
+        self.assertIn("2026-06-18", out)
+        self.assertIn("claimed by the document", out)
+
+    def test_says_nothing_about_a_date_git_supplied(self):
+        item = prop("one")
+        item["source"]["date_source"] = "git"
+        rc, out = self.review([item])
+        self.assertNotIn("claimed", out)
+
     def test_marks_a_record_whose_scope_resolves_to_nothing(self):
         rc, out = self.review([prop("one", scope=["gone/x.py"])])
         self.assertIn("unresolved", out)

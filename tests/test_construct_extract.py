@@ -149,28 +149,37 @@ class GitDatesTests(unittest.TestCase):
 
 
 class ResolveDateTests(unittest.TestCase):
-    def test_a_date_line_wins_over_the_filename(self):
+    def test_git_beats_a_date_the_document_claims(self):
+        # A document claiming Date: 2099-01-01 would otherwise win every
+        # supersedes check.
         self.assertEqual(
-            extract.resolve_date("2026-01-01-thing.md", "Date: 2026-06-18\n", {}), "2026-06-18"
+            extract.resolve_date("thing.md", "Date: 2099-01-01\n", {"thing.md": "2026-09-09"}),
+            ("2026-09-09", "git"),
         )
 
-    def test_the_filename_wins_over_git(self):
+    def test_git_beats_the_filename(self):
         self.assertEqual(
             extract.resolve_date(
                 "2026-01-01-thing.md", "no date here", {"2026-01-01-thing.md": "2026-09-09"}
             ),
-            "2026-01-01",
+            ("2026-09-09", "git"),
         )
 
-    def test_git_answers_when_nothing_else_does(self):
+    def test_a_date_line_answers_without_git_and_wins_over_the_filename(self):
         self.assertEqual(
-            extract.resolve_date("thing.md", "no date here", {"thing.md": "2026-09-09"}),
-            "2026-09-09",
+            extract.resolve_date("2026-01-01-thing.md", "Date: 2026-06-18\n", {}),
+            ("2026-06-18", "document"),
+        )
+
+    def test_the_filename_answers_when_nothing_else_does(self):
+        self.assertEqual(
+            extract.resolve_date("2026-01-01-thing.md", "no date here", {}),
+            ("2026-01-01", "filename"),
         )
 
     def test_a_document_with_no_date_anywhere_resolves_to_none(self):
         # Pass 2 proposes no supersession edge for such a record.
-        self.assertIsNone(extract.resolve_date("thing.md", "no date here", {}))
+        self.assertEqual(extract.resolve_date("thing.md", "no date here", {}), (None, None))
 
 
 if __name__ == "__main__":
