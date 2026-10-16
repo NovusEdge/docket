@@ -109,7 +109,7 @@ export default function App() {
           {!data ? <Empty title="Connecting" body="Waiting for docket graph --web." />
             : rows.length === 0 && !state.lineage ? <Empty title="Nothing to show" body="No record matches the filters." />
             : state.view === 'timeline' ? <TimelineView {...props} />
-            : <GraphView {...props} exportRef={exportRef} onDir={dir => patch({ dir })} />}
+            : <GraphView {...props} exportRef={exportRef} colorMode={theme} onDir={dir => patch({ dir })} />}
         </div>
         {state.selected && <DetailPanel ix={ix} id={state.selected} onClose={() => patch({ selected: null })} onJump={select} onLineage={openLineage} />}
       </main>

@@ -69,7 +69,7 @@ export function TopBar(p: TopBarProps) {
           </Button>
         ))}
       </div>
-      {p.state.lineage && (
+      {p.state.lineage && p.lineageSize > 0 && (
         <span className="inline-flex h-7 items-center gap-2 rounded-full bg-link/12 pl-3 pr-1 text-xs font-medium text-link">
           Lineage of {p.state.lineage} · {p.lineageSize} records
           <button className="grid size-5 place-items-center rounded-full hover:bg-link/20" title="Show all (Esc)" onClick={p.onExitLineage}>
