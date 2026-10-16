@@ -18,6 +18,12 @@ def load(name, path):
     return module
 
 
+def latest(tag):
+    response = io.BytesIO(b"")
+    response.geturl = lambda: "https://github.com/NovusEdge/docket/releases/tag/" + tag
+    return response
+
+
 class BootstrapTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -40,8 +46,11 @@ class BootstrapTests(unittest.TestCase):
         digest = hashlib.sha256(payload).hexdigest()
         opened = []
 
-        def urlopen(url):
+        def urlopen(url, timeout=None):
+            self.assertIsNotNone(timeout)
             opened.append(url)
+            if url.endswith("/releases/latest"):
+                return latest("v9.9.9")
             if url.endswith("SHA256SUMS"):
                 return io.BytesIO((digest + "  docket-installer-linux-amd64\n").encode())
             return io.BytesIO(payload)
@@ -66,8 +75,9 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual(
             opened,
             [
-                "https://github.com/NovusEdge/docket/releases/latest/download/SHA256SUMS",
-                "https://github.com/NovusEdge/docket/releases/latest/download/docket-installer-linux-amd64",
+                "https://github.com/NovusEdge/docket/releases/latest",
+                "https://github.com/NovusEdge/docket/releases/download/v9.9.9/SHA256SUMS",
+                "https://github.com/NovusEdge/docket/releases/download/v9.9.9/docket-installer-linux-amd64",
             ],
         )
         self.assertEqual(calls[0][0][1:], ["--dry-run", "--yes", "--update"])
@@ -101,6 +111,7 @@ class BootstrapTests(unittest.TestCase):
                 self.bootstrap.urllib.request,
                 "urlopen",
                 side_effect=[
+                    latest("v1.0.0"),
                     io.BytesIO(("0" * 64 + "  docket-installer-linux-amd64\n").encode()),
                     io.BytesIO(b"tampered"),
                 ],

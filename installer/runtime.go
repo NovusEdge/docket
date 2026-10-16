@@ -50,6 +50,9 @@ func ExecutePlan(ctx context.Context, plan Plan, notify func(Progress)) error {
 func executeAction(ctx context.Context, a Action) error {
 	switch a.Kind {
 	case "write":
+		if a.Append {
+			return appendBlock(a.Path, a.Text)
+		}
 		return atomicWrite(a.Path, []byte(a.Text))
 	case "link":
 		if err := os.MkdirAll(filepath.Dir(a.Path), 0755); err != nil {
@@ -156,6 +159,41 @@ func applyPathAdd(a Action, update func(string, bool) (bool, error)) error {
 		return fmt.Errorf("record PATH ownership: %w", err)
 	}
 	return nil
+}
+
+// appendBlock re-reads the file at apply time: the plan was reviewed earlier
+// and the user may have edited the file since. The last line of block is the
+// one that must not appear twice.
+func appendBlock(path, block string) error {
+	existing, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	lines := strings.Split(strings.TrimRight(block, "\n"), "\n")
+	want := strings.TrimSpace(lines[len(lines)-1])
+	for _, got := range strings.Split(string(existing), "\n") {
+		if strings.TrimSpace(got) == want {
+			return nil
+		}
+	}
+	prefix := ""
+	if len(existing) > 0 {
+		prefix = "\n"
+		if !strings.HasSuffix(string(existing), "\n") {
+			prefix = "\n\n"
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.WriteString(prefix + block); err != nil {
+		return errors.Join(err, f.Close())
+	}
+	return f.Close()
 }
 
 func atomicWrite(path string, data []byte) error {

@@ -265,15 +265,7 @@ func planPathAdd(env Environment, prefix string) []Action {
 			return nil
 		}
 	}
-	var add string
-	if existing != "" && !strings.HasSuffix(existing, "\n") {
-		add += "\n"
-	}
-	if existing != "" {
-		add += "\n"
-	}
-	add += pathMarker + "\n" + line + "\n"
-	return []Action{{Kind: "write", Path: rc, Text: existing + add, Label: "PATH"}}
+	return []Action{{Kind: "write", Path: rc, Text: pathMarker + "\n" + line + "\n", Label: "PATH", Append: true}}
 }
 
 func planHarness(env Environment, project bool, name, prefix string) ([]Action, error) {
@@ -363,7 +355,7 @@ func planCursor(env Environment, project bool) ([]Action, error) {
 		return nil, err
 	}
 	entry := map[string]any{"command": hookCommand(env, "cursor")}
-	changed, err := mergeNestedHook(data, "sessionStart", entry, func(v map[string]any) bool { return ownedCommand(env, stringValue(v["command"])) })
+	changed, err := mergeNestedHook(data, "sessionStart", entry, func(v map[string]any) bool { return ownedCommand(env, stringValue(v["command"]), "cursor") })
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", p, err)
 	}
@@ -393,10 +385,10 @@ func planCopilot(env Environment) ([]Action, error) {
 	}
 	docket := join(env, env.Checkout, "bin", "docket")
 	entry := map[string]any{
-		"type": "command", "bash": "DOCKET_AUTHOR=copilot " + posixRun(env, docket) + " context --for copilot",
+		"type": "command", "bash": copilotCommand(env),
 		"powershell": fmt.Sprintf("$env:DOCKET_AUTHOR=\"copilot\"; & \"%s\" \"%s\" context --for copilot", env.Python, docket), "timeoutSec": float64(5),
 	}
-	changed, err := mergeNestedHook(data, "sessionStart", entry, func(v map[string]any) bool { return ownedCommand(env, stringValue(v["bash"])) })
+	changed, err := mergeNestedHook(data, "sessionStart", entry, func(v map[string]any) bool { return ownedCommand(env, stringValue(v["bash"]), "copilot") })
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", p, err)
 	}
@@ -697,8 +689,8 @@ func uninstallJSONHooks(env Environment, actions []Action) ([]Action, error) {
 		match              func(map[string]any) bool
 	}{
 		{join(env, env.Home, ".gemini", "settings.json"), "SessionStart", "gemini", func(v map[string]any) bool { return v["name"] == "docket" }},
-		{join(env, env.Home, ".cursor", "hooks.json"), "sessionStart", "cursor", func(v map[string]any) bool { return ownedCommand(env, stringValue(v["command"])) }},
-		{join(env, env.Home, ".copilot", "hooks", "sessionStart.json"), "sessionStart", "copilot", func(v map[string]any) bool { return ownedCommand(env, stringValue(v["bash"])) }},
+		{join(env, env.Home, ".cursor", "hooks.json"), "sessionStart", "cursor", func(v map[string]any) bool { return ownedCommand(env, stringValue(v["command"]), "cursor") }},
+		{join(env, env.Home, ".copilot", "hooks", "sessionStart.json"), "sessionStart", "copilot", func(v map[string]any) bool { return ownedCommand(env, stringValue(v["bash"]), "copilot") }},
 	}
 	for _, typ := range types {
 		text, ok := readText(env, typ.path)
@@ -737,7 +729,14 @@ func uninstallJSONHooks(env Environment, actions []Action) ([]Action, error) {
 }
 
 func planPathRemove(env Environment, prefix string) []Action {
-	rc := resolvedPath(env, ShellRC(env))
+	var actions []Action
+	for _, rc := range shellRCs(env) {
+		actions = append(actions, planPathRemoveFrom(env, resolvedPath(env, rc), prefix)...)
+	}
+	return actions
+}
+
+func planPathRemoveFrom(env Environment, rc, prefix string) []Action {
 	existing, ok := readText(env, rc)
 	if !ok {
 		return nil
@@ -819,8 +818,18 @@ func posixRun(env Environment, executable string) string {
 }
 func quoteCommand(s string) string { return `"` + strings.ReplaceAll(s, `"`, `\"`) + `"` }
 func shellQuote(s string) string   { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
-func ownedCommand(env Environment, command string) bool {
-	return strings.Contains(command, join(env, env.Checkout, "bin", "docket"))
+
+func copilotCommand(env Environment) string {
+	return "DOCKET_AUTHOR=copilot " + posixRun(env, join(env, env.Checkout, "bin", "docket")) + " context --for copilot"
+}
+
+// A hook is the installer's only when its command equals what planCursor or
+// planCopilot writes; a user's wrapper that merely mentions the checkout is not.
+func ownedCommand(env Environment, command, harness string) bool {
+	if harness == "copilot" {
+		return command == copilotCommand(env)
+	}
+	return command == hookCommand(env, harness)
 }
 
 func openCodeSource(env Environment) string {
@@ -910,15 +919,40 @@ func jsonEqual(a, b any) bool {
 func stringValue(v any) string { s, _ := v.(string); return s }
 
 func ShellRC(env Environment) string {
+	return shellRCs(env)[0]
+}
+
+// Every file the installer may have put the PATH line in, current target first.
+// Earlier releases wrote ~/.bashrc on macOS and ignored ZDOTDIR; uninstall
+// still has to find those lines.
+func shellRCs(env Environment) []string {
 	switch base(env.Shell) {
 	case "zsh":
-		return join(env, env.Home, ".zshrc")
+		home := join(env, env.Home, ".zshrc")
+		if env.Getenv != nil {
+			if dir := env.Getenv("ZDOTDIR"); dir != "" {
+				return []string{join(env, dir, ".zshrc"), home}
+			}
+		}
+		return []string{home}
 	case "bash":
-		return join(env, env.Home, ".bashrc")
+		bashrc := join(env, env.Home, ".bashrc")
+		if env.GOOS != "darwin" {
+			return []string{bashrc}
+		}
+		// Terminal.app starts login shells, which read only the first of these
+		// that exists; creating .bash_profile beside an existing .profile
+		// would hide it.
+		for _, name := range []string{".bash_profile", ".bash_login", ".profile"} {
+			if p := join(env, env.Home, name); env.Exists != nil && env.Exists(p) {
+				return []string{p, bashrc}
+			}
+		}
+		return []string{join(env, env.Home, ".bash_profile"), bashrc}
 	case "fish":
-		return join(env, env.Home, ".config", "fish", "config.fish")
+		return []string{join(env, env.Home, ".config", "fish", "config.fish")}
 	default:
-		return join(env, env.Home, ".profile")
+		return []string{join(env, env.Home, ".profile")}
 	}
 }
 func RCLine(shell, directory string) string {

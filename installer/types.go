@@ -31,6 +31,9 @@ type Action struct {
 	Kind                      string // write, link, remove, remove-tree, command, path-add, path-remove, checkout, checkout-update, viewer
 	Path, Source, Text, Label string
 	Args                      []string
+	// Append makes a "write" add Text to the end of Path at apply time instead
+	// of replacing the file, and do nothing if Text's last line is already there.
+	Append bool
 }
 
 type Plan struct {
