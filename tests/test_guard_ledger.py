@@ -180,6 +180,46 @@ class BashTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual(bash(command), "ask")
 
+    def test_a_cd_prefix_moves_later_relative_paths(self):
+        for command in (
+            "cd .docket && sed -i s/x/y/ ledger.jsonl",
+            "cd .docket; rm ledger.jsonl",
+            "cd /home/user/project && cd .docket && echo x >> ledger.jsonl",
+            "cd '.docket' && rm ledger.jsonl",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(bash(command), "ask")
+        for command in ("cd .docket && cat ledger.jsonl", "cd src && rm ledger.jsonl"):
+            with self.subTest(command=command):
+                self.assertEqual(bash(command), "allow")
+
+    def test_a_glob_under_docket_may_be_the_ledger(self):
+        for command in (
+            "echo x >> .docket/l*",
+            "rm .docket/*.jsonl",
+            "truncate -s 0 .docket/led?er.jsonl",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(bash(command), "ask")
+        self.assertEqual(bash("rm .docket/*.md"), "allow")
+        self.assertEqual(bash("rm src/l*"), "allow")
+
+    def test_redirects_that_write_nothing_do_not_ask(self):
+        for command in (
+            "grep x .docket/ledger.jsonl 2>/dev/null",
+            "grep x .docket/ledger.jsonl > /dev/null 2>&1",
+            "cat .docket/ledger.jsonl &>/dev/null",
+            "grep x .docket/ledger.jsonl 2>&1 | head",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(bash(command), "allow")
+        for command in (
+            "grep x .docket/ledger.jsonl > .docket/ledger.jsonl",
+            "cat /tmp/x 2>/dev/null >> .docket/ledger.jsonl",
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(bash(command), "ask")
+
     def test_a_command_naming_no_ledger_passes(self):
         for command in ("python3 -c \"open('notes.txt','w')\"", "rm -rf build/", "git status"):
             with self.subTest(command=command):

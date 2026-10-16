@@ -9,13 +9,20 @@ which command does the job properly.
 Reads the PreToolUse payload on stdin and prints an "ask" decision when the
 call targets a ledger. For an edit of any other file it adds context naming
 the recorded decisions whose scope covers that file, once per session. Every
-other call exits silently, because a hook that fails open costs a session
-nothing and a hook that fails closed costs it everything.
+other call exits silently.
+
+This catches routine edits, not a determined one. Eval, a script that writes
+the ledger, a variable holding the path or other indirection can still write
+it; the hook prevents accidents and does not enforce append-only.
+
+A hook that fails open costs a session nothing and a hook that fails closed
+costs it everything.
 """
 
 from __future__ import annotations
 
 import contextlib
+import fnmatch
 import io
 import json
 import os
@@ -27,12 +34,13 @@ from pathlib import Path
 # migrate keeps the original at ledger.jsonl.schemaN, N the starting version,
 # so a fixed suffix list goes stale with every schema bump.
 LEDGER_NAME = re.compile(r"\.(?:jsonl(?:\.schema[0-9]+)?|json)$")
+GLOB_SAMPLES = ("ledger.jsonl", "ledger.jsonl.schema1", "features.jsonl", "migration-v0.8-map.json")
 
 # Allowlist, because a command string cannot be read for intent. Anything that
 # names a ledger and is not on this list gets the prompt, including every
 # inline interpreter and heredoc. Those are the constructs an edit hides in.
 READERS = re.compile(
-    r"^(?:cat|head|tail|less|more|wc|grep|egrep|fgrep|rg|jq|cut|sort|uniq|nl|"
+    r"^(?:cd|cat|head|tail|less|more|wc|grep|egrep|fgrep|rg|jq|cut|sort|uniq|nl|"
     r"md5sum|sha256sum|stat|file|ls|find|diff|cmp|git|python3?\s+-m\s+json\.tool)$"
 )
 
@@ -134,7 +142,10 @@ _QUOTED_HEREDOC = (
 CAT_MESSAGE = re.compile(r"\$\(\s*cat\s+" + _QUOTED_HEREDOC + r"\s*\)", re.S)
 HEREDOC_MESSAGE = re.compile(_QUOTED_HEREDOC, re.S)
 
-SEGMENT_SPLIT = re.compile(r"\|\||&&|[;|&\n]")
+# Writes nothing: discarding to /dev/null, or duplicating one descriptor onto another.
+HARMLESS_REDIRECT = re.compile(r"(?:&|\d*)>>?\s*/dev/null\b|\d*>&(?:\d+|-)")
+
+SEGMENT_SPLIT =re.compile(r"\|\||&&|[;|&\n]")
 
 
 def global_root() -> Path:
@@ -156,6 +167,9 @@ def is_ledger(path: str, cwd: str) -> bool:
     except (OSError, ValueError):
         return False
     name = resolved.name
+    # A glob under .docket may expand to the ledger: `>> .docket/l*`.
+    if ".docket" in resolved.parts and any(c in name for c in "*?["):
+        return any(fnmatch.fnmatchcase(n, name) for n in GLOB_SAMPLES)
     # The directory counts as a target. A command can name the ledger by a
     # pattern it never spells out, as `find .docket -name 'ledger.jsonl'` does.
     if name == ".docket":
@@ -187,15 +201,16 @@ def bash_targets_ledger(command: str, cwd: str) -> bool:
     nothing about its effect, so it always asks.
     """
 
-    words = re.findall(r"[^\s'\"<>|;&()]+", command)
-    if not any(_names_ledger(word, cwd) for word in words):
-        return False
+    segments = _segments_with_cwd(command, cwd)
+    if not any(_names_ledger(word, seg_cwd) for seg, seg_cwd in segments for word in _words(seg)):
+        if not any(_names_ledger(word, cwd) for word in _words(command)):
+            return False
     command = _drop_git_messages(command)
     if OPAQUE.search(command):
         return True
-    if ">" in command:
+    if ">" in HARMLESS_REDIRECT.sub("", command):
         return True
-    for segment in SEGMENT_SPLIT.split(command):
+    for segment, cwd in _segments_with_cwd(command, cwd):
         head = _command_words(segment)
         if not head:
             continue
@@ -208,6 +223,27 @@ def bash_targets_ledger(command: str, cwd: str) -> bool:
         if any(_names_ledger(word, cwd) for word in head):
             return True
     return False
+
+
+def _words(text: str) -> list[str]:
+    return re.findall(r"[^\s'\"<>|;&()]+", text)
+
+
+def _segments_with_cwd(command: str, cwd: str) -> list[tuple[str, str]]:
+    """Split a command into segments, each with the directory it runs in.
+
+    Only a plain `cd DIR` segment moves the directory; `cd` with no argument, `-`
+    or `~` leaves it, which can only miss a ledger, never invent one.
+    """
+    out = []
+    for segment in SEGMENT_SPLIT.split(command):
+        out.append((segment, cwd))
+        head = _command_words(segment)
+        if len(head) == 2 and head[0] == "cd":
+            target = head[1].strip("'\"")
+            if target and not target.startswith(("-", "~", "$")):
+                cwd = os.path.normpath(os.path.join(cwd or ".", target))
+    return out
 
 
 def _command_words(segment: str) -> list[str]:
