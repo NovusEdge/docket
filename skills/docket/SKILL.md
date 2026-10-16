@@ -32,9 +32,9 @@ Do not record active discussion, facts already clear from the code, or a model's
 
 ## Relations
 
-`--supports` names declared grounds. A comma list is one AND set; repeat the flag for an OR alternative. `--supports c1,c2 --supports c3` records `(c1 AND c2) OR c3`. It is not a verified implication and does not propagate truth.
+`--supports` names declared grounds. A comma list is one AND set; repeat the flag for an OR alternative. `--supports c1,c2 --supports c3` records `(c1 AND c2) OR c3`. It is not a verified implication and does not propagate truth. More than one OR set is experimental: give one AND set unless two complete, independent arguments each justify the record on their own.
 
-`--depends-on` is for decisions only, and only for an operational prerequisite, never as a second `--supports`. Most decisions have none. A prerequisite is followed through restatements and revisions to the head of its chain; the head must be accepted (claim) or adopted and applicable (decision). A reversal, or a rejected or revoked head, blocks. A blocked decision stays recorded as `adopted`, reports `blocked_by`, and does not answer a question.
+`--depends-on` is for decisions only, and only for an operational prerequisite, never as a second `--supports`. Most decisions have none. A prerequisite is followed through restatements and revisions to the head of its chain; the head must be accepted (claim) or adopted and applicable (decision). A reversal, or a rejected or revoked head, blocks. A blocked decision stays recorded as `adopted`, reports `blocked_by`, and does not answer a question. Prerequisites and the derived `blocked` state are experimental: no ledger has yet produced a blocked decision in real use, so do not add a prerequisite to exercise the feature.
 
 `--answers` links a claim or decision to an earlier question. Only a current accepted claim or applicable adopted decision makes the question's effective state `resolved`.
 
