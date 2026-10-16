@@ -17,7 +17,9 @@ steps, see [Installation](installation.md). Manual agent configuration is in the
    the release's `SHA256SUMS` file before running it. Release recipes build
    Linux, macOS, and Windows assets for amd64 and arm64. The matching asset must
    be published for the launcher to use it. Set `DOCKET_INSTALLER_VERSION` to
-   select a published release tag.
+   select a published release tag. Without it, the launcher resolves the latest
+   tag once and downloads both files from that tag. Each request times out
+   after 30 seconds of silence.
 
 - Run from an existing source checkout:
 
@@ -83,7 +85,13 @@ For an installation, the guided flow proceeds through these steps:
    to install later.
 3. If the chosen location needs a `PATH` change, review the exact change and
    confirm whether to apply it. Unix installations show the shell line and
-   destination file; Windows installations show the User PATH directory.
+   destination file; Windows installations show the User PATH directory. The
+   destination is `~/.bashrc` for bash on Linux, the first existing of
+   `~/.bash_profile`, `~/.bash_login` and `~/.profile` (else a new
+   `~/.bash_profile`) for bash on macOS, `$ZDOTDIR/.zshrc` or `~/.zshrc` for
+   zsh, `~/.config/fish/config.fish` for fish, and `~/.profile` otherwise. The
+   line is appended when you confirm, so edits made while you reviewed the plan
+   are kept, and nothing is added if the line is already there.
 4. Review the full plan, including checkout updates and external commands,
    then confirm installation.
 

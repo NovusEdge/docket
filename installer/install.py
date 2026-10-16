@@ -26,6 +26,7 @@ import urllib.request
 from pathlib import Path
 
 REPOSITORY = "NovusEdge/docket"
+TIMEOUT = 30
 
 
 def asset_name(platform, machine):
@@ -51,19 +52,35 @@ def _release_base():
         if not re.match(r"^[A-Za-z0-9._-]+$", version) or version in (".", ".."):
             raise RuntimeError("DOCKET_INSTALLER_VERSION must be a simple release tag")
         return "https://github.com/%s/releases/download/%s" % (REPOSITORY, version)
-    return "https://github.com/%s/releases/latest/download" % REPOSITORY
+    # Resolve the tag once: fetching SHA256SUMS and the binary from
+    # releases/latest as two requests lets a release published in between pair
+    # one tag's checksums with another tag's binary.
+    latest = "https://github.com/%s/releases/latest" % REPOSITORY
+    try:
+        with urllib.request.urlopen(latest, timeout=TIMEOUT) as response:
+            final = response.geturl()
+    except (OSError, urllib.error.URLError) as exc:
+        raise _unavailable(latest, exc)
+    tag = final.rstrip("/").rsplit("/", 1)[-1]
+    if "/releases/tag/" not in final or not re.match(r"^[A-Za-z0-9._-]+$", tag):
+        raise RuntimeError("could not determine the latest release from %s" % final)
+    return "https://github.com/%s/releases/download/%s" % (REPOSITORY, tag)
+
+
+def _unavailable(url, exc):
+    return RuntimeError(
+        "No prebuilt installer is available at %s (%s). The release may "
+        "not be published yet; try again later or set "
+        "DOCKET_INSTALLER_VERSION to a published tag." % (url, exc)
+    )
 
 
 def _read_url(url):
     try:
-        with urllib.request.urlopen(url) as response:
+        with urllib.request.urlopen(url, timeout=TIMEOUT) as response:
             return response.read()
     except (OSError, urllib.error.URLError) as exc:
-        raise RuntimeError(
-            "No prebuilt installer is available at %s (%s). The release may "
-            "not be published yet; try again later or set "
-            "DOCKET_INSTALLER_VERSION to a published tag." % (url, exc)
-        )
+        raise _unavailable(url, exc)
 
 
 def _expected_checksum(manifest, name):
