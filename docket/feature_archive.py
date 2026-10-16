@@ -50,7 +50,7 @@ def highest_archived_id(store: Path) -> int:
     # is not valid is skipped here and reported by `docket check`.
     for name in sorted(directory.glob("features-*.jsonl")):
         try:
-            lines = name.read_text(encoding="utf-8").splitlines()
+            lines = name.read_text(encoding="utf-8").split("\n")
         except (OSError, UnicodeError):
             continue
         for line in lines:

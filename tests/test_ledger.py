@@ -20,6 +20,23 @@ class LedgerTests(unittest.TestCase):
     def add(self, kind, text, **kwargs):
         return ledger.append(self.path, ledger.make_record(kind, text, author="test", **kwargs))
 
+    def test_line_separator_characters_in_text_survive_a_round_trip(self):
+        texts = ["before after", "before\u0085after", "a b\x0b\x0c\x1c\x1d\x1e"]
+        for text in texts:
+            self.add("claim", text)
+        self.assertEqual([e["text"] for e in ledger.read(self.path)], texts)
+
+    def test_json_scalars_as_evidence_become_a_reference(self):
+        for value in ("1234", "true", "null", "42", '"x"', "[1]"):
+            self.assertEqual(ledger.parse_evidence(value), {"ref": value})
+        self.assertEqual(ledger.parse_evidence('{"ref": "a"}'), {"ref": "a"})
+
+    def test_a_dry_run_leaves_the_filesystem_alone(self):
+        path = Path(self.tmp.name) / "missing" / "ledger.jsonl"
+        record = ledger.make_record("claim", "x", author="test")
+        ledger.append_many(path, [record], dry_run=True)
+        self.assertFalse(path.parent.exists())
+
     def test_each_kind_counts_from_one(self):
         self.assertEqual(self.add("claim", "one")["id"], "c1")
         self.assertEqual(self.add("question", "two")["id"], "q1")

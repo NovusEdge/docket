@@ -240,6 +240,18 @@ class OldLedgerMessageTests(unittest.TestCase):
             self.assertIn("commit ledger.jsonl and the features files", result.stdout)
             self.assertIn("not the ledger.jsonl.schema* backup", result.stdout)
 
+    def test_context_on_an_unreadable_ledger_exits_0_and_points_at_check(self):
+        for since in ((), ("--since", "c1")):
+            with tempfile.TemporaryDirectory() as work:
+                work = Path(work)
+                ledger = project(work, [rec("claim", "c1", "First claim")])
+                ledger.write_text(ledger.read_text() + "{not json\n")
+                result = run(work, "context", *since)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("docket check", result.stdout)
+                self.assertIn("unreadable", result.stdout)
+                self.assertNotEqual(run(work, "list").returncode, 0)
+
     def test_the_instruction_follows_the_harness_envelope(self):
         with tempfile.TemporaryDirectory() as work:
             work = Path(work)
@@ -256,16 +268,6 @@ class OldLedgerMessageTests(unittest.TestCase):
             result = run(work, "context", "--since", "c1")
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn("migrate", result.stdout)
-
-    def test_another_ledger_error_keeps_stderr_and_exit_1(self):
-        with tempfile.TemporaryDirectory() as work:
-            work = Path(work)
-            ledger = project(work, [rec("claim", "c1", "First claim")])
-            ledger.write_text(ledger.read_text() + "{not json\n")
-            result = run(work, "context")
-            self.assertEqual(result.returncode, 1)
-            self.assertEqual(result.stdout, "")
-            self.assertNotEqual(result.stderr, "")
 
     def test_a_current_ledger_still_briefs(self):
         with tempfile.TemporaryDirectory() as work:

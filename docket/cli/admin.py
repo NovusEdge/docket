@@ -190,7 +190,7 @@ def cmd_check(args: argparse.Namespace) -> int:
         print(f"docket: no ledger at {path}")
         return 0
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        lines = path.read_text(encoding="utf-8").split("\n")
     except (OSError, UnicodeError) as exc:
         print(f"docket: cannot read {path}: {exc}", file=sys.stderr)
         return 1
