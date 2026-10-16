@@ -349,7 +349,7 @@ class ValidationScalingTests(unittest.TestCase):
     def prefix_builds(self, entries):
         """How many times validation derives its index from a whole prefix."""
 
-        original = ledger._Prefix
+        original = ledger.Prefix
         builds = []
 
         class Counted(original):
@@ -357,11 +357,11 @@ class ValidationScalingTests(unittest.TestCase):
                 builds.append(len(records))
                 super().__init__(records)
 
-        ledger._Prefix = Counted
+        ledger.Prefix = Counted
         try:
             ledger.validate_entries(entries)
         finally:
-            ledger._Prefix = original
+            ledger.Prefix = original
         return builds
 
     def test_validation_builds_one_index_for_the_whole_ledger(self):

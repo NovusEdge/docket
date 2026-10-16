@@ -9,11 +9,21 @@ what a record commits to, which is why choice, state, and relations are fixed.
 from __future__ import annotations
 
 import copy
-import re
+from datetime import datetime, timezone
 from typing import Any
 
-KIND = "correction"
-CORRECTION_RE = re.compile(r"([cdq](?:0|[1-9][0-9]*))\.([1-9][0-9]*)")
+from docket.ledger_core import (
+    CORRECTION_KIND,
+    CORRECTION_RE,
+    SCHEMA,
+    Prefix,
+    reject_empty_reasoning,
+    reject_question_text,
+    require_current,
+)
+from docket.ledger_core import error as _error
+
+KIND = CORRECTION_KIND
 _COMMON = frozenset(
     {
         "text",
@@ -49,13 +59,15 @@ def correctable(kind: str) -> frozenset[str]:
     return _COMMON | _DECISION_ONLY if kind == "decision" else _COMMON
 
 
-def validate(record: dict[str, Any], prefix: Any) -> dict[str, Any]:
-    """Validate a correction line; ``prefix`` is a ledger._Prefix or None.
+def validate(record: dict[str, Any], prefix: Prefix | None) -> dict[str, Any]:
+    """Validate a correction line.
 
     Without a prefix only the line's own shape is checked, as validate_record
     does for a record.
     """
-    from docket.ledger import _error, _require_current, validate_record
+    # validate_record dispatches here for correction lines, so ledger cannot be
+    # imported at module level.
+    from docket.ledger import validate_record
 
     ident = record.get("id")
     if not isinstance(ident, str) or (parts := split_id(ident)) is None:
@@ -63,7 +75,7 @@ def validate(record: dict[str, Any], prefix: Any) -> dict[str, Any]:
     unknown = sorted(set(record) - LINE_FIELDS)
     if unknown:
         raise _error(ident, f"unknown field(s): {', '.join(unknown)}")
-    _require_current(record)
+    require_current(record)
     for field in ("ts", "author", "session", "branch", "reason"):
         if not isinstance(record.get(field), str):
             raise _error(ident, f"{field} must be a string")
@@ -142,10 +154,6 @@ def make(
     ts: str | None = None,
 ) -> dict[str, Any]:
     """An unnumbered correction line; append allocates the id under its lock."""
-    from datetime import datetime, timezone
-
-    from docket.ledger import SCHEMA
-
     return {
         "schema": SCHEMA,
         "kind": KIND,
@@ -172,8 +180,6 @@ def refuse(entries: list[dict[str, Any]], correction: dict[str, Any]) -> None:
     Only the fields the correction still carries are checked, against the
     record as earlier corrections left it.
     """
-    from docket.ledger import _error, _reject_empty_reasoning, _reject_question_text
-
     target = next(item for item in fold(entries) if item["id"] == correction["corrects"])
     reduced = {
         field: value for field, value in correction["fields"].items() if target.get(field) != value
@@ -183,6 +189,6 @@ def refuse(entries: list[dict[str, Any]], correction: dict[str, Any]) -> None:
     correction["fields"] = reduced
     record = {**target, **reduced}
     if "text" in reduced:
-        _reject_question_text(record)
+        reject_question_text(record)
     if record["kind"] == "decision":
-        _reject_empty_reasoning(record, frozenset(reduced))
+        reject_empty_reasoning(record, frozenset(reduced))

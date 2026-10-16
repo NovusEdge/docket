@@ -1127,11 +1127,11 @@ class PositionsTests(unittest.TestCase):
 
     def test_no_module_orders_by_the_id_number(self):
         # Part C makes IDs per-kind, so int(id[1:]) stops carrying order.
-        # _Prefix and validate_record parse the number as identity, not order.
+        # Prefix and validate_record parse the number as identity, not order.
         # migrate.py sorts schema-1 source ids, a legacy format positions()
         # never sees.
         root = Path(__file__).resolve().parent.parent
-        allowed = {"ledger.py", "migrate.py"}
+        allowed = {"ledger.py", "ledger_core.py", "migrate.py"}
         offenders = []
         for path in sorted((root / "docket").rglob("*.py")):
             if path.name in allowed:
