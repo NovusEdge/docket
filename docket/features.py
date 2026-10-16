@@ -270,7 +270,7 @@ def read(path: Path | str, lock: bool = True) -> list[dict[str, Any]]:
         raise _error("read", f"cannot read {path}: {exc}") from exc
 
     events: list[dict[str, Any]] = []
-    for line_number, line in enumerate(text.splitlines(), 1):
+    for line_number, line in enumerate(text.split("\n"), 1):
         if not line.strip():
             continue
         try:

@@ -71,7 +71,7 @@ def _holds_features(*paths: Path) -> bool:
     """
     for path in paths:
         try:
-            lines = path.read_text(encoding="utf-8").splitlines()
+            lines = path.read_text(encoding="utf-8").split("\n")
         except (OSError, UnicodeError):
             continue
         for line in lines:
@@ -130,7 +130,7 @@ def _feature_tail(
 def _first_schema(path: Path) -> Any:
     """The schema of the first line, 1 when it declares none, None when unreadable or empty."""
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        lines = path.read_text(encoding="utf-8").split("\n")
     except (OSError, UnicodeError):
         return None
     for line in lines:
@@ -145,7 +145,7 @@ def _first_schema(path: Path) -> Any:
 
 def _raw(path: Path) -> list[dict[str, Any]]:
     return [
-        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
+        json.loads(line) for line in path.read_text(encoding="utf-8").split("\n") if line.strip()
     ]
 
 

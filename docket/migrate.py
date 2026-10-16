@@ -108,7 +108,7 @@ def _json_object(path: Path, label: str) -> Any:
 def read_source(path: Path) -> list[dict[str, Any]]:
     """Read and structurally validate every non-empty JSONL source line."""
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        lines = path.read_text(encoding="utf-8").split("\n")
     except OSError as exc:
         raise MigrationError(f"cannot read source {path}: {exc}") from exc
     records: list[dict[str, Any]] = []
@@ -603,7 +603,7 @@ def _feature_files(ledger_path: Path) -> list[Path]:
 def _read_events(path: Path) -> list[dict[str, Any]]:
     """Raw events, unvalidated: features.read refuses the schema this step upgrades."""
     events: list[dict[str, Any]] = []
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+    for number, line in enumerate(path.read_text(encoding="utf-8").split("\n"), 1):
         if not line.strip():
             continue
         try:

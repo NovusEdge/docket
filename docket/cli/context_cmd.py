@@ -151,6 +151,16 @@ def migrate_instruction(exc: SchemaTooOld) -> str:
     )
 
 
+def _unreadable(exc: Exception, args: argparse.Namespace, notice: str | None) -> int:
+    # SessionStart treats a nonzero exit as a hook error and drops stdout, so
+    # the agent would get neither the briefing nor a reason. Exit 0 instead.
+    text = (
+        f"docket: the ledger is unreadable ({str(exc).removeprefix('docket: ')}). Run `{ROOT / 'bin' / 'docket'} check` "
+        "to find the bad line before relying on or recording to it.\n"
+    )
+    return _print_context(text, args, notice)
+
+
 def cmd_context(args: argparse.Namespace) -> int:
     from docket.config import ConfigError
     from docket.config import load as load_settings
@@ -177,8 +187,7 @@ def cmd_context(args: argparse.Namespace) -> int:
         except SchemaTooOld as exc:
             return _print_context(migrate_instruction(exc), args, line)
         except (LedgerError, OSError) as exc:
-            print(str(exc), file=sys.stderr)
-            return 1
+            return _unreadable(exc, args, line)
         # Project twice. The second projection is the history as it stood at the
         # baseline, and the renderer needs it to tell a new loss from an old one.
         ident = args.since.partition("@")[0]
@@ -231,8 +240,7 @@ def cmd_context(args: argparse.Namespace) -> int:
     except SchemaTooOld as exc:
         return _print_context(migrate_instruction(exc), args, line)
     except (LedgerError, OSError) as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
+        return _unreadable(exc, args, line)
     return _print_context(text, args, line)
 
 

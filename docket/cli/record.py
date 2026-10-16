@@ -147,7 +147,7 @@ def cmd_record(args: argparse.Namespace) -> int:
             with open(args.file, encoding="utf-8") as handle:
                 text = handle.read()
         records = []
-        for number, line in enumerate(text.splitlines(), 1):
+        for number, line in enumerate(text.split("\n"), 1):
             if not line.strip():
                 continue
             try:

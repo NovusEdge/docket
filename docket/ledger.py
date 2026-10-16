@@ -14,7 +14,7 @@ import json
 import os
 import re
 import sys
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
@@ -549,7 +549,9 @@ def read(path: Path | str, lock: bool = True, strict: bool = False) -> list[dict
             file=sys.stderr,
         )
         text = text[:torn]
-    lines = text.splitlines()
+    # Not splitlines(): ensure_ascii=False writes U+2028, U+2029 and U+0085 raw,
+    # and splitlines() cuts a record at each. Text mode already folded CRLF.
+    lines = text.split("\n")
     entries: list[dict[str, Any]] = []
     prefix = _Prefix([])
     newer = 0
@@ -944,7 +946,9 @@ def append_many(
     ``dry_run`` returns the numbered records and writes nothing.
     """
     path = Path(path)
-    with _ledger_lock(path):
+    # The lock file and its directory are created on demand, which a dry run
+    # must not do. Without the lock it can at worst see a torn tail, which read skips.
+    with nullcontext() if dry_run else _ledger_lock(path):
         # flock is per file description, not per thread, so a locking read here
         # would block against the lock this call already holds.
         entries = read(path, lock=False, strict=True)
@@ -1013,5 +1017,5 @@ def parse_evidence(value: str) -> dict[str, str]:
     except json.JSONDecodeError:
         return {"ref": value}
     if not isinstance(decoded, dict):
-        raise _error("evidence", "JSON evidence must be an object")
+        return {"ref": value}
     return decoded
