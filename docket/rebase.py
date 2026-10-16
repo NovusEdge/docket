@@ -22,6 +22,7 @@ from typing import Any, NamedTuple
 
 from docket import corrections, reviews
 from docket.ledger import ID_RE, ID_TOKEN, allocate_id
+from docket.ledger_core import KIND_LETTER
 
 
 class RebaseError(ValueError):
@@ -30,7 +31,6 @@ class RebaseError(ValueError):
 
 _REFERENCE_FIELDS = ("depends_on", "answers", "supersedes")
 PROSE_FIELDS = ("text", "choice", "alternatives", "rationale", "cost_if_wrong", "revisit")
-_KIND_LETTER = {"claim": "c", "decision": "d", "question": "q"}
 
 
 class ProseChange(NamedTuple):
@@ -295,13 +295,13 @@ def renumber_per_kind(
             target, number = module.parts_of(old)
             suffix = (target, "" if module is corrections else "r", number)
             needed.add(target)
-        elif kind not in _KIND_LETTER:
+        elif kind not in KIND_LETTER:
             raise RebaseError(f"{old or 'a line'} has unknown kind {kind!r}")
         missing = sorted(n for n in needed if n not in mapping)
         if missing:
             raise RebaseError(f"{old} cites {', '.join(missing)}, which no earlier line defines")
-        if kind in _KIND_LETTER:
-            letter = _KIND_LETTER[kind]
+        if kind in KIND_LETTER:
+            letter = KIND_LETTER[kind]
             counters[letter] += 1
             mapping[old] = f"{letter}{counters[letter]}"
         legacy = record.get("legacy")
@@ -310,7 +310,7 @@ def renumber_per_kind(
             legacy_map[source] = old
         via = legacy_map if isinstance(source, str) else None
         row = _translated(record, mapping, via)
-        if kind in _KIND_LETTER:
+        if kind in KIND_LETTER:
             row["id"] = mapping[old]
             row["migrated_from"] = old
         elif suffix is not None:

@@ -19,12 +19,12 @@ from docket.ledger import (
     LedgerError,
     SchemaTooOld,
     _ledger_lock,
-    _Prefix,
     append,
     rebind,
     stale_keys,
     validate_record,
 )
+from docket.ledger_core import Prefix
 
 
 def cmd_rebase(args: argparse.Namespace) -> int:
@@ -200,7 +200,7 @@ def cmd_check(args: argparse.Namespace) -> int:
     # One index threaded through the loop. Rebuilding it per record made doctor
     # quadratic in ledger size, which is the cost read() and validate_entries
     # already shed.
-    prefix = _Prefix([])
+    prefix = Prefix([])
     seen: dict[str, int] = {}
     highest: dict[str, int] = {}
     records = 0

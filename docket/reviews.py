@@ -9,13 +9,14 @@ flagged or blocked ground is never pinned; it clears when that ground does.
 from __future__ import annotations
 
 import copy
-import re
+from datetime import datetime, timezone
 from typing import Any
 
+from docket.ledger_core import REVIEW_KIND, REVIEW_RE, SCHEMA, Prefix, require_current
+from docket.ledger_core import error as _error
 from docket.support import INHERITED
 
-KIND = "review"
-REVIEW_RE = re.compile(r"([cdq](?:0|[1-9][0-9]*))\.r([1-9][0-9]*)")
+KIND = REVIEW_KIND
 LINE_FIELDS = frozenset(
     {"schema", "kind", "id", "reviews", "grounds", "note", "ts", "author", "session", "branch"}
 )
@@ -33,17 +34,15 @@ def parts_of(ident: str) -> tuple[str, int]:
     return parts
 
 
-def validate(record: dict[str, Any], prefix: Any) -> dict[str, Any]:
-    """Validate a review line; ``prefix`` is a ledger._Prefix or None."""
-    from docket.ledger import _error, _require_current
-
+def validate(record: dict[str, Any], prefix: Prefix | None) -> dict[str, Any]:
+    """Validate a review line; without a prefix only its own shape is checked."""
     ident = record.get("id")
     if not isinstance(ident, str) or (parts := split_id(ident)) is None:
         raise _error("record", "review id must match <record id>.r<n> with n from 1")
     unknown = sorted(set(record) - LINE_FIELDS)
     if unknown:
         raise _error(ident, f"unknown field(s): {', '.join(unknown)}")
-    _require_current(record)
+    require_current(record)
     for field in ("ts", "author", "session", "branch", "note"):
         if not isinstance(record.get(field), str):
             raise _error(ident, f"{field} must be a string")
@@ -108,10 +107,6 @@ def make(
     ts: str | None = None,
 ) -> dict[str, Any]:
     """An unnumbered review line; append allocates the id and fills grounds under its lock."""
-    from datetime import datetime, timezone
-
-    from docket.ledger import SCHEMA
-
     return {
         "schema": SCHEMA,
         "kind": KIND,
@@ -128,7 +123,8 @@ def make(
 
 def refuse(entries: list[dict[str, Any]], review: dict[str, Any]) -> None:
     """Fill ``grounds`` with what the record owes now, or refuse a review of nothing."""
-    from docket.ledger import _error, project
+    # ledger.project folds review lines, so ledger cannot be imported at module level.
+    from docket.ledger import project
 
     target = next(
         (e for e in project(entries, validated=True) if e["id"] == review["reviews"]), None

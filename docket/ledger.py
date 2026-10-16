@@ -20,8 +20,18 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from docket import corrections, reviews, support
+from docket.ledger_core import (
+    KIND_LETTER,
+    SCHEMA,
+    LedgerError,
+    Prefix,
+    SchemaTooOld,
+    reject_empty_reasoning,
+    reject_question_text,
+    require_current,
+)
+from docket.ledger_core import error as _error
 
-SCHEMA = 3
 KINDS = ("claim", "decision", "question")
 STATES = {
     "claim": ("unassessed", "accepted", "disputed", "rejected"),
@@ -55,121 +65,8 @@ _LINE_FIELDS = {
 }
 
 
-class LedgerError(ValueError):
-    """A human-actionable schema, reference, or storage error."""
-
-
-class SchemaTooOld(LedgerError):
-    """A line written under an older schema. ``docket migrate`` converts the file.
-
-    ``version`` is the schema the line carries, 1 when it carries none. read()
-    and validate_entries() let it through unwrapped so a caller can tell it from
-    corruption and offer the migration.
-    """
-
-    def __init__(self, version: int) -> None:
-        self.version = version
-        super().__init__(
-            f"docket: schema: this ledger is schema {version}; run 'docket migrate' "
-            f"to convert it to schema {SCHEMA}"
-        )
-
-
-def _error(where: str, message: str) -> LedgerError:
-    return LedgerError(f"docket: {where}: {message}")
-
-
-def _require_current(record: dict[str, Any]) -> None:
-    schema = record.get("schema")
-    if schema is None:
-        raise SchemaTooOld(1)
-    if type(schema) is not int or schema > SCHEMA:
-        raise _error("schema", f"expected schema {SCHEMA}, got {schema!r}")
-    if schema < SCHEMA:
-        raise SchemaTooOld(max(schema, 1))
-
-
 def _is_string_list(value: Any) -> bool:
     return isinstance(value, list) and all(isinstance(item, str) and item for item in value)
-
-
-def _normalized(value: str) -> str:
-    return " ".join(value.split()).casefold()
-
-
-def _reject_empty_reasoning(record: dict[str, Any], changed: frozenset[str] | None = None) -> None:
-    """Refuse a decision whose text or reasoning fields only echo the choice.
-
-    Requiring the choice to appear in ``alternatives`` made a one-element list
-    the shortest valid answer, and 38 of the first 56 decisions took it. The
-    fields then read as filled while carrying nothing. An empty list is a
-    legitimate answer here, so neither field is mandatory; only the echo is
-    refused, which leaves no reason to invent an alternative that never existed.
-
-    This runs when a record is written, never when one is read. A ledger
-    recorded under the old rule stays readable. ``changed`` names the fields a
-    correction replaces, and each check then runs only when its own field
-    changed: 27 migrated decisions carry a rationale equal to their choice,
-    and a scope correction must not fail on it.
-    """
-
-    def touched(*names: str) -> bool:
-        return changed is None or any(name in changed for name in names)
-
-    choice = _normalized(record.get("choice", ""))
-    alternatives = [_normalized(item) for item in record.get("alternatives", [])]
-    if (
-        touched("alternatives")
-        and choice
-        and alternatives
-        and all(item == choice for item in alternatives)
-    ):
-        raise _error(
-            "record",
-            "decision alternatives must name an option the choice beat; leave "
-            "--alternative off when the decision had no contender",
-        )
-    text = _normalized(record.get("text", ""))
-    if touched("text") and choice and text == choice:
-        raise _error(
-            "record",
-            "decision text must carry more than the choice; name what the "
-            "decision commits to and leave the option detail in --choice",
-        )
-    rationale = _normalized(record.get("rationale", ""))
-    if touched("rationale"):
-        against: tuple[str, ...] = (choice, text)
-    elif touched("text"):
-        against = (text,)
-    else:
-        against = ()
-    if rationale and rationale in against:
-        raise _error(
-            "record",
-            "decision rationale must say why the choice won; leave --rationale off "
-            "when the choice line already carries the reason",
-        )
-
-
-def _reject_question_text(record: dict[str, Any]) -> None:
-    """Refuse a claim or decision whose text asks rather than states.
-
-    81 of the first 82 decisions were recorded as the question they settled,
-    with the answer in choice. A reader scanning kinds then sees a commitment
-    that reads as an open inquiry, and graph_payload labels the node with the
-    question. The question belongs in a question record, linked by --answers.
-
-    This runs when a record is written, never when one is read. A ledger
-    recorded under the old rule stays readable.
-    """
-    if record["kind"] == "question":
-        return
-    if record["text"].rstrip().endswith("?"):
-        raise _error(
-            "record",
-            f"a {record['kind']} must state the commitment, not ask it; record the "
-            "question with 'docket question' and link it with --answers",
-        )
 
 
 def reasoning_hints(record: dict[str, Any]) -> list[str]:
@@ -247,26 +144,22 @@ def make_record(
     }
     if supersede_reason is not None:
         record["supersede_reason"] = supersede_reason
-    _reject_question_text(record)
+    reject_question_text(record)
     if kind == "decision":
         if alternatives is not None and not isinstance(alternatives, list):
             raise _error("record", "alternatives must be a list")
         if choice is not None and not isinstance(choice, str):
             raise _error("record", "choice must be a string")
         record["choice"] = choice if choice is not None else ""
-        record["alternatives"] = (
-            alternatives.copy()
-            if isinstance(alternatives, list)
-            else (alternatives if alternatives is not None else [])
-        )
+        record["alternatives"] = alternatives.copy() if alternatives is not None else []
         record["decided_by"] = decided_by if decided_by is not None else ""
-        _reject_empty_reasoning(record)
+        reject_empty_reasoning(record)
     elif choice is not None or alternatives is not None or decided_by is not None:
         raise _error("record", "choice, alternatives, and decided_by are decision-only fields")
     # Validate the complete shape before append allocates the global ID.  The
     # temporary ID is never serialized and is replaced while holding the lock.
     if not record["id"]:
-        record["id"] = {"claim": "c", "decision": "d", "question": "q"}[kind] + "1"
+        record["id"] = KIND_LETTER[kind] + "1"
         validate_record(record)
         record["id"] = ""
     else:
@@ -274,48 +167,19 @@ def make_record(
     return record
 
 
-class _Prefix:
-    """The id map, sequence maximum, retirement map, and correction counters
-    of the records so far.
-
-    Validating a whole ledger walks the prefix once per record. Deriving these
-    from the prefix list each time made a read cost O(n squared), so a caller
-    that validates in order updates one of these instead.
-    """
-
-    __slots__ = ("by_id", "max_number", "retired", "corrections", "reviews")
-
-    def __init__(self, entries: list[dict[str, Any]]) -> None:
-        self.by_id: dict[str, dict[str, Any]] = {}
-        self.max_number: dict[str, int] = {}
-        self.retired: dict[str, str] = {}
-        self.corrections: dict[str, int] = {}
-        self.reviews: dict[str, int] = {}
-        for entry in entries:
-            self.add(entry)
-
-    def add(self, entry: dict[str, Any]) -> None:
-        if entry.get("kind") == reviews.KIND:
-            target, number = reviews.parts_of(entry["id"])
-            self.reviews[target] = max(self.reviews.get(target, 0), number)
-            return
-        # A correction is no relation target and carries no supersedes.
-        if entry.get("kind") == corrections.KIND:
-            target, number = corrections.parts_of(entry["id"])
-            self.corrections[target] = max(self.corrections.get(target, 0), number)
-            return
-        ident = entry["id"]
-        self.by_id[ident] = entry
-        self.max_number[ident[0]] = max(self.max_number.get(ident[0], 0), int(ident[1:]))
-        for target in entry["supersedes"]:
-            self.retired[target] = ident
+def _resolve_prefix(
+    where: str, previous: list[dict[str, Any]] | None, prefix: Prefix | None
+) -> Prefix | None:
+    if prefix is not None and previous is not None:
+        raise _error(where, "pass previous or prefix, not both")
+    return Prefix(previous) if previous is not None else prefix
 
 
 def validate_record(
     record: Any,
     *,
     previous: list[dict[str, Any]] | None = None,
-    prefix: _Prefix | None = None,
+    prefix: Prefix | None = None,
     copy_result: bool = True,
 ) -> dict[str, Any]:
     """Validate and return a record without mutating the caller's object.
@@ -330,19 +194,11 @@ def validate_record(
         raise _error("record", "each JSONL line must be an object")
     if any(not isinstance(key, str) for key in record):
         raise _error("record", "field names must be strings")
-    _require_current(record)
+    require_current(record)
     if record.get("kind") == corrections.KIND:
-        if prefix is not None and previous is not None:
-            raise _error("record", "pass previous or prefix, not both")
-        if prefix is None and previous is not None:
-            prefix = _Prefix(previous)
-        return corrections.validate(record, prefix)
+        return corrections.validate(record, _resolve_prefix("record", previous, prefix))
     if record.get("kind") == reviews.KIND:
-        if prefix is not None and previous is not None:
-            raise _error("record", "pass previous or prefix, not both")
-        if prefix is None and previous is not None:
-            prefix = _Prefix(previous)
-        return reviews.validate(record, prefix)
+        return reviews.validate(record, _resolve_prefix("record", previous, prefix))
     unknown_fields = sorted(set(record) - ALLOWED_FIELDS)
     if unknown_fields:
         raise _error("record", f"unknown field(s): {', '.join(unknown_fields)}")
@@ -353,8 +209,7 @@ def validate_record(
     if not isinstance(record_id, str) or not ID_RE.fullmatch(record_id):
         raise _error("record", "id must match cN, dN, or qN with a positive sequence number")
     id_prefix, number = record_id[0], int(record_id[1:])
-    expected_prefix = {"claim": "c", "decision": "d", "question": "q"}[kind]
-    if id_prefix != expected_prefix or number < 1:
+    if id_prefix != KIND_LETTER[kind] or number < 1:
         raise _error("record", f"{kind} id {record_id!r} has the wrong prefix or sequence")
     if not isinstance(record.get("text"), str) or not record["text"].strip():
         raise _error(record_id, "text must be a non-empty string")
@@ -426,10 +281,7 @@ def validate_record(
         if not record["supersedes"]:
             raise _error(record_id, "supersede_reason needs supersedes")
 
-    if prefix is not None and previous is not None:
-        raise _error(record_id, "pass previous or prefix, not both")
-    if prefix is None and previous is not None:
-        prefix = _Prefix(previous)
+    prefix = _resolve_prefix(record_id, previous, prefix)
     if prefix is not None:
         known = prefix.by_id
         if record_id in known:
@@ -465,7 +317,7 @@ def validate_entries(entries: Any) -> list[dict[str, Any]]:
     if not isinstance(entries, list):
         raise _error("ledger", "entries must be a list")
     validated: list[dict[str, Any]] = []
-    prefix = _Prefix([])
+    prefix = Prefix([])
     for index, entry in enumerate(entries, 1):
         try:
             record = validate_record(entry, prefix=prefix)
@@ -553,7 +405,7 @@ def read(path: Path | str, lock: bool = True, strict: bool = False) -> list[dict
     # and splitlines() cuts a record at each. Text mode already folded CRLF.
     lines = text.split("\n")
     entries: list[dict[str, Any]] = []
-    prefix = _Prefix([])
+    prefix = Prefix([])
     newer = 0
     for line_number, line in enumerate(lines, 1):
         if not line.strip():
@@ -594,7 +446,7 @@ def read(path: Path | str, lock: bool = True, strict: bool = False) -> list[dict
 
 def next_id(entries: list[dict[str, Any]], kind: str) -> str:
     """The next number for ``kind``; each kind counts on its own from 1."""
-    letter = {"claim": "c", "decision": "d", "question": "q"}[kind]
+    letter = KIND_LETTER[kind]
     numbers = []
     for entry in entries:
         match = ID_RE.fullmatch(str(entry.get("id", "")))
@@ -606,7 +458,7 @@ def next_id(entries: list[dict[str, Any]], kind: str) -> str:
 def allocate_id(entries: list[dict[str, Any]], kind: str) -> str:
     if kind not in KINDS:
         raise _error("record", f"unknown kind {kind!r}")
-    return {"claim": "c", "decision": "d", "question": "q"}[kind] + next_id(entries, kind)
+    return KIND_LETTER[kind] + next_id(entries, kind)
 
 
 def retired_by(entries: list[dict[str, Any]]) -> dict[str, str]:
