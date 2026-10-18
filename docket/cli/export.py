@@ -11,7 +11,6 @@ import sys
 from pathlib import Path
 
 
-
 def hops_arg(text: str) -> int:
     if text not in ("1", "2", "3", "4"):
         raise argparse.ArgumentTypeError(f"{text!r} is not a hop count, 1 to 4")

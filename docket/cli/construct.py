@@ -117,7 +117,11 @@ def review(staged: Path, live: set[str]) -> int:
         print(f"## {_safe(name)}")
         source = items[0]["source"]
         if source.get("date_source") in ("document", "filename"):
-            how = "claimed by the document" if source["date_source"] == "document" else "from the filename"
+            how = (
+                "claimed by the document"
+                if source["date_source"] == "document"
+                else "from the filename"
+            )
             print(f"  date: {source['date']} ({how}, not git)")
         for item in items:
             mark = "" if stage.resolves(item, live) else "  [unresolved scope]"

@@ -145,7 +145,7 @@ HEREDOC_MESSAGE = re.compile(_QUOTED_HEREDOC, re.S)
 # Writes nothing: discarding to /dev/null, or duplicating one descriptor onto another.
 HARMLESS_REDIRECT = re.compile(r"(?:&|\d*)>>?\s*/dev/null\b|\d*>&(?:\d+|-)")
 
-SEGMENT_SPLIT =re.compile(r"\|\||&&|[;|&\n]")
+SEGMENT_SPLIT = re.compile(r"\|\||&&|[;|&\n]")
 
 
 def global_root() -> Path:

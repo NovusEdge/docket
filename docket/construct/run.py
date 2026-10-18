@@ -497,7 +497,9 @@ def two_pass(
         )
     found = [path for path in found if path not in oversize]
     if not found:
-        raise RunError("every document is over the size limit. Nothing was read:\n" + "\n".join(report))
+        raise RunError(
+            "every document is over the size limit. Nothing was read:\n" + "\n".join(report)
+        )
 
     resolved = {path: extract.resolve_date(names[path], bodies[path], git) for path in found}
     dates = {path: resolved[path][0] for path in found}
