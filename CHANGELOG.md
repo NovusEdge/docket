@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The pre-edit hook tells the agent to start a feature when a session edits its third distinct file outside `.docket/` and no feature is open, once per session.
+- The docket-feature skill triggers before a change reaches its third file, and finishing within the turn no longer exempts a change from a feature.
+- The no-feature briefing hint says to start a feature before editing further, instead of only when the work continues past the session.
+
 ## [0.29.0] - 2026-10-16
 
 ### Changed

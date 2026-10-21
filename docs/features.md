@@ -170,7 +170,11 @@ budget is available for records. If the repository has no feature store or no
 Git metadata, or the feature store cannot be read, the briefing omits the
 header and continues.
 
-When no feature is open on any branch, or the repository has no feature store, and `git` reports a modified, staged or untracked path outside `.docket/` (ignored files do not count), the briefing prints one hint line in the header's place: `# feature: none open, and the working tree has uncommitted changes outside .docket/. If that work continues past this session, load the docket-feature skill and start a feature.` A clean tree, or changes only under `.docket/`, prints nothing. Any git failure also prints nothing.
+When no feature is open on any branch, or the repository has no feature store, and `git` reports a modified, staged or untracked path outside `.docket/` (ignored files do not count), the briefing prints one hint line in the header's place: `# feature: none open, and the working tree has uncommitted changes outside .docket/. Before editing further, load the docket-feature skill and start a feature for that work, or commit it if it is finished.` A clean tree, or changes only under `.docket/`, prints nothing. Any git failure also prints nothing.
+
+## The edit-time prompt
+
+A session that starts on a clean tree gets no briefing hint, so the plugin's pre-edit hook prompts as the work grows. It counts the distinct project files a session edits, leaving out `.docket/`. On the third, when the project has a ledger and no feature is open on any branch, it tells the agent to start a feature before the next edit and gives the `docket feature start` command. It prompts at most once per session, and not at all when the harness supplies no session id. The count lives beside the hook's other per-session state, described in [integrations](integrations.md).
 
 ## Archival
 

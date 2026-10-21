@@ -8,8 +8,9 @@ which command does the job properly.
 
 Reads the PreToolUse payload on stdin and prints an "ask" decision when the
 call targets a ledger. For an edit of any other file it adds context naming
-the recorded decisions whose scope covers that file, once per session. Every
-other call exits silently.
+the recorded decisions whose scope covers that file, once per session, and on
+the session's third distinct edited file with no feature open it says to start
+one. Every other call exits silently.
 
 This catches routine edits, not a determined one. Eval, a script that writes
 the ledger, a variable holding the path or other indirection can still write
@@ -383,18 +384,27 @@ def _clip(text: str) -> str:
     return text if len(text) <= HEADLINE else text[: HEADLINE - 3] + "..."
 
 
-def governing_context(payload: dict) -> str:
+def _edit_target(payload: dict) -> tuple[str, Path, Path, str] | None:
+    """The edited path as given, the cwd, the project root, and the casefolded relative path."""
     args = payload.get("tool_input") or {}
     value = next((args[k] for k in ("file_path", "notebook_path", "path") if args.get(k)), "")
     if not isinstance(value, str):
-        return ""
+        return None
     cwd = Path(os.path.normpath(payload.get("cwd") or "."))
     root = _project_root(cwd)
     target = Path(os.path.normpath(cwd / value))
     try:
         rel = target.relative_to(root).as_posix().casefold()
     except ValueError:
+        return None
+    return value, cwd, root, rel
+
+
+def governing_context(payload: dict) -> str:
+    edit = _edit_target(payload)
+    if not edit:
         return ""
+    value, cwd, root, rel = edit
 
     session = _session(payload)
     seen = _seen_file(session) if session else None
@@ -439,6 +449,62 @@ def governing_context(payload: dict) -> str:
     return "\n".join(lines)
 
 
+NUDGE_AT = 3
+NUDGED = ":nudged"
+
+
+def _open_feature(store: Path) -> bool:
+    if not store.exists():
+        return False
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from docket import feature_project, features
+
+    current = feature_project.project(features.read(store, lock=False))
+    return any(f["state"] not in features.TERMINAL_STATES for f in current)
+
+
+def feature_nudge(payload: dict) -> str:
+    """The start-a-feature prompt, on the session's third distinct edited file.
+
+    The session-start hint sees only a tree that is already dirty, and fresh
+    sessions and worktree agents start clean, so this is the prompt that
+    reaches work as it becomes multi-file. Without a session id there is
+    nothing to count against, so it stays quiet.
+    """
+    session = _session(payload)
+    edit = _edit_target(payload)
+    if not session or not edit:
+        return ""
+    _, cwd, root, rel = edit
+    if rel.startswith(".docket/"):
+        return ""
+    edits = _seen_file(session).parent / f"{session}.edits"
+    try:
+        files = edits.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        files = []
+    if NUDGED in files or rel in files:
+        return ""
+    files.append(rel)
+    _mark_seen(edits, rel)
+    if len(files) < NUDGE_AT:
+        return ""
+    # Marked before the store is read, so the docket import runs at most once
+    # per session, whatever the store says.
+    _mark_seen(edits, NUDGED)
+    ledger = _ledger_file(cwd, root)
+    if not ledger.exists() or _open_feature(ledger.parent / "features.jsonl"):
+        return ""
+    command = Path(__file__).resolve().parent.parent / "bin" / "docket"
+    return (
+        f"This session has edited {len(files)} files ({', '.join(files)}) and no docket "
+        "feature is open. Start one before the next edit, so the change set is declared "
+        f'and `done` can check it: `{command} feature start SLUG --text "what this work '
+        "changes\" --path 'DIR/**'`. Load the docket-feature skill for path rules and "
+        "closing with done."
+    )
+
+
 LEDGER_GUIDANCE = (
     "Do not edit the ledger file. Record a new claim, decision or question with "
     "`docket record` (or `docket claim`, `docket decision`, `docket question`); "
@@ -474,10 +540,13 @@ def main() -> int:
         }
     elif payload.get("tool_name") in FILE_TOOLS:
         # Fails open: a docket error must never cost an edit.
-        try:
-            context = governing_context(payload)
-        except Exception:
-            return 0
+        parts = []
+        for build in (governing_context, feature_nudge):
+            try:
+                parts.append(build(payload))
+            except Exception:
+                pass
+        context = "\n\n".join(filter(None, parts))
         if not context:
             return 0
         output = {"hookEventName": "PreToolUse", "additionalContext": context}

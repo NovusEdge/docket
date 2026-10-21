@@ -1,6 +1,6 @@
 ---
 name: docket-feature
-description: Use when starting work that will outlast this session or go to another agent, when resuming work an earlier session left uncommitted or unfinished, when the briefing shows a feature or a feature hint, or before merging, squashing or rebasing a branch that carries a feature.
+description: Use before a change reaches its third file, when work will outlast this session or go to another agent, when resuming work an earlier session left uncommitted or unfinished, when the briefing or an edit hook says no feature is open, or before merging, squashing or rebasing a branch that carries a feature.
 ---
 
 # docket-feature
@@ -12,15 +12,23 @@ examples use `docket` for readability.
 
 ## When to start a feature
 
-Start one before work that spans more than one session, or whose blast radius
-is worth declaring: a change that touches several files, crosses a module
-boundary, or another agent might pick up later. Do not start one for a
-one-line fix or a change you will finish and commit in this turn.
+Start one before a change touches its third file, and before any work that
+spans more than one session, crosses a module boundary, or another agent might
+pick up later. Finishing within this turn is not a reason to skip it: `done`
+reports which changed files fell outside the declared paths and asks about
+the claims the change touched, and that check is worth as much on a short
+change as on a long one. Skip it only for a change confined to one or two
+files.
+
+The edit hook says so when a session reaches its third edited file with no
+feature open. Start the feature then, declaring the paths the rest of the
+change will touch. Uncommitted edits made before `start` still count toward
+`done` once they are committed.
 
 The session briefing opens with a `# feature: none open` line when the working
 tree carries uncommitted changes and no feature is open. Those changes came
-from an earlier session. Start a feature for them if the work continues past
-this one; commit a leftover edit instead if it is already finished.
+from an earlier session. Start a feature for them before editing further;
+commit a leftover edit instead if it is already finished.
 
 ## Starting work
 

@@ -376,6 +376,109 @@ class GoverningRecordTests(unittest.TestCase):
         self.assertEqual(done.stdout.strip(), "")
 
 
+class FeatureNudgeTests(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        base = Path(tmp.name)
+        self.project = base / "project"
+        self.project.mkdir()
+        subprocess.run(["git", "init", "-q", "-b", "main", str(self.project)], check=True)
+        (self.project / ".docket").mkdir()
+        (self.project / ".docket" / "ledger.jsonl").write_text("", encoding="utf-8")
+        self.env = {
+            **os.environ,
+            "XDG_STATE_HOME": str(base / "state"),
+            "DOCKET_HOME": str(base / "home"),
+            "DOCKET_AUTHOR": "tester",
+            "CLAUDE_SESSION_ID": "sess-1",
+            "GIT_AUTHOR_NAME": "t",
+            "GIT_AUTHOR_EMAIL": "t@example.test",
+            "GIT_COMMITTER_NAME": "t",
+            "GIT_COMMITTER_EMAIL": "t@example.test",
+        }
+
+    def edit(self, path, env=None):
+        payload = json.dumps(
+            {"tool_name": "Edit", "tool_input": {"file_path": path}, "cwd": str(self.project)}
+        )
+        done = subprocess.run(
+            [sys.executable, str(GUARD)],
+            input=payload,
+            capture_output=True,
+            text=True,
+            env=env or self.env,
+        )
+        self.assertEqual(done.returncode, 0, done.stderr)
+        out = json.loads(done.stdout)["hookSpecificOutput"] if done.stdout.strip() else None
+        return out["additionalContext"] if out else None
+
+    def test_the_third_distinct_file_gets_the_nudge(self):
+        self.assertIsNone(self.edit("a/one.py"))
+        self.assertIsNone(self.edit("a/two.py"))
+        context = self.edit("b/three.py")
+        self.assertIn("feature start", context)
+        self.assertIn("docket-feature", context)
+        self.assertIn("b/three.py", context)
+
+    def test_editing_one_file_repeatedly_counts_once(self):
+        for _ in range(4):
+            self.assertIsNone(self.edit("a/one.py"))
+        self.assertIsNone(self.edit(str(self.project / "a" / "one.py")))
+
+    def test_the_nudge_fires_once_per_session(self):
+        for name in ("one", "two", "three"):
+            self.edit(f"a/{name}.py")
+        self.assertIsNone(self.edit("a/four.py"))
+        other = {**self.env, "CLAUDE_SESSION_ID": "sess-2"}
+        for name in ("one", "two"):
+            self.assertIsNone(self.edit(f"a/{name}.py", env=other))
+        self.assertIsNotNone(self.edit("a/three.py", env=other))
+
+    def test_an_open_feature_silences_it(self):
+        started = subprocess.run(
+            [sys.executable, str(DOCKET), "feature", "start", "w", "--text", "t", "--path", "a/**"],
+            cwd=self.project,
+            env=self.env,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(started.returncode, 0, started.stderr)
+        for name in ("one", "two", "three", "four"):
+            self.assertIsNone(self.edit(f"a/{name}.py"))
+
+    def test_a_project_without_a_ledger_gets_no_nudge(self):
+        (self.project / ".docket" / "ledger.jsonl").unlink()
+        for name in ("one", "two", "three"):
+            self.assertIsNone(self.edit(f"a/{name}.py"))
+
+    def test_docket_files_do_not_count(self):
+        self.edit("a/one.py")
+        self.edit("a/two.py")
+        self.assertIsNone(self.edit(".docket/config.toml"))
+
+    def test_without_a_session_there_is_no_nudge(self):
+        env = {k: v for k, v in self.env.items() if k not in SESSION_VARS}
+        for name in ("one", "two", "three"):
+            self.assertIsNone(self.edit(f"a/{name}.py", env=env))
+
+    def test_it_joins_the_governing_records_on_the_same_edit(self):
+        recorded = subprocess.run(
+            [sys.executable, str(DOCKET), "decision", "Rule", "--choice", "c"]
+            + ["--scope", "src/core/x.py"],
+            cwd=self.project,
+            env=self.env,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(recorded.returncode, 0, recorded.stderr)
+        self.edit("a/one.py")
+        self.edit("a/two.py")
+        context = self.edit("src/core/x.py")
+        self.assertIn("Recorded decisions govern", context)
+        self.assertIn("feature start", context)
+
+
 class RobustnessTests(unittest.TestCase):
     def test_malformed_input_allows(self):
         result = subprocess.run(

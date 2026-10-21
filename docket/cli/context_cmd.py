@@ -72,7 +72,8 @@ def _print_context(text: str, args: argparse.Namespace, notice: str | None = Non
 
 _NO_FEATURE_HINT = (
     "# feature: none open, and the working tree has uncommitted changes outside .docket/. "
-    "If that work continues past this session, load the docket-feature skill and start a feature."
+    "Before editing further, load the docket-feature skill and start a feature for that work, "
+    "or commit it if it is finished."
 )
 
 
