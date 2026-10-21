@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-10-21
+
 ### Changed
 
 - The pre-edit hook tells the agent to start a feature when a session edits its third distinct file outside `.docket/` and no feature is open, once per session.
@@ -799,7 +801,8 @@ the breaking-change notes before upgrading.
 
 Versions before 0.6.1 carry no git tag. Their history is in the commit log.
 
-[Unreleased]: https://github.com/NovusEdge/docket/compare/v0.29.0...HEAD
+[Unreleased]: https://github.com/NovusEdge/docket/compare/v0.30.0...HEAD
+[0.30.0]: https://github.com/NovusEdge/docket/compare/v0.29.0...v0.30.0
 [0.29.0]: https://github.com/NovusEdge/docket/compare/v0.28.0...v0.29.0
 [0.28.0]: https://github.com/NovusEdge/docket/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/NovusEdge/docket/compare/v0.26.0...v0.27.0
