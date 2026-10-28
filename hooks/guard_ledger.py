@@ -16,6 +16,9 @@ This catches routine edits, not a determined one. Eval, a script that writes
 the ledger, a variable holding the path or other indirection can still write
 it; the hook prevents accidents and does not enforce append-only.
 
+DOCKET_HOOKS=off is the human's opt-out: the hook exits silently for every
+call, ledger writes included.
+
 A hook that fails open costs a session nothing and a hook that fails closed
 costs it everything.
 """
@@ -515,6 +518,8 @@ LEDGER_GUIDANCE = (
 
 
 def main() -> int:
+    if os.environ.get("DOCKET_HOOKS") == "off":
+        return 0
     try:
         payload = json.load(sys.stdin)
     except (json.JSONDecodeError, ValueError):

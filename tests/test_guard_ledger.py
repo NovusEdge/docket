@@ -6,6 +6,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+# Someone running with the hooks off must still get the default behavior under test.
+os.environ.pop("DOCKET_HOOKS", None)
+
 GUARD = Path(__file__).parent.parent / "hooks" / "guard_ledger.py"
 CWD = "/home/user/project"
 # Every variable the hook reads a session id from; a test run inside Claude
@@ -477,6 +480,33 @@ class FeatureNudgeTests(unittest.TestCase):
         context = self.edit("src/core/x.py")
         self.assertIn("Recorded decisions govern", context)
         self.assertIn("feature start", context)
+
+
+class HooksOffTests(unittest.TestCase):
+    def test_off_silences_a_ledger_write_and_the_nudge(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {
+                **os.environ,
+                "DOCKET_HOOKS": "off",
+                "XDG_STATE_HOME": tmp,
+                "CLAUDE_SESSION_ID": "s",
+            }
+            calls = [("Edit", {"file_path": ".docket/ledger.jsonl"})]
+            calls += [("Edit", {"file_path": f"a/{n}.py"}) for n in ("one", "two", "three")]
+            for tool, tool_input in calls:
+                payload = json.dumps({"tool_name": tool, "tool_input": tool_input, "cwd": tmp})
+                done = subprocess.run(
+                    [sys.executable, str(GUARD)],
+                    input=payload,
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                )
+                self.assertEqual((done.returncode, done.stdout), (0, ""))
+
+    def test_any_other_value_leaves_the_guard_on(self):
+        env = {**os.environ, "DOCKET_HOOKS": "on"}
+        self.assertEqual(decide("Edit", {"file_path": ".docket/ledger.jsonl"}, env=env), "ask")
 
 
 class RobustnessTests(unittest.TestCase):
