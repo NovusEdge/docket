@@ -6,8 +6,11 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+# Someone running with the hooks off must still get the default behavior under test.
+os.environ.pop("DOCKET_HOOKS", None)
 from docket.cli import main
 from docket.cli.autoscope import uncommitted_paths
 from docket.cli.context_cmd import _NO_FEATURE_HINT, _feature_block
@@ -39,6 +42,11 @@ class NoFeatureHintTests(unittest.TestCase):
     def test_a_dirty_tree_with_no_feature_store_gets_the_hint(self):
         (self.root / "work.txt").write_text("x\n", encoding="utf-8")
         self.assertEqual(self.block(), _NO_FEATURE_HINT)
+
+    def test_hooks_off_silences_the_hint(self):
+        (self.root / "work.txt").write_text("x\n", encoding="utf-8")
+        with mock.patch.dict(os.environ, {"DOCKET_HOOKS": "off"}):
+            self.assertEqual(self.block(), "")
 
     def test_a_staged_change_gets_the_hint(self):
         (self.root / "work.txt").write_text("x\n", encoding="utf-8")

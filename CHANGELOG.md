@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `DOCKET_HOOKS=off` silences the pre-edit hook and the session briefing's feature, update and merge notices. The briefing still prints the ledger.
+
 ## [0.30.0] - 2026-10-21
 
 ### Changed

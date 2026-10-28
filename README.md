@@ -162,6 +162,8 @@ docket context --query "database" --file src/db.py --max-chars 4000
 Docket measures budget in **characters** instead of tokens. It keeps whole
 records, reports what was omitted, and includes a command to retrieve more.
 
+Set `DOCKET_HOOKS=off` in the environment to let an agent work with docket unimpeded: the edit hook stops asking about ledger writes and adding guidance, and the session briefing drops its feature, update and merge notices but still prints the ledger.
+
 ## Learn more
 
 - [Why Docket?](docs/why.md): what the structure buys you and when simpler notes are enough.

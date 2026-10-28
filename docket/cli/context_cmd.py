@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -77,7 +78,14 @@ _NO_FEATURE_HINT = (
 )
 
 
+def hooks_off() -> bool:
+    """DOCKET_HOOKS=off silences the nags; the ledger briefing still prints."""
+    return os.environ.get("DOCKET_HOOKS") == "off"
+
+
 def _no_feature_hint() -> str:
+    if hooks_off():
+        return ""
     # Uncapped: a capped list could be filled by .docket/ paths and hide a
     # change elsewhere.
     dirty = any(not p.startswith(".docket/") for p in uncommitted_paths())
@@ -172,7 +180,8 @@ def cmd_context(args: argparse.Namespace) -> int:
     except ConfigError as exc:
         print(f"docket: {exc}", file=sys.stderr)
         return 1
-    line = "\n".join(filter(None, (update_line(), _merge_notice()))) or None
+    notices = () if hooks_off() else (update_line(), _merge_notice())
+    line = "\n".join(filter(None, notices)) or None
     # Validate against the loaded minimum, not a literal. A config that raises
     # budget.minimum would otherwise let a too-small value through and surface
     # as an uncaught ValueError from the renderer.
