@@ -10,6 +10,8 @@ every incoming record. A refusal for mixed schemas counts as a failure.
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -169,6 +171,64 @@ def _behind(ours: Path, theirs: Path, current: int) -> tuple[str, int] | None:
     return None
 
 
+_DEFAULT_BRANCHES = (
+    "refs/remotes/origin/main",
+    "refs/remotes/origin/master",
+    "refs/heads/main",
+    "refs/heads/master",
+)
+
+
+def _git(*args: str) -> subprocess.CompletedProcess[str] | None:
+    try:
+        return subprocess.run(["git", *args], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def _default_tip() -> str | None:
+    """The commit the default branch points at, or None when it cannot be told."""
+    named = _git("symbolic-ref", "-q", "refs/remotes/origin/HEAD")
+    candidates = [named.stdout.strip()] if named and named.returncode == 0 else []
+    for ref in (*candidates, *_DEFAULT_BRANCHES):
+        found = _git("rev-parse", "-q", "--verify", f"{ref}^{{commit}}")
+        if found and found.returncode == 0:
+            return found.stdout.strip()
+    return None
+
+
+def _on_default(commit: str, tip: str) -> bool | None:
+    result = _git("merge-base", "--is-ancestor", commit, tip)
+    if result is None or result.returncode not in (0, 1):
+        return None
+    return result.returncode == 0
+
+
+def _merged_commit() -> str | None:
+    """The one commit `git merge` is merging in, or None (rebase, cherry-pick, octopus)."""
+    # git writes MERGE_HEAD only after the merge machinery, and so the drivers,
+    # have run; what a driver can see is GITHEAD_<sha>=<name>, set by git merge.
+    shas = [name[len("GITHEAD_") :] for name in os.environ if name.startswith("GITHEAD_")]
+    return shas[0] if len(shas) == 1 else None
+
+
+def _theirs_is_published() -> bool:
+    """Whether THEIRS is the side already on the default branch.
+
+    That is a feature branch merging the default branch in: the merged commit
+    is reachable from the default branch and HEAD is not. Published records
+    keep their ids, because other branches and documents cite them, so the
+    driver then renumbers OURS instead. Every other case, including a default
+    branch that cannot be found, keeps OURS's ids. git runs the driver from the
+    top of the work tree.
+    """
+    incoming = _merged_commit()
+    tip = _default_tip() if incoming else None
+    if incoming is None or tip is None:
+        return False
+    return _on_default(incoming, tip) is True and _on_default("HEAD", tip) is False
+
+
 def run(base: Path, ours: Path, theirs: Path) -> int:
     """Merge THEIRS into OURS in place. 0 when merged, 1 when left in conflict or refused."""
 
@@ -185,16 +245,18 @@ def run(base: Path, ours: Path, theirs: Path) -> int:
         )
         _conflict(base, ours, theirs)
         return 1
+    swap = _theirs_is_published()
+    first, second = (theirs, ours) if swap else (ours, theirs)
     try:
         if holds_features:
-            mine, incoming = (features.read(p, lock=False) for p in (ours, theirs))
+            mine, incoming = (features.read(p, lock=False) for p in (first, second))
             # BASE is read raw: it may still be schema 1, and only matching uses it.
             tail = _feature_tail(_raw(base), mine, incoming)
         else:
             # lock=False: the default lock creates <file>.lock next to git's
             # temp files at the repository root, where nothing ignores it.
             old = _base_ledger(base)
-            mine, incoming = (ledger.read(p, lock=False, strict=True) for p in (ours, theirs))
+            mine, incoming = (ledger.read(p, lock=False, strict=True) for p in (first, second))
             tail, moved = rebase.merge(old, mine, incoming)
             ledger.validate_entries(mine + tail)
     except (
@@ -211,6 +273,9 @@ def run(base: Path, ours: Path, theirs: Path) -> int:
         print(f"docket: cannot merge {ours.name}: {exc}", file=sys.stderr)
         _conflict(base, ours, theirs)
         return 1
+    if swap:
+        # git keeps the file at the OURS path, so the published side's bytes go there first.
+        shutil.copyfile(theirs, ours)
     if tail:
         lines = "".join(
             json.dumps(r, ensure_ascii=False, separators=(",", ":")) + "\n" for r in tail

@@ -490,3 +490,109 @@ class GitTests(unittest.TestCase):
         self.assertNotEqual(self.git("merge", "--no-edit", "topic", check=False).returncode, 0)
         text = (self.repo / ".docket" / "ledger.jsonl").read_text(encoding="utf-8")
         self.assertIn("<<<<<<<", text)
+
+    def diverge(self):
+        """topic records two linked claims; main records one, after the fork."""
+        self.git("checkout", "-qb", "topic")
+        self.record("Topic one", "t1")
+        self.docket("claim", "Topic two", "--state", "accepted", "--supports", "c2")
+        self.git("commit", "-qam", "t2")
+        self.git("checkout", "-q", "main")
+        self.record("Main claim", "main")
+        self.git("checkout", "-q", "topic")
+
+    def pairs(self):
+        return [(r["id"], r["text"]) for r in self.ledger()]
+
+    def test_a_branch_merging_main_in_keeps_main_ids_and_renumbers_its_own(self):
+        self.diverge()
+        self.assertEqual(self.git("merge", "-q", "--no-edit", "main").returncode, 0)
+        self.assertEqual(
+            self.pairs(),
+            [("c1", "Shared"), ("c2", "Main claim"), ("c3", "Topic one"), ("c4", "Topic two")],
+        )
+        self.assertEqual(self.ledger()[3]["supports"], [["c3"]])
+        self.assertEqual(self.docket("check").returncode, 0)
+
+    def test_main_merging_a_branch_in_still_renumbers_the_branch(self):
+        self.diverge()
+        self.git("checkout", "-q", "main")
+        self.assertEqual(self.git("merge", "-q", "--no-edit", "topic").returncode, 0)
+        self.assertEqual(
+            self.pairs(),
+            [("c1", "Shared"), ("c2", "Main claim"), ("c3", "Topic one"), ("c4", "Topic two")],
+        )
+        self.assertEqual(self.ledger()[3]["supports"], [["c3"]])
+
+    def test_a_second_merge_of_main_keeps_main_ids_and_moves_the_branch_again(self):
+        self.diverge()
+        self.git("merge", "-q", "--no-edit", "main")
+        self.git("checkout", "-q", "main")
+        self.record("Main later", "main2")
+        self.git("checkout", "-q", "topic")
+        self.assertEqual(self.git("merge", "-q", "--no-edit", "main").returncode, 0)
+        self.assertEqual(
+            self.pairs(),
+            [
+                ("c1", "Shared"),
+                ("c2", "Main claim"),
+                ("c3", "Main later"),
+                ("c4", "Topic one"),
+                ("c5", "Topic two"),
+            ],
+        )
+        self.assertEqual(self.ledger()[4]["supports"], [["c4"]])
+
+    def test_the_driver_reports_which_records_moved(self):
+        self.diverge()
+        result = self.git("merge", "--no-edit", "main")
+        self.assertIn("docket: c2 -> c3", result.stderr + result.stdout)
+
+    def test_without_a_default_branch_the_current_side_keeps_its_ids(self):
+        self.git("branch", "-m", "main", "trunk")
+        self.git("checkout", "-qb", "topic")
+        self.record("Topic claim", "topic")
+        self.git("checkout", "-q", "trunk")
+        self.record("Trunk claim", "trunk")
+        self.git("checkout", "-q", "topic")
+        self.assertEqual(self.git("merge", "-q", "--no-edit", "trunk").returncode, 0)
+        self.assertEqual(self.texts(), ["Shared", "Topic claim", "Trunk claim"])
+
+    def use_features(self):
+        with (self.repo / ".gitattributes").open("a") as f:
+            f.write(".docket/features.jsonl merge=docket\n")
+        self.git("commit", "-qam", "attributes")
+
+    def feature_slugs(self):
+        return [
+            (e["id"], e["slug"]) for e in features.read(self.repo / ".docket" / "features.jsonl")
+        ]
+
+    def diverge_features(self, default="main"):
+        self.use_features()
+        self.git("checkout", "-qb", "topic")
+        self.docket("feature", "start", "work", "--text", "Work", "--path", "src/**")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "topic")
+        self.git("checkout", "-q", default)
+        self.docket("feature", "start", "other", "--text", "Other", "--path", "lib/**")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "main")
+
+    def test_a_branch_merging_main_in_keeps_main_feature_ids(self):
+        self.diverge_features()
+        self.git("checkout", "-q", "topic")
+        self.assertEqual(self.git("merge", "-q", "--no-edit", "main").returncode, 0)
+        self.assertEqual(self.feature_slugs(), [("f1", "other"), ("f2", "work")])
+
+    def test_main_merging_a_feature_branch_in_renumbers_the_branch_feature(self):
+        self.diverge_features()
+        self.assertEqual(self.git("merge", "-q", "--no-edit", "topic").returncode, 0)
+        self.assertEqual(self.feature_slugs(), [("f1", "other"), ("f2", "work")])
+
+    def test_without_a_default_branch_features_keep_the_current_side_ids(self):
+        self.git("branch", "-m", "main", "trunk")
+        self.diverge_features("trunk")
+        self.git("checkout", "-q", "topic")
+        self.assertEqual(self.git("merge", "-q", "--no-edit", "trunk").returncode, 0)
+        self.assertEqual(self.feature_slugs(), [("f1", "work"), ("f2", "other")])
