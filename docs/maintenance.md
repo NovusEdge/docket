@@ -33,7 +33,7 @@ markers, recover the two branch versions before combining their records.
 
 ## Combine records from two branches
 
-When both branches add records, they can allocate the same IDs. With the merge driver registered, `git merge`, `git rebase` and `git cherry-pick` handle this themselves: the other side's new records take fresh IDs and their links follow. Nothing else is needed unless git reports a conflict on the ledger.
+When both branches add records, they can allocate the same IDs. With the merge driver registered, `git merge`, `git rebase` and `git cherry-pick` handle this themselves: the other side's new records take fresh IDs and their links follow. The exception is a branch that merges the default branch in: records already on the default branch keep their IDs, because other branches and documents cite them, and the branch's own new records take the fresh ones. Nothing else is needed unless git reports a conflict on the ledger.
 
 The driver leaves a conflict when both sides superseded the same record, when a cherry-picked record cites one the target lacks, or when a file does not read. A clone without the driver registered also gets an ordinary conflict. Combining the lines by hand does not resolve it; use `docket rebase` to give the incoming records new IDs and update their links.
 
