@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.31.1] - 2026-11-03
+
 ### Fixed
 
 - The merge driver no longer renumbers records that are already on the default branch. When `git merge` brings the default branch into a branch that has not reached it, the branch's new ledger records and feature events take the fresh ids and the default branch's keep theirs, so citations of them elsewhere stay correct. With no default branch to find (`origin/HEAD`, `origin/main`, `origin/master`, `main` or `master`), or under `rebase`, `cherry-pick` and octopus merges, the current side still keeps its ids.
@@ -811,7 +813,8 @@ the breaking-change notes before upgrading.
 
 Versions before 0.6.1 carry no git tag. Their history is in the commit log.
 
-[Unreleased]: https://github.com/NovusEdge/docket/compare/v0.31.0...HEAD
+[Unreleased]: https://github.com/NovusEdge/docket/compare/v0.31.1...HEAD
+[0.31.1]: https://github.com/NovusEdge/docket/compare/v0.31.0...v0.31.1
 [0.31.0]: https://github.com/NovusEdge/docket/compare/v0.30.0...v0.31.0
 [0.30.0]: https://github.com/NovusEdge/docket/compare/v0.29.0...v0.30.0
 [0.29.0]: https://github.com/NovusEdge/docket/compare/v0.28.0...v0.29.0
