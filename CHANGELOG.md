@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.31.2] - 2026-11-09
+
 ### Fixed
 
 - `docket feature start` records the freshest fork point as `base`. It took the merge base with the local `main`, which goes stale in clones that branch from `origin/main`, so `feature done` reported every file the default branch had gained since as unintentional. It now compares `origin/HEAD`, `origin/main`, `origin/master`, `main` and `master` and keeps the newest merge base, preferring the remote one when they diverge.
@@ -817,7 +819,8 @@ the breaking-change notes before upgrading.
 
 Versions before 0.6.1 carry no git tag. Their history is in the commit log.
 
-[Unreleased]: https://github.com/NovusEdge/docket/compare/v0.31.1...HEAD
+[Unreleased]: https://github.com/NovusEdge/docket/compare/v0.31.2...HEAD
+[0.31.2]: https://github.com/NovusEdge/docket/compare/v0.31.1...v0.31.2
 [0.31.1]: https://github.com/NovusEdge/docket/compare/v0.31.0...v0.31.1
 [0.31.0]: https://github.com/NovusEdge/docket/compare/v0.30.0...v0.31.0
 [0.30.0]: https://github.com/NovusEdge/docket/compare/v0.29.0...v0.30.0
