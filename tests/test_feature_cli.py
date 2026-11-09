@@ -164,6 +164,33 @@ class FeatureCloseTests(FeatureCliTests):
         self.assertEqual(feature["intentional"], [])
 
 
+class FeatureStartForkPointTests(FeatureCliTests):
+    def git(self, *args):
+        return subprocess.run(
+            ["git", "-C", str(self.root), *args], check=True, capture_output=True, text=True
+        ).stdout.strip()
+
+    def commit(self, name):
+        (self.root / name).write_text(f"{name}\n", encoding="utf-8")
+        self.git("add", name)
+        self.git("-c", "user.email=t@example.test", "-c", "user.name=t", "commit", "-m", name)
+
+    def test_feature_start_records_the_fresh_fork_point(self):
+        self.commit("base.txt")
+        self.git("checkout", "-b", "upstream")
+        self.commit("upstream.txt")
+        fresh = self.git("rev-parse", "HEAD")
+        self.git("update-ref", "refs/remotes/origin/main", fresh)
+        self.git("checkout", "-b", "feat/fresh", "origin/main")
+        self.commit("work.txt")
+
+        code, _ = self.run_cli("feature", "start", "one", "--text", "t", "--path", "src/**")
+        self.assertEqual(code, 0)
+        store = self.root / ".docket" / "features.jsonl"
+        event = json.loads(store.read_text(encoding="utf-8").splitlines()[0])
+        self.assertEqual(event["base"], fresh)
+
+
 class FeatureCheckTests(FeatureCliTests):
     def test_check_passes_on_a_healthy_store(self):
         self.run_cli("feature", "start", "one", "--text", "t", "--path", "a/**")

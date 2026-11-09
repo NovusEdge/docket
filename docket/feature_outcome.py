@@ -12,7 +12,13 @@ from pathlib import Path
 from docket.config import DEFAULTS
 from docket.context import scope_strength
 
-DEFAULT_BRANCHES = ("main", "master")
+# Keep these refs and the origin/HEAD lookup in step with merge_driver._default_tip.
+DEFAULT_BRANCHES = (
+    "refs/remotes/origin/main",
+    "refs/remotes/origin/master",
+    "refs/heads/main",
+    "refs/heads/master",
+)
 
 
 class OutcomeError(ValueError):
@@ -33,29 +39,50 @@ def _current_branch(root: Path) -> str:
 
 
 def fork_point(root: Path) -> tuple[str, str]:
-    """The merge base with the default branch, and a warning when there is none.
+    """The newest merge base with a default branch, and a warning when there is none.
 
     HEAD is the wrong base. A feature declared after work began would miss
     every commit that came first, and its unintentional set would be silently
-    short.
+    short. Local default branches can be stale, so compare all default refs,
+    including origin/HEAD, and choose the base all others are ancestors of.
+    If the bases diverge, prefer the remote-tracking ref's base in candidate
+    order. On the default branch itself (main, master, or origin/HEAD's
+    target), keep HEAD and warn.
     """
 
     current = _current_branch(root)
-    for candidate in DEFAULT_BRANCHES:
-        if _git(root, "rev-parse", "--verify", candidate).returncode != 0:
-            continue
-        if candidate == current:
-            break
-        result = _git(root, "merge-base", "HEAD", candidate)
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip(), ""
-
     head = _git(root, "rev-parse", "HEAD")
     if head.returncode != 0:
         return (
             "",
             "recording no base: this repository has no commits yet",
         )
+    bases: list[str] = []
+    named = _git(root, "symbolic-ref", "-q", "refs/remotes/origin/HEAD")
+    candidates = [named.stdout.strip()] if named.returncode == 0 else []
+    origin_default = candidates[0].removeprefix("refs/remotes/origin/") if candidates else ""
+    if f"refs/heads/{current}" not in DEFAULT_BRANCHES and current != origin_default:
+        for candidate in dict.fromkeys((*candidates, *DEFAULT_BRANCHES)):
+            found = _git(root, "rev-parse", "-q", "--verify", f"{candidate}^{{commit}}")
+            if found.returncode != 0:
+                continue
+            if not current and found.stdout.strip() == head.stdout.strip():
+                bases.clear()
+                break
+            result = _git(root, "merge-base", "HEAD", candidate)
+            base = result.stdout.strip()
+            if result.returncode == 0 and base and base not in bases:
+                bases.append(base)
+
+    for base in bases:
+        if all(
+            other == base or _git(root, "merge-base", "--is-ancestor", other, base).returncode == 0
+            for other in bases
+        ):
+            return base, ""
+    if bases:
+        # Diverged bases have no single newest commit; remote refs come first.
+        return bases[0], ""
     return (
         head.stdout.strip(),
         "recording HEAD as the base: this is the default branch, so there is no fork point",

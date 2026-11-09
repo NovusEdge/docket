@@ -44,6 +44,17 @@ class RepositoryTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def commit(self, name):
+        (self.root / name).write_text(f"{name}\n", encoding="utf-8")
+        git(self.root, "add", name)
+        git(self.root, "commit", "-m", name)
+        return subprocess.run(
+            ["git", "-C", str(self.root), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
     def test_fork_point_on_the_default_branch_returns_head_and_warns(self):
         sha, warning = outcome.fork_point(self.root)
         self.assertTrue(sha)
@@ -63,6 +74,104 @@ class RepositoryTests(unittest.TestCase):
         sha, warning = outcome.fork_point(self.root)
         self.assertEqual(sha, head)
         self.assertEqual(warning, "")
+
+    def test_fork_point_prefers_origin_main_over_a_stale_local_main(self):
+        git(self.root, "checkout", "-b", "upstream")
+        fresh = self.commit("upstream.txt")
+        git(self.root, "update-ref", "refs/remotes/origin/main", fresh)
+        git(self.root, "checkout", "-b", "feat/x", "origin/main")
+        self.commit("work.txt")
+
+        sha, warning = outcome.fork_point(self.root)
+        self.assertEqual(sha, fresh)
+        self.assertEqual(warning, "")
+
+    def test_fork_point_with_only_a_local_main_is_unchanged(self):
+        git(self.root, "checkout", "-b", "feat/x")
+        self.commit("work.txt")
+        git(self.root, "checkout", "main")
+        self.commit("upstream.txt")
+        git(self.root, "checkout", "feat/x")
+        expected = subprocess.run(
+            ["git", "-C", str(self.root), "merge-base", "HEAD", "main"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+        sha, warning = outcome.fork_point(self.root)
+        self.assertEqual(sha, expected)
+        self.assertEqual(warning, "")
+
+    def test_fork_point_prefers_a_newer_local_main_over_origin_main(self):
+        git(self.root, "update-ref", "refs/remotes/origin/main", "HEAD")
+        fresh = self.commit("upstream.txt")
+        git(self.root, "checkout", "-b", "feat/x")
+        self.commit("work.txt")
+        self.assertEqual(outcome.fork_point(self.root), (fresh, ""))
+
+    def test_fork_point_prefers_the_remote_base_when_default_branches_diverge(self):
+        git(self.root, "checkout", "-b", "upstream")
+        remote = self.commit("upstream.txt")
+        git(self.root, "update-ref", "refs/remotes/origin/main", remote)
+        git(self.root, "checkout", "main")
+        self.commit("local.txt")
+        git(self.root, "checkout", "-b", "feat/x")
+        git(self.root, "merge", "origin/main", "-m", "merge")
+        self.assertEqual(outcome.fork_point(self.root), (remote, ""))
+
+    def test_fork_point_uses_origin_head_for_a_custom_default_branch(self):
+        git(self.root, "checkout", "-b", "upstream")
+        fresh = self.commit("upstream.txt")
+        git(self.root, "update-ref", "refs/remotes/origin/trunk", fresh)
+        git(self.root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk")
+        git(self.root, "checkout", "-b", "feat/x", "origin/trunk")
+        self.commit("work.txt")
+        self.assertEqual(outcome.fork_point(self.root), (fresh, ""))
+
+    def test_fork_point_skips_an_unresolved_origin_head(self):
+        git(self.root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/missing")
+        git(self.root, "checkout", "-b", "upstream")
+        fresh = self.commit("upstream.txt")
+        git(self.root, "update-ref", "refs/remotes/origin/master", fresh)
+        git(self.root, "checkout", "-b", "feat/x", "origin/master")
+        self.commit("work.txt")
+        self.assertEqual(outcome.fork_point(self.root), (fresh, ""))
+
+    def test_fork_point_on_local_main_with_a_remote_returns_head_and_warns(self):
+        head = self.commit("local.txt")
+        git(self.root, "checkout", "-b", "upstream")
+        fresh = self.commit("upstream.txt")
+        git(self.root, "update-ref", "refs/remotes/origin/main", fresh)
+        git(self.root, "checkout", "main")
+        sha, warning = outcome.fork_point(self.root)
+        self.assertEqual(sha, head)
+        self.assertIn("recording HEAD as the base", warning)
+
+    def test_fork_point_on_the_origin_head_branch_returns_head_and_warns(self):
+        git(self.root, "checkout", "-b", "trunk")
+        git(self.root, "update-ref", "refs/remotes/origin/trunk", "HEAD")
+        git(self.root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk")
+        head = self.commit("unpushed.txt")
+        sha, warning = outcome.fork_point(self.root)
+        self.assertEqual(sha, head)
+        self.assertIn("recording HEAD as the base", warning)
+
+    def test_fork_point_detached_at_the_remote_default_tip_returns_head_and_warns(self):
+        git(self.root, "checkout", "-b", "upstream")
+        head = self.commit("upstream.txt")
+        git(self.root, "update-ref", "refs/remotes/origin/main", head)
+        git(self.root, "checkout", "--detach", "origin/main")
+        sha, warning = outcome.fork_point(self.root)
+        self.assertEqual(sha, head)
+        self.assertIn("recording HEAD as the base", warning)
+
+    def test_fork_point_on_a_new_branch_at_the_remote_default_tip_does_not_warn(self):
+        git(self.root, "checkout", "-b", "upstream")
+        head = self.commit("upstream.txt")
+        git(self.root, "update-ref", "refs/remotes/origin/main", head)
+        git(self.root, "checkout", "-b", "feat/x", "origin/main")
+        self.assertEqual(outcome.fork_point(self.root), (head, ""))
 
     def test_merging_the_default_branch_adds_nothing_to_the_change_set(self):
         git(self.root, "checkout", "-b", "feat/x")

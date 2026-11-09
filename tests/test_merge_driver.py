@@ -585,6 +585,14 @@ class GitTests(unittest.TestCase):
         self.assertEqual(self.git("merge", "-q", "--no-edit", "main").returncode, 0)
         self.assertEqual(self.feature_slugs(), [("f1", "other"), ("f2", "work")])
 
+    def test_a_branch_merging_origin_main_in_keeps_main_feature_ids_with_a_stale_local_main(self):
+        self.diverge_features()
+        self.git("update-ref", "refs/remotes/origin/main", "HEAD")
+        self.git("checkout", "-q", "topic")
+        self.git("branch", "-f", "main", "topic~1")
+        self.assertEqual(self.git("merge", "-q", "--no-edit", "origin/main").returncode, 0)
+        self.assertEqual(self.feature_slugs(), [("f1", "other"), ("f2", "work")])
+
     def test_main_merging_a_feature_branch_in_renumbers_the_branch_feature(self):
         self.diverge_features()
         self.assertEqual(self.git("merge", "-q", "--no-edit", "topic").returncode, 0)

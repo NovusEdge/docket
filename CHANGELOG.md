@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `docket feature start` records the freshest fork point as `base`. It took the merge base with the local `main`, which goes stale in clones that branch from `origin/main`, so `feature done` reported every file the default branch had gained since as unintentional. It now compares `origin/HEAD`, `origin/main`, `origin/master`, `main` and `master` and keeps the newest merge base, preferring the remote one when they diverge.
+
 ## [0.31.1] - 2026-11-03
 
 ### Fixed
