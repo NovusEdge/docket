@@ -83,10 +83,7 @@ $ docket feature abandon some-other-slug --text "superseded by a different appro
 
 ## The fork-point base and the change set
 
-`start` records `base` as the merge base with the default branch. This includes
-earlier branch work when you declare a feature partway through a task. On the
-default branch itself, `base` is HEAD and `start` warns that there is no fork
-point.
+`start` records `base` as the newest merge base between HEAD and the default-branch refs: origin/HEAD's target, `origin/main`, `origin/master`, `main` and `master`, whichever exist. "Newest" means the base the others are ancestors of, so a stale local `main` does not pull the base back. When the bases diverge, it prefers the remote-tracking base. This includes earlier branch work when you declare a feature partway through a task. On the default branch itself (`main`, `master`, or origin/HEAD's target), `base` is HEAD and `start` warns that there is no fork point.
 
 `done` walks the branch's own commits with `git log --first-parent --no-merges
 -M base..HEAD`, then classifies each changed path against the feature's

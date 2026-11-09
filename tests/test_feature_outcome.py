@@ -148,6 +148,15 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(sha, head)
         self.assertIn("recording HEAD as the base", warning)
 
+    def test_fork_point_on_the_origin_head_branch_returns_head_and_warns(self):
+        git(self.root, "checkout", "-b", "trunk")
+        git(self.root, "update-ref", "refs/remotes/origin/trunk", "HEAD")
+        git(self.root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk")
+        head = self.commit("unpushed.txt")
+        sha, warning = outcome.fork_point(self.root)
+        self.assertEqual(sha, head)
+        self.assertIn("recording HEAD as the base", warning)
+
     def test_fork_point_detached_at_the_remote_default_tip_returns_head_and_warns(self):
         git(self.root, "checkout", "-b", "upstream")
         head = self.commit("upstream.txt")

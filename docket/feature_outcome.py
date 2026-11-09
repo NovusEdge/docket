@@ -46,7 +46,8 @@ def fork_point(root: Path) -> tuple[str, str]:
     short. Local default branches can be stale, so compare all default refs,
     including origin/HEAD, and choose the base all others are ancestors of.
     If the bases diverge, prefer the remote-tracking ref's base in candidate
-    order. On the default branch itself, keep HEAD and warn.
+    order. On the default branch itself (main, master, or origin/HEAD's
+    target), keep HEAD and warn.
     """
 
     current = _current_branch(root)
@@ -57,9 +58,10 @@ def fork_point(root: Path) -> tuple[str, str]:
             "recording no base: this repository has no commits yet",
         )
     bases: list[str] = []
-    if f"refs/heads/{current}" not in DEFAULT_BRANCHES:
-        named = _git(root, "symbolic-ref", "-q", "refs/remotes/origin/HEAD")
-        candidates = [named.stdout.strip()] if named.returncode == 0 else []
+    named = _git(root, "symbolic-ref", "-q", "refs/remotes/origin/HEAD")
+    candidates = [named.stdout.strip()] if named.returncode == 0 else []
+    origin_default = candidates[0].removeprefix("refs/remotes/origin/") if candidates else ""
+    if f"refs/heads/{current}" not in DEFAULT_BRANCHES and current != origin_default:
         for candidate in dict.fromkeys((*candidates, *DEFAULT_BRANCHES)):
             found = _git(root, "rev-parse", "-q", "--verify", f"{candidate}^{{commit}}")
             if found.returncode != 0:
