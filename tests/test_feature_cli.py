@@ -102,6 +102,32 @@ class FeatureCloseTests(FeatureCliTests):
             capture_output=True,
         )
 
+    def test_feature_start_records_the_fresh_fork_point(self):
+        self.commit("upstream.txt")
+        fresh = subprocess.run(
+            ["git", "-C", str(self.root), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        subprocess.run(
+            ["git", "-C", str(self.root), "update-ref", "refs/remotes/origin/main", fresh],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.root), "checkout", "-b", "feat/fresh", "origin/main"],
+            check=True,
+            capture_output=True,
+        )
+        self.commit("work.txt")
+
+        code, _ = self.run_cli("feature", "start", "one", "--text", "t", "--path", "src/**")
+        self.assertEqual(code, 0)
+        store = self.root / ".docket" / "features.jsonl"
+        event = json.loads(store.read_text(encoding="utf-8").splitlines()[0])
+        self.assertEqual(event["base"], fresh)
+
     def test_done_splits_the_change_set(self):
         self.run_cli("feature", "start", "one", "--text", "t", "--path", "installer/**")
         self.commit("installer/planner.go")
